@@ -1,0 +1,183 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email == "gavthiwallah@gmail.com" ||
+         request.auth.token.email == "bharatnestagro@gmail.com" ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    function isUserOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role']) &&
+             data.uid == request.auth.uid &&
+             data.role in ['farmer', 'admin'] &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string && data.email.size() > 0;
+    }
+
+    function isValidFlock(data) {
+      return data.keys().hasAll(['userId', 'name', 'breed', 'placementDate', 'initialCount']) &&
+             data.userId == request.auth.uid &&
+             data.breed in ['Broiler', 'Layer', 'Sonali', 'Gavthi'] &&
+             data.initialCount is number && data.initialCount >= 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             (!('currentCount' in data) || data.currentCount is number) &&
+             (!('totalMortality' in data) || data.totalMortality is number) &&
+             (!('totalEggs' in data) || data.totalEggs is number) &&
+             (!('daysCount' in data) || data.daysCount is number) &&
+             (!('status' in data) || data.status in ['Active', 'Sold', 'Archived']);
+    }
+
+    function isValidDailyLog(data) {
+      return data.keys().hasAll(['userId', 'flockId', 'date']) &&
+             data.userId == request.auth.uid &&
+             data.flockId is string &&
+             data.date is string &&
+             (!('consumption' in data) || (
+               data.consumption is map &&
+               (!('feedIntake' in data.consumption) || data.consumption.feedIntake is number)
+             )) &&
+             (!('production' in data) || (
+               data.production is map &&
+               (!('eggCount' in data.production) || data.production.eggCount is number)
+             )) &&
+             (!('health' in data) || (
+               data.health is map &&
+               (!('mortality' in data.health) || data.health.mortality is number)
+             ));
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['userId', 'type', 'amount', 'description', 'date']) &&
+             data.userId == request.auth.uid &&
+             data.type in ['Income', 'Expense'] &&
+             data.amount is number && data.amount >= 0 &&
+             data.description is string && data.description.size() < 500;
+    }
+
+    function isValidMedicineStock(data) {
+      return data.keys().hasAll(['userId', 'name', 'type', 'quantity', 'unit']) &&
+             data.userId == request.auth.uid &&
+             data.type in ['Medicine', 'Vaccine'] &&
+             data.quantity is number && data.quantity >= 0 &&
+             data.name is string && data.name.size() < 100;
+    }
+
+    function isValidFeedStock(data) {
+      return data.keys().hasAll(['userId', 'name', 'type', 'quantity']) &&
+             data.userId == request.auth.uid &&
+             data.type in ['Pre-Starter', 'Starter', 'Grower', 'Finisher', 'Layer Mash'] &&
+             data.quantity is number && data.quantity >= 0 &&
+             data.name is string && data.name.size() < 100;
+    }
+
+    function isValidShopItem(data) {
+      return data.keys().hasAll(['name', 'category', 'price', 'unit']) &&
+             data.category in ['Feed', 'Medicine', 'Chicks', 'Equipment'] &&
+             data.price is number && data.price >= 0 &&
+             data.name is string && data.name.size() < 200;
+    }
+
+    function isValidCart(data) {
+      return data.keys().hasAll(['userId', 'items', 'updatedAt']) &&
+             (data.userId == request.auth.uid || isAdmin()) &&
+             data.items is list &&
+             data.updatedAt is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (request.resource.data.role == 'farmer' || isAdmin());
+      allow update: if isAuthenticated() && ((userId == request.auth.uid && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin())) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /flocks/{flockId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidFlock(request.resource.data);
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && isValidFlock(request.resource.data)) || isAdmin());
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidTransaction(request.resource.data);
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && isValidTransaction(request.resource.data)) || isAdmin());
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /dailyLogs/{logId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidDailyLog(request.resource.data);
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && isValidDailyLog(request.resource.data)) || isAdmin());
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /medicineStock/{stockId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidMedicineStock(request.resource.data);
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && isValidMedicineStock(request.resource.data)) || isAdmin());
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /feedStock/{stockId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidFeedStock(request.resource.data);
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && isValidFeedStock(request.resource.data)) || isAdmin());
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /shopItems/{itemId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidShopItem(request.resource.data);
+      allow update: if isAdmin() && isValidShopItem(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /carts/{userId} {
+      allow read: if isAuthenticated() && (userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && (userId == request.auth.uid || isAdmin()) && isValidCart(request.resource.data);
+      allow update: if isAuthenticated() && (userId == request.auth.uid || isAdmin()) && isValidCart(request.resource.data);
+      allow delete: if isAuthenticated() && (userId == request.auth.uid || isAdmin());
+    }
+
+    match /deletedOrders/{orderId} {
+      allow read, create, delete: if isAdmin();
+    }
+
+    match /system/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}

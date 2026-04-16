@@ -1,0 +1,268 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Details of a poultry farmer or admin",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string", "description": "Full name" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["farmer", "admin"] },
+        "farmName": { "type": "string" },
+        "address": { "type": "string" },
+        "farmArea": { "type": "number", "description": "In acres" },
+        "birdCapacity": { "type": "number" },
+        "farmType": { "type": "string", "enum": ["Gavthi Farm", "Sonali Farm", "Broiler Farm", "Layer Farm"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Flock": {
+      "title": "Bird Flock",
+      "description": "A batch of birds in the farm",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "breed": { "type": "string", "enum": ["Broiler", "Layer", "Sonali", "Gavthi"] },
+        "placementDate": { "type": "string", "format": "date" },
+        "initialCount": { "type": "number" },
+        "currentCount": { "type": "number" },
+        "totalMortality": { "type": "number" },
+        "totalEggs": { "type": "number" },
+        "daysCount": { "type": "number" },
+        "currentFCR": { "type": "number" },
+        "productionRate": { "type": "number" },
+        "source": { "type": "string", "description": "Hatchery name" },
+        "farmType": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "Sold", "Archived"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "breed", "placementDate", "initialCount"]
+    },
+    "DailyLog": {
+      "title": "Daily Farm Log",
+      "description": "Daily records for a specific flock",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "flockId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "environment": {
+          "type": "object",
+          "properties": {
+            "temperature": { "type": "number" },
+            "humidity": { "type": "number" },
+            "ventilation": { "type": "string" },
+            "lightDuration": { "type": "number" },
+            "ammoniaLevel": { "type": "string" }
+          }
+        },
+        "consumption": {
+          "type": "object",
+          "properties": {
+            "feedIntake": { "type": "number" },
+            "feedType": { "type": "string" },
+            "waterIntake": { "type": "number" },
+            "fcr": { "type": "number" }
+          }
+        },
+        "production": {
+          "type": "object",
+          "properties": {
+            "avgWeight": { "type": "number" },
+            "weightGain": { "type": "number" },
+            "eggCount": { "type": "number" },
+            "eggWeight": { "type": "number" },
+            "eggQuality": { "type": "string" }
+          }
+        },
+        "health": {
+          "type": "object",
+          "properties": {
+            "vaccines": { "type": "string" },
+            "vaccineDoses": { "type": "number" },
+            "medicines": { "type": "string" },
+            "medicineDoses": { "type": "number" },
+            "symptoms": { "type": "string" },
+            "mortality": { "type": "number" },
+            "culling": { "type": "number" }
+          }
+        },
+        "biosecurity": {
+          "type": "object",
+          "properties": {
+            "cleaning": { "type": "boolean" },
+            "disinfection": { "type": "boolean" },
+            "visitors": { "type": "number" },
+            "footbath": { "type": "boolean" }
+          }
+        },
+        "alerts": {
+          "type": "object",
+          "properties": {
+            "feedDrop": { "type": "boolean" },
+            "mortalityIncrease": { "type": "boolean" },
+            "eggDrop": { "type": "boolean" },
+            "abnormalBehavior": { "type": "string" }
+          }
+        }
+      },
+      "required": ["userId", "flockId", "date"]
+    },
+    "MedicineStock": {
+      "title": "Medicine Stock",
+      "description": "Inventory of medicines and vaccines",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["Medicine", "Vaccine"] },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string", "enum": ["ml", "g", "vial", "tablet"] },
+        "purchaseCost": { "type": "number", "description": "Total cost of purchase" },
+        "expiryDate": { "type": "string", "format": "date" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "type", "quantity", "unit"]
+    },
+    "FeedStock": {
+      "title": "Feed Stock",
+      "description": "Inventory of poultry feed",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["Pre-Starter", "Starter", "Grower", "Finisher", "Layer Mash"] },
+        "quantity": { "type": "number", "description": "In kg" },
+        "purchaseCost": { "type": "number", "description": "Total cost of purchase" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "type", "quantity"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Income or expense entry",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner UID" },
+        "type": { "type": "string", "enum": ["Income", "Expense"] },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "amount", "description", "date"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Order placed by farmer for supplies",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "quantity": { "type": "number" },
+              "price": { "type": "number" },
+              "unit": { "type": "string" }
+            }
+          }
+        },
+        "status": { "type": "string", "enum": ["Pending", "Processing", "Delivered", "Cancelled"] },
+        "statusUpdate": { "type": "string", "description": "Message from admin about order status" },
+        "totalAmount": { "type": "number" },
+        "deliveryAddress": { "type": "string" },
+        "paymentMethod": { "type": "string", "enum": ["Cash on Delivery", "Online Payment"] },
+        "paymentStatus": { "type": "string", "enum": ["Pending", "Paid", "Failed"] },
+        "date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "items", "status", "deliveryAddress", "paymentMethod"]
+    },
+    "ShopItem": {
+      "title": "Shop Item",
+      "description": "Product available for farmers to purchase",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "category": { "type": "string", "enum": ["Feed", "Medicine", "Chicks", "Equipment"] },
+        "price": { "type": "number" },
+        "unit": { "type": "string" },
+        "description": { "type": "string" },
+        "imageUrl": { "type": "string", "description": "Primary image URL (legacy)" },
+        "imageUrls": { "type": "array", "items": { "type": "string" }, "description": "List of product image URLs" },
+        "inStock": { "type": "boolean" },
+        "stockQuantity": { "type": "number", "description": "Current available stock" },
+        "lowStockLimit": { "type": "number", "description": "Threshold for low stock alert" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "category", "price", "unit"]
+    },
+    "Cart": {
+      "title": "User Cart",
+      "description": "Current items in a user's shopping cart",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "quantity": { "type": "number" },
+              "price": { "type": "number" }
+            }
+          }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "items", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents"
+    },
+    "/flocks/{flockId}": {
+      "schema": "Flock",
+      "description": "Bird flock documents"
+    },
+    "/dailyLogs/{logId}": {
+      "schema": "DailyLog",
+      "description": "Daily farm records"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Income/expense documents"
+    },
+    "/medicineStock/{stockId}": {
+      "schema": "MedicineStock",
+      "description": "Medicine inventory"
+    },
+    "/feedStock/{stockId}": {
+      "schema": "FeedStock",
+      "description": "Feed inventory"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Supply orders"
+    },
+    "/shopItems/{itemId}": {
+      "schema": "ShopItem",
+      "description": "Products for sale"
+    },
+    "/carts/{userId}": {
+      "schema": "Cart",
+      "description": "Active shopping carts"
+    }
+  }
+}

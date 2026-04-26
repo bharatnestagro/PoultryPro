@@ -1,13 +1,27 @@
 import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, setDoc } from 'firebase/firestore';
 import { db } from '@/src/lib/firebase';
 import { handleFirestoreError, OperationType } from '@/src/lib/errorHandlers';
+import { initializeApp, getApps, getApp, deleteApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import firebaseConfig from '../../firebase-applet-config.json';
 import { useAuth } from '@/src/lib/AuthContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { 
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogDescription,
+  DialogFooter
+} from "@/components/ui/dialog";
 import { 
   Search, 
   Filter, 
@@ -24,7 +38,12 @@ import {
   Users,
   Activity,
   Package,
-  CreditCard
+  CreditCard,
+  Building2,
+  Phone,
+  Mail,
+  Lock,
+  MapPin
 } from 'lucide-react';
 import { 
   DropdownMenu, 
@@ -37,8 +56,9 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 
 const AdminFarmers: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isAdmin, isManager } = useAuth();
   const [farmers, setFarmers] = useState<any[]>([]);
+  const [managers, setManagers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('All Types');
@@ -49,16 +69,40 @@ const AdminFarmers: React.FC = () => {
   const [selectedFarmerTransactions, setSelectedFarmerTransactions] = useState<any[]>([]);
   const [expandedFlockId, setExpandedFlockId] = useState<string | null>(null);
   const [logFilter, setLogFilter] = useState<string | null>(null);
+  const [isAddingFarmer, setIsAddingFarmer] = useState(false);
+  const [newFarmer, setNewFarmer] = useState({
+    name: '',
+    email: '',
+    password: '',
+    phone: '',
+    farmName: '',
+    farmType: 'Broiler',
+    birdCapacity: '',
+    address: ''
+  });
+  const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
     const q = query(collection(db, 'users'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter((u: any) => u.email !== user?.email); // Show all users except current admin
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
+      const allFarmers = list
+        .filter((u: any) => u.email !== user?.email && (u.role === 'farmer' || !u.role))
+        .filter((u: any) => {
+          if (isManager && !isAdmin) {
+            return u.managerId === user?.uid || u.assignedManagerId === user?.uid;
+          }
+          return true;
+        });
+      
+      const allManagers = list
+        .filter((u: any) => u.role === 'manager' || u.role === 'sub-admin' || u.role === 'admin');
+      
+      setManagers(allManagers);
+
       // Sort manually to avoid index requirements
-      const sortedList = [...list].sort((a: any, b: any) => {
+      const sortedList = [...allFarmers].sort((a: any, b: any) => {
         const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return dateB - dateA;
@@ -72,7 +116,20 @@ const AdminFarmers: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [user]);
+
+  const handleAssignManager = async (farmerId: string, managerId: string | null) => {
+    try {
+      await updateDoc(doc(db, 'users', farmerId), {
+        assignedManagerId: managerId || '',
+        managerId: managerId || ''
+      });
+      toast.success('Manager assigned successfully');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'users');
+      toast.error('Failed to assign manager');
+    }
+  };
 
   useEffect(() => {
     if (!selectedFarmerId) {
@@ -156,6 +213,61 @@ const AdminFarmers: React.FC = () => {
       toast.success('Farmer account removed');
     } catch (error) {
       toast.error('Failed to delete farmer');
+    }
+  };
+
+  const handleAddFarmer = async () => {
+    if (!newFarmer.email || !newFarmer.password || !newFarmer.name) {
+      toast.error('Name, email and password are required');
+      return;
+    }
+
+    setIsCreating(true);
+    try {
+      // Create a secondary Firebase app for creating the user to avoid logging out the admin
+      const appName = `AddFarmer_${Date.now()}`;
+      const secondaryApp = initializeApp(firebaseConfig, appName);
+      const secondaryAuth = getAuth(secondaryApp);
+
+      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newFarmer.email, newFarmer.password);
+      const newUser = userCredential.user;
+
+      // Add profile info to Firestore
+      await setDoc(doc(db, 'users', newUser.uid), {
+        uid: newUser.uid,
+        name: newFarmer.name,
+        email: newFarmer.email,
+        phone: newFarmer.phone,
+        farmName: newFarmer.farmName,
+        farmType: newFarmer.farmType,
+        birdCapacity: Number(newFarmer.birdCapacity) || 0,
+        address: newFarmer.address,
+        role: 'farmer',
+        status: 'Active',
+        createdAt: new Date().toISOString()
+      });
+
+      // Cleanup secondary app
+      await signOut(secondaryAuth);
+      await deleteApp(secondaryApp);
+
+      toast.success('Farmer added successfully');
+      setIsAddingFarmer(false);
+      setNewFarmer({
+        name: '',
+        email: '',
+        password: '',
+        phone: '',
+        farmName: '',
+        farmType: 'Broiler',
+        birdCapacity: '',
+        address: ''
+      });
+    } catch (error: any) {
+      console.error('Add farmer error:', error);
+      toast.error(error.message || 'Failed to add farmer');
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -387,6 +499,7 @@ const AdminFarmers: React.FC = () => {
             <TableRow className="hover:bg-transparent border-slate-100">
               <TableHead className="px-8 py-6 text-[10px] font-bold text-slate-400 uppercase tracking-widest">FARMER & FARM NAME</TableHead>
               <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ADDRESS</TableHead>
+              <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ASSIGNED MANAGER</TableHead>
               <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">TYPE</TableHead>
               <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">CAPACITY</TableHead>
               <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">REGISTERED</TableHead>
@@ -425,6 +538,21 @@ const AdminFarmers: React.FC = () => {
                     <p className="text-xs text-slate-600 font-medium leading-relaxed max-w-[200px]">
                       {farmer.address || 'Not provided'}
                     </p>
+                  </TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <select
+                      className={`bg-slate-50 border-none rounded-lg text-xs font-bold text-slate-700 p-2 focus:ring-0 w-[150px] ${(!isAdmin && isManager) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                      value={farmer.assignedManagerId || ''}
+                      onChange={(e) => handleAssignManager(farmer.id, e.target.value)}
+                      disabled={!isAdmin && isManager}
+                    >
+                      <option value="">No Manager</option>
+                      {managers.map((m) => (
+                        <option key={m.id} value={m.uid || m.id}>
+                          {m.name || m.email}
+                        </option>
+                      ))}
+                    </select>
                   </TableCell>
                   <TableCell>
                     <Badge className="bg-slate-100 text-slate-500 hover:bg-slate-200 border-none rounded-lg text-[10px] font-bold px-2 py-1 uppercase tracking-tighter">
@@ -967,10 +1095,165 @@ const AdminFarmers: React.FC = () => {
         </div>
       )}
 
-      {/* Floating Action Button */}
-      <Button className="fixed bottom-8 right-8 w-14 h-14 rounded-full bg-[#122B21] hover:bg-[#1a3d2e] shadow-2xl flex items-center justify-center p-0">
-        <UserPlus size={24} className="text-white" />
-      </Button>
+      {/* Floating Action Button with Dialog */}
+      <Dialog open={isAddingFarmer} onOpenChange={setIsAddingFarmer}>
+        <DialogTrigger render={
+          <Button className="fixed bottom-8 right-8 w-14 h-14 rounded-full bg-[#122B21] hover:bg-[#1a3d2e] shadow-2xl flex items-center justify-center p-0 z-50">
+            <UserPlus size={24} className="text-white" />
+          </Button>
+        } />
+        <DialogContent className="rounded-[2.5rem] sm:max-w-2xl max-h-[90vh] overflow-y-auto p-0 border-none shadow-2xl">
+          <div className="bg-emerald-600 p-10 text-white relative overflow-hidden">
+            <div className="relative z-10">
+              <DialogHeader>
+                <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-4 backdrop-blur-sm">
+                  <UserPlus size={32} className="text-white" />
+                </div>
+                <DialogTitle className="text-3xl font-black italic tracking-tight">Onboard New Farmer</DialogTitle>
+                <DialogDescription className="text-emerald-100 text-lg font-medium opacity-90">
+                  Register a new farmer account and initialize their farm profile.
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+            {/* Abstract Decorative Shapes */}
+            <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-20 -mt-20 blur-3xl"></div>
+            <div className="absolute bottom-0 left-0 w-48 h-48 bg-emerald-400/20 rounded-full -ml-10 -mb-10 blur-2xl"></div>
+          </div>
+
+          <div className="p-10 space-y-8 bg-white">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-3">
+                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Full Name</Label>
+                <div className="relative">
+                  <Users className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input 
+                    placeholder="Enter farmer's name" 
+                    className="pl-12 h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
+                    value={newFarmer.name}
+                    onChange={(e) => setNewFarmer({...newFarmer, name: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="space-y-3">
+                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Contact Number</Label>
+                <div className="relative">
+                  <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input 
+                    placeholder="+91 00000 00000" 
+                    className="pl-12 h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
+                    value={newFarmer.phone}
+                    onChange={(e) => setNewFarmer({...newFarmer, phone: e.target.value})}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-3">
+                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Email Address</Label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input 
+                    type="email"
+                    placeholder="farmer@example.com" 
+                    className="pl-12 h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
+                    value={newFarmer.email}
+                    onChange={(e) => setNewFarmer({...newFarmer, email: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="space-y-3">
+                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input 
+                    type="password"
+                    placeholder="Set generic password" 
+                    className="pl-12 h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
+                    value={newFarmer.password}
+                    onChange={(e) => setNewFarmer({...newFarmer, password: e.target.value})}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="h-px bg-slate-100 w-full"></div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-3">
+                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Farm Name</Label>
+                <div className="relative">
+                  <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input 
+                    placeholder="Enter farm name" 
+                    className="pl-12 h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
+                    value={newFarmer.farmName}
+                    onChange={(e) => setNewFarmer({...newFarmer, farmName: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="space-y-3">
+                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Farm Type</Label>
+                <Select value={newFarmer.farmType} onValueChange={(v) => setNewFarmer({...newFarmer, farmType: v})}>
+                  <SelectTrigger className="h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 font-bold">
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-2xl border-slate-100 shadow-xl">
+                    <SelectItem value="Broiler" className="rounded-xl font-medium">Broiler Farm</SelectItem>
+                    <SelectItem value="Gavthi" className="rounded-xl font-medium">Gavthi Farm</SelectItem>
+                    <SelectItem value="Sonali" className="rounded-xl font-medium">Sonali Farm</SelectItem>
+                    <SelectItem value="Layer" className="rounded-xl font-medium">Layer Farm</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Bird Capacity</Label>
+              <div className="relative">
+                <Activity className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <Input 
+                  type="number"
+                  placeholder="e.g. 5000" 
+                  className="pl-12 h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
+                  value={newFarmer.birdCapacity}
+                  onChange={(e) => setNewFarmer({...newFarmer, birdCapacity: e.target.value})}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Full Address / Location</Label>
+              <div className="relative">
+                <MapPin className="absolute left-4 top-4 text-slate-400" size={18} />
+                <textarea 
+                  placeholder="Enter complete farm address..." 
+                  className="w-full min-h-[120px] pl-12 pt-4 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 focus:outline-none transition-all font-bold text-sm resize-none"
+                  value={newFarmer.address}
+                  onChange={(e) => setNewFarmer({...newFarmer, address: e.target.value})}
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="pt-6">
+              <Button 
+                variant="outline" 
+                className="rounded-2xl h-14 px-8 border-slate-200 font-bold hover:bg-slate-50"
+                onClick={() => setIsAddingFarmer(false)}
+              >
+                Cancel
+              </Button>
+              <Button 
+                className="rounded-2xl h-14 px-12 bg-emerald-600 hover:bg-emerald-700 font-bold shadow-lg shadow-emerald-200"
+                onClick={handleAddFarmer}
+                disabled={isCreating}
+              >
+                {isCreating ? 'Finalizing...' : 'Create Account'}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

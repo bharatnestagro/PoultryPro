@@ -221,8 +221,10 @@ const AdminFlocks: React.FC = () => {
         const feedType = data.consumption?.feedType;
         if (intake > 0 && feedType) {
           const stockItem = farmerFeedStock.find(s => s.type === feedType);
-          if (stockItem && stockItem.purchaseCost && stockItem.quantity) {
-            totalFeedCost += intake * (stockItem.purchaseCost / stockItem.quantity);
+          if (stockItem && stockItem.purchaseCost) {
+            const unitPrice = stockItem.unitPrice || 
+                              (stockItem.initialQuantity ? (stockItem.purchaseCost / stockItem.initialQuantity) : (stockItem.purchaseCost / (stockItem.quantity || 1)));
+            totalFeedCost += intake * unitPrice;
           }
         }
         // Med Cost
@@ -230,8 +232,21 @@ const AdminFlocks: React.FC = () => {
         const medName = data.health?.medicines;
         if (medDoses > 0 && medName && medName !== 'none') {
           const medItem = farmerMedStock.find(m => m.name === medName);
-          if (medItem && medItem.purchaseCost && medItem.quantity) {
-            totalMedCost += medDoses * (medItem.purchaseCost / medItem.quantity);
+          if (medItem && medItem.purchaseCost) {
+            const unitPrice = medItem.unitPrice || 
+                              (medItem.initialQuantity ? (medItem.purchaseCost / medItem.initialQuantity) : (medItem.purchaseCost / (medItem.quantity || 1)));
+            totalMedCost += medDoses * unitPrice;
+          }
+        }
+        // Vac Cost
+        const vacDoses = Number(data.health?.vaccineDoses) || 0;
+        const vacName = data.health?.vaccines;
+        if (vacDoses > 0 && vacName && vacName !== 'none') {
+          const vacItem = farmerMedStock.find(m => m.name === vacName);
+          if (vacItem && vacItem.purchaseCost) {
+            const unitPrice = vacItem.unitPrice || 
+                              (vacItem.initialQuantity ? (vacItem.purchaseCost / vacItem.initialQuantity) : (vacItem.purchaseCost / (vacItem.quantity || 1)));
+            totalMedCost += vacDoses * unitPrice;
           }
         }
       });

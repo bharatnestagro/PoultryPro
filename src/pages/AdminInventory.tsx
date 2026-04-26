@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Trash2, Edit2, Package, ShoppingCart, IndianRupee, Info, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Edit2, Package, ShoppingCart, IndianRupee, Info, AlertTriangle, ShoppingBag } from 'lucide-react';
 
 const AdminInventory: React.FC = () => {
   const [items, setItems] = useState<any[]>([]);
@@ -24,14 +24,18 @@ const AdminInventory: React.FC = () => {
     name: '',
     category: 'Feed',
     price: '',
+    mrp: '',
     purchaseCost: '',
     unit: 'kg',
     description: '',
     imageUrls: [''],
     inStock: true,
     stockQuantity: '',
-    lowStockLimit: '10'
+    lowStockLimit: '10',
+    variants: [] as any[]
   });
+
+  const [newVariant, setNewVariant] = useState({ name: '', price: '', mrp: '' });
 
   const fixImageUrl = (url: string) => {
     if (!url) return '';
@@ -62,11 +66,17 @@ const AdminInventory: React.FC = () => {
     e.preventDefault();
     try {
       const fixedUrls = formData.imageUrls.map(url => fixImageUrl(url)).filter(url => url !== '');
+      const salePrice = Number(formData.price);
+      const mrp = Number(formData.mrp) || salePrice;
+      const discount = mrp > 0 ? Math.round(((mrp - salePrice) / mrp) * 100) : 0;
+
       await addDoc(collection(db, 'shopItems'), {
         ...formData,
         imageUrls: fixedUrls,
         imageUrl: fixedUrls[0] || '',
-        price: Number(formData.price),
+        price: salePrice,
+        mrp: mrp,
+        discountPercentage: discount,
         purchaseCost: Number(formData.purchaseCost) || 0,
         stockQuantity: Number(formData.stockQuantity) || 0,
         lowStockLimit: Number(formData.lowStockLimit) || 10,
@@ -86,11 +96,17 @@ const AdminInventory: React.FC = () => {
     if (!currentItem) return;
     try {
       const fixedUrls = formData.imageUrls.map(url => fixImageUrl(url)).filter(url => url !== '');
+      const salePrice = Number(formData.price);
+      const mrp = Number(formData.mrp) || salePrice;
+      const discount = mrp > 0 ? Math.round(((mrp - salePrice) / mrp) * 100) : 0;
+
       await updateDoc(doc(db, 'shopItems', currentItem.id), {
         ...formData,
         imageUrls: fixedUrls,
         imageUrl: fixedUrls[0] || '',
-        price: Number(formData.price),
+        price: salePrice,
+        mrp: mrp,
+        discountPercentage: discount,
         purchaseCost: Number(formData.purchaseCost) || 0,
         stockQuantity: Number(formData.stockQuantity) || 0,
         lowStockLimit: Number(formData.lowStockLimit) || 10
@@ -102,6 +118,34 @@ const AdminInventory: React.FC = () => {
       handleFirestoreError(error, OperationType.UPDATE, 'shopItems');
       toast.error('Failed to update product');
     }
+  };
+
+  const addVariant = () => {
+    if (!newVariant.name || !newVariant.price) {
+      toast.error('Variant name and price are required');
+      return;
+    }
+    const variantPrice = Number(newVariant.price);
+    const variantMrp = Number(newVariant.mrp) || variantPrice;
+    const variantDiscount = variantMrp > 0 ? Math.round(((variantMrp - variantPrice) / variantMrp) * 100) : 0;
+
+    setFormData({
+      ...formData,
+      variants: [...formData.variants, {
+        ...newVariant,
+        price: variantPrice,
+        mrp: variantMrp,
+        discountPercentage: variantDiscount
+      }]
+    });
+    setNewVariant({ name: '', price: '', mrp: '' });
+  };
+
+  const removeVariant = (index: number) => {
+    setFormData({
+      ...formData,
+      variants: formData.variants.filter((_, i) => i !== index)
+    });
   };
 
   const handleDelete = async () => {
@@ -122,13 +166,15 @@ const AdminInventory: React.FC = () => {
       name: '',
       category: 'Feed',
       price: '',
+      mrp: '',
       purchaseCost: '',
       unit: 'kg',
       description: '',
       imageUrls: [''],
       inStock: true,
       stockQuantity: '',
-      lowStockLimit: '10'
+      lowStockLimit: '10',
+      variants: []
     });
     setCurrentItem(null);
   };
@@ -139,13 +185,15 @@ const AdminInventory: React.FC = () => {
       name: item.name,
       category: item.category,
       price: item.price.toString(),
+      mrp: (item.mrp || item.price).toString(),
       purchaseCost: (item.purchaseCost || '').toString(),
       unit: item.unit,
       description: item.description || '',
       imageUrls: item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls : [item.imageUrl || ''],
       inStock: item.inStock ?? true,
       stockQuantity: (item.stockQuantity ?? '').toString(),
-      lowStockLimit: (item.lowStockLimit ?? '10').toString()
+      lowStockLimit: (item.lowStockLimit ?? '10').toString(),
+      variants: item.variants || []
     });
     setIsEditOpen(true);
   };
@@ -173,36 +221,73 @@ const AdminInventory: React.FC = () => {
                 <Label htmlFor="name">Product Name</Label>
                 <Input id="name" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="rounded-xl" placeholder="e.g. Premium Layer Feed" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="category">Category</Label>
-                  <Select value={formData.category} onValueChange={v => setFormData({...formData, category: v})}>
-                    <SelectTrigger className="rounded-xl">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Feed">Feed</SelectItem>
-                      <SelectItem value="Medicine">Medicine</SelectItem>
-                      <SelectItem value="Chicks">Chicks</SelectItem>
-                      <SelectItem value="Equipment">Equipment</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="category">Category</Label>
+                    <Select value={formData.category} onValueChange={v => setFormData({...formData, category: v})}>
+                      <SelectTrigger className="rounded-xl">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Feed">Feed</SelectItem>
+                        <SelectItem value="Medicine">Medicine</SelectItem>
+                        <SelectItem value="Chicks">Chicks</SelectItem>
+                        <SelectItem value="Equipment">Equipment</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="unit">Unit</Label>
+                    <Input id="unit" required value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value})} className="rounded-xl" placeholder="e.g. 50kg bag" />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="unit">Unit</Label>
-                  <Input id="unit" required value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value})} className="rounded-xl" placeholder="e.g. 50kg bag" />
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="mrp">MRP (₹)</Label>
+                    <Input id="mrp" type="number" required value={formData.mrp} onChange={e => setFormData({...formData, mrp: e.target.value})} className="rounded-xl" placeholder="0.00" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="price">Sale Price (₹)</Label>
+                    <Input id="price" type="number" required value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} className="rounded-xl" placeholder="0.00" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="purchaseCost">Purchase Cost (₹)</Label>
+                    <Input id="purchaseCost" type="number" required value={formData.purchaseCost} onChange={e => setFormData({...formData, purchaseCost: e.target.value})} className="rounded-xl" placeholder="0.00" />
+                  </div>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="price">Sale Price (₹)</Label>
-                  <Input id="price" type="number" required value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} className="rounded-xl" placeholder="0.00" />
+
+                {/* Variants Section */}
+                <div className="p-4 bg-slate-50 rounded-2xl space-y-4 border border-slate-100">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ShoppingBag size={14} />
+                      Variants
+                    </div>
+                  </h4>
+                  
+                  <div className="space-y-3">
+                    {formData.variants.map((v, i) => (
+                      <div key={i} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200 text-xs">
+                        <div className="font-bold">{v.name} - ₹{v.price} <span className="text-[10px] text-slate-400 font-normal line-through ml-1">₹{v.mrp}</span></div>
+                        <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => removeVariant(i)}>
+                          <Trash2 size={12} />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <Input placeholder="Vol / Size" value={newVariant.name} onChange={e => setNewVariant({...newVariant, name: e.target.value})} className="h-9 text-xs rounded-lg" />
+                    <Input type="number" placeholder="MRP" value={newVariant.mrp} onChange={e => setNewVariant({...newVariant, mrp: e.target.value})} className="h-9 text-xs rounded-lg" />
+                    <div className="flex gap-1">
+                      <Input type="number" placeholder="Price" value={newVariant.price} onChange={e => setNewVariant({...newVariant, price: e.target.value})} className="h-9 text-xs rounded-lg" />
+                      <Button type="button" size="icon" className="h-9 w-9 shrink-0 rounded-lg bg-[#122B21]" onClick={addVariant}>
+                        <Plus size={14} />
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="purchaseCost">Purchase Cost (₹)</Label>
-                  <Input id="purchaseCost" type="number" required value={formData.purchaseCost} onChange={e => setFormData({...formData, purchaseCost: e.target.value})} className="rounded-xl" placeholder="0.00" />
-                </div>
-              </div>
               <div className="space-y-2">
                 <Label htmlFor="stock">Stock Status</Label>
                 <Select value={formData.inStock ? 'true' : 'false'} onValueChange={v => setFormData({...formData, inStock: v === 'true'})}>
@@ -410,6 +495,7 @@ const AdminInventory: React.FC = () => {
                     <SelectItem value="Medicine">Medicine</SelectItem>
                     <SelectItem value="Chicks">Chicks</SelectItem>
                     <SelectItem value="Equipment">Equipment</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -418,7 +504,11 @@ const AdminInventory: React.FC = () => {
                 <Input id="edit-unit" required value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value})} className="rounded-xl" />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-mrp">MRP (₹)</Label>
+                <Input id="edit-mrp" type="number" required value={formData.mrp} onChange={e => setFormData({...formData, mrp: e.target.value})} className="rounded-xl" />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-price">Sale Price (₹)</Label>
                 <Input id="edit-price" type="number" required value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} className="rounded-xl" />
@@ -426,6 +516,38 @@ const AdminInventory: React.FC = () => {
               <div className="space-y-2">
                 <Label htmlFor="edit-purchaseCost">Purchase Cost (₹)</Label>
                 <Input id="edit-purchaseCost" type="number" required value={formData.purchaseCost} onChange={e => setFormData({...formData, purchaseCost: e.target.value})} className="rounded-xl" />
+              </div>
+            </div>
+
+            {/* Variants Section */}
+            <div className="p-4 bg-slate-50 rounded-2xl space-y-4 border border-slate-100">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShoppingBag size={14} />
+                  Variants
+                </div>
+              </h4>
+              
+              <div className="space-y-3">
+                {formData.variants.map((v, i) => (
+                  <div key={i} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200 text-xs">
+                    <div className="font-bold">{v.name} - ₹{v.price} <span className="text-[10px] text-slate-400 font-normal line-through ml-1">₹{v.mrp}</span></div>
+                    <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => removeVariant(i)}>
+                      <Trash2 size={12} />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <Input placeholder="Vol / Size" value={newVariant.name} onChange={e => setNewVariant({...newVariant, name: e.target.value})} className="h-9 text-xs rounded-lg" />
+                <Input type="number" placeholder="MRP" value={newVariant.mrp} onChange={e => setNewVariant({...newVariant, mrp: e.target.value})} className="h-9 text-xs rounded-lg" />
+                <div className="flex gap-1">
+                  <Input type="number" placeholder="Price" value={newVariant.price} onChange={e => setNewVariant({...newVariant, price: e.target.value})} className="h-9 text-xs rounded-lg" />
+                  <Button type="button" size="icon" className="h-9 w-9 shrink-0 rounded-lg bg-[#122B21]" onClick={addVariant}>
+                    <Plus size={14} />
+                  </Button>
+                </div>
               </div>
             </div>
             <div className="space-y-2">

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { collection, onSnapshot, query, orderBy, doc, deleteDoc, updateDoc, getDocs, addDoc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '@/src/lib/firebase';
+import { useAuth } from '@/src/lib/AuthContext';
 import { handleFirestoreError, OperationType } from '@/src/lib/errorHandlers';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -38,12 +39,15 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 
 const AdminOrders: React.FC = () => {
+  const { user: currentUser, isAdmin, isManager } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
   const [users, setUsers] = useState<Record<string, any>>({});
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingOrder, setEditingOrder] = useState<any>(null);
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [managerCommissionConfig, setManagerCommissionConfig] = useState<any>(null);
   
   // Create Order State
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -54,7 +58,8 @@ const AdminOrders: React.FC = () => {
 
   const [updateForm, setUpdateForm] = useState({
     status: '',
-    statusUpdate: ''
+    statusUpdate: '',
+    paymentStatus: ''
   });
 
   const [deleteReason, setDeleteReason] = useState('');
@@ -80,7 +85,9 @@ const AdminOrders: React.FC = () => {
           id: d.id, 
           name: data.name || 'Anonymous', 
           email: data.email || '',
-          address: data.address || ''
+          address: data.address || '',
+          assignedManagerId: data.assignedManagerId || '',
+          role: data.role || 'farmer'
         };
       });
       setUsers(userMap);
@@ -97,6 +104,16 @@ const AdminOrders: React.FC = () => {
 
     fetchUsers();
     fetchProducts();
+
+    const fetchManagerCommission = async () => {
+      if (isManager && !isAdmin && currentUser?.uid) {
+        const commDoc = await getDoc(doc(db, 'managerCommissions', currentUser.uid));
+        if (commDoc.exists()) {
+          setManagerCommissionConfig(commDoc.data().productCommissions || {});
+        }
+      }
+    };
+    fetchManagerCommission();
 
     return () => unsubscribe();
   }, []);
@@ -147,11 +164,12 @@ const AdminOrders: React.FC = () => {
     try {
       await updateDoc(doc(db, 'orders', editingOrder.id), {
         status: updateForm.status,
-        statusUpdate: updateForm.statusUpdate
+        statusUpdate: updateForm.statusUpdate,
+        paymentStatus: updateForm.paymentStatus
       });
 
       // If marked as Delivered, create a Shop Transaction record
-      if (updateForm.status === 'Delivered') {
+      if (updateForm.status === 'Delivered' && editingOrder.status !== 'Delivered') {
         const userName = users[editingOrder.userId]?.name || 'Farmer';
         await addDoc(collection(db, 'transactions'), {
           userId: editingOrder.userId,
@@ -265,18 +283,34 @@ const AdminOrders: React.FC = () => {
     setEditingOrder(order);
     setUpdateForm({
       status: order.status || 'Pending',
-      statusUpdate: order.statusUpdate || ''
+      statusUpdate: order.statusUpdate || '',
+      paymentStatus: order.paymentStatus || 'Pending'
     });
   };
 
   const filteredOrders = orders.filter(o => {
-    const userName = users[o.userId]?.name || '';
+    const userProfile = users[o.userId];
+    const farmerName = userProfile?.name || '';
     const itemNames = o.items ? o.items.map((i: any) => i.name).join(' ') : o.productName || '';
-    return (
-      userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    
+    // Search filter
+    const matchesSearch = (
+      farmerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       itemNames.toLowerCase().includes(searchTerm.toLowerCase()) ||
       o.id.toLowerCase().includes(searchTerm.toLowerCase())
     );
+
+    // Status filter
+    const matchesStatus = statusFilter === 'All' || o.status === statusFilter;
+
+    // Manager/Admin Access filter
+    let hasAccess = true;
+    if (isManager && !isAdmin) {
+      // Manager can only see orders from farmers assigned to them
+      hasAccess = userProfile?.managerId === currentUser?.uid || userProfile?.assignedManagerId === currentUser?.uid;
+    }
+
+    return matchesSearch && matchesStatus && hasAccess;
   });
 
   const stats = {
@@ -294,12 +328,12 @@ const AdminOrders: React.FC = () => {
           <p className="text-slate-500 font-medium">Manage customer orders, track fulfillment, and monitor sales performance.</p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogTrigger asChild>
+          <DialogTrigger render={
             <Button className="bg-[#122B21] hover:bg-[#1a3d2e] text-white rounded-xl py-6 flex items-center gap-2">
               <PlusCircle size={20} />
               <span>Create New Order</span>
             </Button>
-          </DialogTrigger>
+          } />
           <DialogContent className="rounded-[2rem] sm:max-w-[550px] max-h-[90vh] overflow-y-auto no-scrollbar">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold">Create Order for Customer</DialogTitle>
@@ -317,7 +351,13 @@ const AdminOrders: React.FC = () => {
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.values(users).map((u: any) => (
+                    {Object.values(users)
+                      .filter((u: any) => {
+                        if (isAdmin) return true;
+                        if (isManager) return u.managerId === currentUser?.uid || u.assignedManagerId === currentUser?.uid;
+                        return false;
+                      })
+                      .map((u: any) => (
                       <SelectItem key={u.id} value={u.id}>
                         <div className="flex flex-col">
                           <span className="font-bold">{u.name}</span>
@@ -397,6 +437,20 @@ const AdminOrders: React.FC = () => {
                       ₹{createForm.selectedProducts.reduce((sum, p) => sum + (p.price * p.quantity), 0).toLocaleString()}
                     </p>
                   </div>
+                  {isManager && !isAdmin && managerCommissionConfig && (
+                    <div className="pt-2 mt-1 border-t border-dashed border-slate-200 flex justify-between items-center px-1">
+                      <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Your Commission</p>
+                      <p className="text-sm font-bold text-indigo-600">
+                        ₹{createForm.selectedProducts.reduce((sum, p) => {
+                          const comm = managerCommissionConfig[p.id];
+                          if (!comm) return sum;
+                          if (typeof comm === 'number') return sum + (comm * p.quantity);
+                          if (comm.type === 'percentage') return sum + (p.price * p.quantity * comm.value / 100);
+                          return sum + (comm.value * p.quantity);
+                        }, 0).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -463,7 +517,7 @@ const AdminOrders: React.FC = () => {
       </div>
 
       {/* Search & Filter */}
-      <div className="flex gap-4">
+      <div className="flex flex-col md:flex-row gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
           <Input 
@@ -473,6 +527,23 @@ const AdminOrders: React.FC = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
+        <div className="bg-white rounded-2xl shadow-sm flex items-center px-4 gap-3 border border-slate-100 h-14">
+            <Filter size={18} className="text-slate-400" />
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Status Filter</span>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="border-none shadow-none h-8 w-[140px] font-bold text-slate-900 focus:ring-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Status</SelectItem>
+                <SelectItem value="Received">Received</SelectItem>
+                <SelectItem value="Pending">Pending</SelectItem>
+                <SelectItem value="Processing">Processing</SelectItem>
+                <SelectItem value="Delivered">Delivered</SelectItem>
+                <SelectItem value="Cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
       </div>
 
       {/* Table */}
@@ -525,8 +596,10 @@ const AdminOrders: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col max-w-[180px]">
-                      <span className="text-[10px] text-slate-600 line-clamp-1" title={order.deliveryAddress}>
-                        {order.deliveryAddress || 'N/A'}
+                      <span className="text-[10px] text-slate-600 line-clamp-2" title={typeof order.deliveryAddress === 'object' ? `${order.deliveryAddress.address}, ${order.deliveryAddress.locality}` : order.deliveryAddress}>
+                        {typeof order.deliveryAddress === 'object' 
+                          ? `${order.deliveryAddress.farmName || order.deliveryAddress.contactName}: ${order.deliveryAddress.address}, ${order.deliveryAddress.locality}, ${order.deliveryAddress.district}` 
+                          : (order.deliveryAddress || 'N/A')}
                       </span>
                       <div className="flex items-center gap-1 mt-1">
                         <span className="text-[9px] font-bold text-slate-400 uppercase">{order.paymentMethod}</span>
@@ -541,6 +614,7 @@ const AdminOrders: React.FC = () => {
                   <TableCell>
                     <Badge className={`border-none rounded-lg text-[10px] font-bold px-2 py-1 ${
                       order.status === 'Delivered' ? 'bg-emerald-100 text-emerald-700' : 
+                      order.status === 'Received' ? 'bg-indigo-100 text-indigo-700' :
                       order.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 
                       order.status === 'Processing' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
                     }`}>
@@ -615,19 +689,36 @@ const AdminOrders: React.FC = () => {
           )}
 
           <form onSubmit={handleUpdateStatus} className="space-y-6 py-4">
-            <div className="space-y-2">
-              <Label>Set New Status</Label>
-              <Select value={updateForm.status} onValueChange={v => setUpdateForm({...updateForm, status: v})}>
-                <SelectTrigger className="rounded-xl h-12">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Pending">Pending</SelectItem>
-                  <SelectItem value="Processing">Processing</SelectItem>
-                  <SelectItem value="Delivered">Delivered</SelectItem>
-                  <SelectItem value="Cancelled">Cancelled</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Order Status</Label>
+                <Select value={updateForm.status} onValueChange={v => setUpdateForm({...updateForm, status: v})}>
+                  <SelectTrigger className="rounded-xl h-12">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Received">Received</SelectItem>
+                    <SelectItem value="Pending">Pending</SelectItem>
+                    <SelectItem value="Processing">Processing</SelectItem>
+                    <SelectItem value="Delivered">Delivered</SelectItem>
+                    <SelectItem value="Cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Payment Status</Label>
+                <Select value={updateForm.paymentStatus} onValueChange={v => setUpdateForm({...updateForm, paymentStatus: v})}>
+                  <SelectTrigger className="rounded-xl h-12">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Pending">Pending</SelectItem>
+                    <SelectItem value="Paid">Paid</SelectItem>
+                    <SelectItem value="Failed">Failed</SelectItem>
+                    <SelectItem value="Refunded">Refunded</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="space-y-2">
               <Label className="flex items-center gap-2">

@@ -1,19 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, Outlet, Navigate } from 'react-router-dom';
-import { Home, PlusCircle, ShoppingBag, User, LayoutDashboard, LogOut, Package, Pill, FileText, ClipboardList } from 'lucide-react';
+import { Home, PlusCircle, ShoppingBag, User, LayoutDashboard, LogOut, Package, Pill, FileText, ClipboardList, Menu, X as CloseIcon, Users, Bell } from 'lucide-react';
 import { useAuth } from '@/src/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/src/lib/firebase';
 import { handleFirestoreError, OperationType } from '@/src/lib/errorHandlers';
+import { checkAndRunAutoBackup } from '@/src/lib/backupManager';
 
 const Layout: React.FC = () => {
   const location = useLocation();
-  const { user, profile, loading, signOut } = useAuth();
+  const { user, profile, loading, signOut, isAdmin, isManager } = useAuth();
   const [stockSummary, setStockSummary] = useState({ feed: 0, medicine: 0 });
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  useEffect(() => {
+    // Hide sidebar by default on mobile, show on desktop
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        setIsSidebarOpen(false);
+      } else {
+        setIsSidebarOpen(true);
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     if (!user) return;
+
+    // Background auto-backup check
+    checkAndRunAutoBackup(user.uid).catch(e => console.error("Auto backup failed:", e));
 
     const qFeed = query(collection(db, 'feedStock'), where('userId', '==', user.uid));
     const unsubFeed = onSnapshot(qFeed, (snapshot) => {
@@ -48,22 +67,36 @@ const Layout: React.FC = () => {
     { icon: Home, label: 'Home', path: '/dashboard' },
     { icon: PlusCircle, label: 'Add Data', path: '/add' },
     { icon: ShoppingBag, label: 'Shop', path: '/shop' },
-    { icon: ClipboardList, label: 'Orders', path: '/orders' },
+    { icon: Bell, label: 'Notification', path: '/notifications' },
     { icon: User, label: 'Profile', path: '/profile' },
   ];
 
-  // If admin, show admin link in profile or as a separate item
-  const isAdmin = profile?.role === 'admin';
-
   return (
-    <div className="min-h-screen bg-slate-50 pb-20 md:pb-0 md:pl-64">
+    <div className={`min-h-screen bg-slate-50 transition-all duration-300 ${isSidebarOpen ? 'md:pl-64' : 'md:pl-0'} pb-20 md:pb-0`}>
+      {/* Desktop Toggle Button (Outside Sidebar when closed) */}
+      {!isSidebarOpen && (
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="fixed top-4 left-4 z-50 bg-white shadow-md border rounded-full hidden md:flex"
+          onClick={() => setIsSidebarOpen(true)}
+        >
+          <Menu size={20} />
+        </Button>
+      )}
+
       {/* Desktop Sidebar */}
-      <aside className="fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-slate-200 hidden md:flex flex-col p-6">
-        <div className="flex items-center gap-3 mb-10">
-          <div className="bg-emerald-600 p-2 rounded-lg">
-            <LayoutDashboard className="text-white" size={24} />
+      <aside className={`fixed left-0 top-0 bottom-0 z-40 bg-white border-r border-slate-200 flex flex-col p-6 transition-all duration-300 overflow-y-auto ${isSidebarOpen ? 'w-64 opacity-100 translate-x-0' : 'w-0 opacity-0 -translate-x-full overflow-hidden'} hidden md:flex`}>
+        <div className="flex items-center justify-between mb-10">
+          <div className="flex items-center gap-3">
+            <div className="bg-emerald-600 p-2 rounded-lg">
+              <LayoutDashboard className="text-white" size={24} />
+            </div>
+            <h1 className="text-xl font-bold text-slate-900">PoultryPro</h1>
           </div>
-          <h1 className="text-xl font-bold text-slate-900">PoultryPro</h1>
+          <Button variant="ghost" size="icon" className="rounded-full" onClick={() => setIsSidebarOpen(false)}>
+            <Menu size={20} className="text-slate-400" />
+          </Button>
         </div>
 
         <nav className="flex-1 space-y-2">
@@ -93,6 +126,20 @@ const Layout: React.FC = () => {
             >
               <LayoutDashboard size={20} />
               <span>Admin Panel</span>
+            </Link>
+          )}
+
+          {isManager && (
+            <Link
+              to="/manager"
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
+                location.pathname.startsWith('/manager')
+                  ? 'bg-amber-50 text-amber-600 font-medium'
+                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <Users size={20} />
+              <span>Manager Panel</span>
             </Link>
           )}
         </nav>
@@ -130,8 +177,8 @@ const Layout: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="max-w-5xl mx-auto p-4 md:p-8">
-        <Outlet />
+      <main className="max-w-7xl mx-auto p-4 md:p-8">
+        <Outlet context={{ isSidebarOpen }} />
       </main>
 
       {/* Mobile Bottom Nav */}

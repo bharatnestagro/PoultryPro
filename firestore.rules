@@ -14,12 +14,31 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
     
-    function isAdmin() {
+    function isBharatAdmin() {
       return isAuthenticated() && 
-        (request.auth.token.email == "gavthiwallah@gmail.com" ||
-         request.auth.token.email == "bharatnestagro@gmail.com" ||
-         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+        (request.auth.token.email == "bharatnestagro@gmail.com" ||
+         request.auth.uid == "OQb1NF7095Qep0tLoijpSZNZRcl2");
+    }
+
+    function isAdmin() {
+      return isBharatAdmin() || 
+        (isAuthenticated() && (
+          (request.auth.token.email == "bharatnestagro@gmail.com") ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin")
+        ));
+    }
+
+    function isManager() {
+      return isAdmin() || 
+        (isAuthenticated() && (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "manager")
+        ));
+    }
+
+    function isAuth() {
+      return request.auth != null;
     }
 
     function isUserOwner(userId) {
@@ -29,7 +48,7 @@ service cloud.firestore {
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'name', 'email', 'role']) &&
              data.uid == request.auth.uid &&
-             data.role in ['farmer', 'admin'] &&
+             data.role in ['farmer', 'admin', 'manager'] &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.email is string && data.email.size() > 0;
     }
@@ -97,11 +116,12 @@ service cloud.firestore {
              data.name is string && data.name.size() < 200;
     }
 
-    function isValidCart(data) {
-      return data.keys().hasAll(['userId', 'items', 'updatedAt']) &&
-             (data.userId == request.auth.uid || isAdmin()) &&
-             data.items is list &&
-             data.updatedAt is string;
+    function isValidManagerPayment(data) {
+      return data.keys().hasAll(['managerId', 'amount', 'status', 'date']) &&
+             data.managerId is string &&
+             data.amount is number &&
+             data.status in ['Paid', 'Processing', 'Pending'] &&
+             (!('description' in data) || data.description is string);
     }
 
     // ===============================================================
@@ -109,75 +129,132 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
-      allow read: if isAuthenticated() && (userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (request.resource.data.role == 'farmer' || isAdmin());
-      allow update: if isAuthenticated() && ((userId == request.auth.uid && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin())) || isAdmin());
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (request.resource.data.role == 'farmer' || isAdmin());
+      allow update: if isAuthenticated() && (userId == request.auth.uid || isAdmin());
       allow delete: if isAdmin();
     }
 
     match /flocks/{flockId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && isValidFlock(request.resource.data);
-      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && isValidFlock(request.resource.data)) || isAdmin());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isAdmin() || isManager() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() || isManager() || (isAuthenticated() && (resource.data.userId == request.auth.uid));
+      allow delete: if isAdmin() || (isAuthenticated() && (resource.data.userId == request.auth.uid));
     }
 
     match /transactions/{transactionId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && isValidTransaction(request.resource.data);
-      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && isValidTransaction(request.resource.data)) || isAdmin());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isAdmin() || isManager() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || resource.data.farmerId == request.auth.uid));
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() || isManager() || (isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.farmerId == request.auth.uid));
+      allow delete: if isAdmin() || (isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.farmerId == request.auth.uid));
     }
 
     match /dailyLogs/{logId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && isValidDailyLog(request.resource.data);
-      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && isValidDailyLog(request.resource.data)) || isAdmin());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isAdmin() || isManager() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() || isManager() || (isAuthenticated() && (resource.data.userId == request.auth.uid));
+      allow delete: if isAdmin() || (isAuthenticated() && (resource.data.userId == request.auth.uid));
     }
 
     match /medicineStock/{stockId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && isValidMedicineStock(request.resource.data);
-      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && isValidMedicineStock(request.resource.data)) || isAdmin());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isAdmin() || isManager() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() || isManager() || (isAuthenticated() && (resource.data.userId == request.auth.uid));
+      allow delete: if isAdmin() || (isAuthenticated() && (resource.data.userId == request.auth.uid));
     }
 
     match /feedStock/{stockId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && isValidFeedStock(request.resource.data);
-      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && isValidFeedStock(request.resource.data)) || isAdmin());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isAdmin() || isManager() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() || isManager() || (isAuthenticated() && (resource.data.userId == request.auth.uid));
+      allow delete: if isAdmin() || (isAuthenticated() && (resource.data.userId == request.auth.uid));
     }
 
     match /orders/{orderId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isAdmin() || isManager() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid));
       allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin() || isManager() || (isAuthenticated() && (resource.data.userId == request.auth.uid));
       allow delete: if isAdmin();
     }
 
     match /shopItems/{itemId} {
       allow read: if isAuthenticated();
-      allow create: if isAdmin() && isValidShopItem(request.resource.data);
-      allow update: if isAdmin() && isValidShopItem(request.resource.data);
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
     match /carts/{userId} {
-      allow read: if isAuthenticated() && (userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && (userId == request.auth.uid || isAdmin()) && isValidCart(request.resource.data);
-      allow update: if isAuthenticated() && (userId == request.auth.uid || isAdmin()) && isValidCart(request.resource.data);
-      allow delete: if isAuthenticated() && (userId == request.auth.uid || isAdmin());
+      allow read: if isAuthenticated() && (userId == request.auth.uid || isAdmin() || isManager());
+      allow create, update, delete: if isAuthenticated() && (userId == request.auth.uid || isAdmin() || isManager());
     }
 
     match /deletedOrders/{orderId} {
       allow read, create, delete: if isAdmin();
     }
 
+    match /deletedKeys/{keyId} {
+      allow read, write: if isAdmin() || isManager();
+    }
+
+    match /managerPayments/{paymentId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.managerId == request.auth.uid);
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /managerCommissions/{managerId} {
+      allow read: if isAuthenticated() && (isAdmin() || managerId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /hatcheryBatches/{batchId} {
+      allow read: if isAdmin() || isManager() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create, update, delete: if isAdmin() || isManager() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid));
+    }
+
+    match /incubatorLogs/{logId} {
+      allow read: if isAdmin() || isManager() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create, update, delete: if isAdmin() || isManager() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid));
+    }
+
     match /system/{docId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || request.auth.token.email == "bharatnestagro@gmail.com";
+    }
+
+    match /licensePlans/{planId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || request.auth.token.email == "bharatnestagro@gmail.com";
+    }
+
+    match /systemAlerts/{alertId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isAdmin() || isManager() || (request.resource.data.isAuto == true && request.resource.data.userId == request.auth.uid));
+      allow update: if isAuthenticated() && (isAdmin() || isManager() || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewedBy'])));
+      allow delete: if isAdmin() || isManager();
+    }
+
+    match /alertRules/{ruleId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /licenseKeys/{keyId} {
+      allow read: if isAuthenticated();
+      allow create: if isManager() || isAdmin() || (isAuthenticated() && request.resource.data.usedBy == request.auth.uid);
+      allow update: if isAdmin() || isManager() || request.auth.token.email == "bharatnestagro@gmail.com" || (
+        isAuthenticated() && 
+        resource.data.status == 'Unused' &&
+        request.resource.data.status == 'Active' &&
+        request.resource.data.usedBy == request.auth.uid
+      ) || (
+        isAuthenticated() && 
+        resource.data.usedBy == request.auth.uid &&
+        request.resource.data.usedBy == request.auth.uid
+      );
+      allow delete: if isManager() || request.auth.token.email == "bharatnestagro@gmail.com";
     }
   }
 }

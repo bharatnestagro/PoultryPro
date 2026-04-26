@@ -26,6 +26,8 @@ import { Badge } from '@/components/ui/badge';
 import { format, differenceInDays, parseISO, subDays } from 'date-fns';
 import { toast } from 'sonner';
 
+import { useAuth } from '@/src/lib/AuthContext';
+
 interface DailyLog {
   id: string;
   userId: string;
@@ -45,9 +47,11 @@ interface DailyLog {
 }
 
 const AdminOperations: React.FC = () => {
+  const { user: currentUser, isAdmin, isManager } = useAuth();
   const [recentLogs, setRecentLogs] = useState<DailyLog[]>([]);
   const [healthAlerts, setHealthAlerts] = useState<any[]>([]);
   const [nonCompliantFarmers, setNonCompliantFarmers] = useState<any[]>([]);
+  const [filteredLogs, setFilteredLogs] = useState<DailyLog[]>([]);
   const [usersMap, setUsersMap] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -56,18 +60,52 @@ const AdminOperations: React.FC = () => {
     // Fetch Users for mapping
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       const map: Record<string, any> = {};
-      snap.docs.forEach(u => map[u.id] = u.data());
+      snap.docs.forEach(u => {
+        const data = u.data();
+        if (isManager && !isAdmin) {
+          if (data.managerId === currentUser?.uid || data.assignedManagerId === currentUser?.uid) {
+            map[u.id] = data;
+          }
+        } else {
+          map[u.id] = data;
+        }
+      });
       setUsersMap(map);
     });
 
     // Fetch Recent Logs
-    const qLogs = query(collection(db, 'dailyLogs'), orderBy('date', 'desc'), limit(50));
-    const unsubLogs = onSnapshot(qLogs, async (snap) => {
-      const logs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as DailyLog));
-      setRecentLogs(logs);
+    const qLogs = query(collection(db, 'dailyLogs'), orderBy('date', 'desc'), limit(100));
+    const unsubLogs = onSnapshot(qLogs, (snap) => {
+      const allLogs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as DailyLog));
+      setRecentLogs(allLogs);
+      setLoading(false);
+    });
+
+    return () => {
+      unsubUsers();
+      unsubLogs();
+    };
+  }, [currentUser?.uid, isManager]);
+
+  useEffect(() => {
+    const filterAndDerive = async () => {
+      if (!recentLogs.length) return;
+
+      // Filter logs by users assigned to manager
+      const filtered = recentLogs.filter(l => {
+        if (isManager && !isAdmin) {
+          return !!usersMap[l.userId];
+        }
+        return true;
+      });
+      setFilteredLogs(filtered.slice(0, 50));
 
       // Extract health alerts
-      const alerts = logs.filter(l => l.health?.mortality > 5 || l.notes?.toLowerCase().includes('sick') || l.notes?.toLowerCase().includes('disease'));
+      const alerts = filtered.filter(l => 
+        l.health?.mortality > 5 || 
+        l.notes?.toLowerCase().includes('sick') || 
+        l.notes?.toLowerCase().includes('disease')
+      );
       setHealthAlerts(alerts);
 
       // Identify non-compliant farmers (missed > 3 days)
@@ -79,17 +117,13 @@ const AdminOperations: React.FC = () => {
         const nonCompliant = [];
 
         for (const flock of activeFlocks) {
-          // Find latest log for this flock
-          const flockLogsQuery = query(
-            collection(db, 'dailyLogs'),
-            where('flockId', '==', flock.id),
-            orderBy('date', 'desc'),
-            limit(1)
-          );
-          const latestLogSnap = await getDocs(flockLogsQuery);
+          if (isManager && !usersMap[flock.userId]) continue;
+
+          // Check if this flock has logs
+          const flockLogs = filtered.filter(l => l.flockId === flock.id);
           
-          if (!latestLogSnap.empty) {
-            const latestLog = latestLogSnap.docs[0].data();
+          if (flockLogs.length > 0) {
+            const latestLog = flockLogs[0];
             const lastLogDate = parseISO(latestLog.date);
             const daysSinceLastLog = differenceInDays(today, lastLogDate);
             
@@ -102,20 +136,17 @@ const AdminOperations: React.FC = () => {
                 daysMissed: daysSinceLastLog
               });
             }
-          } else {
-            // No logs at all, check placement date
-            if (flock.placementDate) {
-              const placementDate = parseISO(flock.placementDate);
-              const daysSincePlacement = differenceInDays(today, placementDate);
-              if (daysSincePlacement > 3) {
-                nonCompliant.push({
-                  flockId: flock.id,
-                  flockName: flock.name,
-                  userId: flock.userId,
-                  lastLogDate: 'Never',
-                  daysMissed: daysSincePlacement
-                });
-              }
+          } else if (flock.placementDate) {
+            const placementDate = parseISO(flock.placementDate);
+            const daysSincePlacement = differenceInDays(today, placementDate);
+            if (daysSincePlacement > 3) {
+              nonCompliant.push({
+                flockId: flock.id,
+                flockName: flock.name,
+                userId: flock.userId,
+                lastLogDate: 'Never',
+                daysMissed: daysSincePlacement
+              });
             }
           }
         }
@@ -123,15 +154,10 @@ const AdminOperations: React.FC = () => {
       } catch (error) {
         console.error("Error identifying non-compliant farmers:", error);
       }
-
-      setLoading(false);
-    });
-
-    return () => {
-      unsubUsers();
-      unsubLogs();
     };
-  }, []);
+
+    filterAndDerive();
+  }, [recentLogs, usersMap, isManager]);
 
   const handleApproveLog = async (logId: string) => {
     try {
@@ -186,7 +212,7 @@ const AdminOperations: React.FC = () => {
             </div>
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Logs Today</p>
-              <h3 className="text-2xl font-bold text-slate-900">{recentLogs.filter(l => l.date === format(new Date(), 'yyyy-MM-dd')).length}</h3>
+              <h3 className="text-2xl font-bold text-slate-900">{filteredLogs.filter(l => l.date === format(new Date(), 'yyyy-MM-dd')).length}</h3>
             </div>
           </div>
           <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-emerald-600 bg-emerald-50 w-fit px-2 py-1 rounded-lg">
@@ -218,7 +244,7 @@ const AdminOperations: React.FC = () => {
             </div>
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pending Reviews</p>
-              <h3 className="text-2xl font-bold text-slate-900">{recentLogs.filter(l => !l.status).length}</h3>
+              <h3 className="text-2xl font-bold text-slate-900">{filteredLogs.filter(l => !l.status).length}</h3>
             </div>
           </div>
           <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-indigo-600 bg-indigo-50 w-fit px-2 py-1 rounded-lg">
@@ -259,7 +285,11 @@ const AdminOperations: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {recentLogs.map((log) => {
+                  {filteredLogs.filter(log => {
+                    const farmer = usersMap[log.userId];
+                    const searchStr = (farmer?.name || '' + log.notes || '').toLowerCase();
+                    return searchStr.includes(searchTerm.toLowerCase());
+                  }).map((log) => {
                     const farmer = usersMap[log.userId];
                     return (
                       <tr key={log.id} className="hover:bg-slate-50/50 transition-colors group">

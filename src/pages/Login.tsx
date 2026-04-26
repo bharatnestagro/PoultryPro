@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/src/lib/firebase';
@@ -16,7 +16,13 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { signInWithGoogle } = useAuth();
+  const { signInWithGoogle, user, profile } = useAuth();
+
+  useEffect(() => {
+    if (user && profile) {
+      navigate('/dashboard');
+    }
+  }, [user, profile, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,7 +30,6 @@ const Login: React.FC = () => {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       toast.success('Logged in successfully');
-      navigate('/dashboard');
     } catch (error: any) {
       console.error("Login error:", error);
       toast.error(error.message || 'Failed to login');
@@ -37,10 +42,17 @@ const Login: React.FC = () => {
     try {
       await signInWithGoogle();
       toast.success('Logged in with Google');
-      navigate('/dashboard');
     } catch (error: any) {
       console.error("Google login error:", error);
-      toast.error('Failed to login with Google');
+      let message = 'Failed to login with Google';
+      if (error.code === 'auth/operation-not-allowed') {
+        message = 'Google Login is not enabled in Firebase Console.';
+      } else if (error.code === 'auth/unauthorized-domain') {
+        message = 'This domain is not authorized in Firebase Console.';
+      } else if (error.code === 'auth/popup-blocked') {
+        message = 'Sign-in popup blocked by browser.';
+      }
+      toast.error(message);
     }
   };
 

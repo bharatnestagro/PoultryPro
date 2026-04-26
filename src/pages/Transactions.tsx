@@ -12,9 +12,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { toast } from 'sonner';
 import { Plus, Trash2, ArrowUpRight, ArrowDownRight, Filter } from 'lucide-react';
 import { format } from 'date-fns';
+import LicenseGuard from '@/src/components/LicenseGuard';
+import { useSearchParams } from 'react-router-dom';
 
 const Transactions: React.FC = () => {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -43,6 +46,29 @@ const Transactions: React.FC = () => {
 
     return () => unsubscribe();
   }, [user]);
+
+  useEffect(() => {
+    const orderId = searchParams.get('order_id');
+    if (orderId && user) {
+      const verifyPayment = async () => {
+        try {
+          const res = await fetch(`/api/verify-cashfree-payment/${orderId}`);
+          const data = await res.json();
+          
+          if (data.order_status === 'PAID') {
+            toast.success('Payment Verified! Transaction Updated.');
+            // Here you would normally update your database if not already done via webhook
+            // For now,we just show the success message
+          } else if (data.order_status === 'FAILED') {
+            toast.error('Payment Failed. Please try again.');
+          }
+        } catch (err) {
+          console.error("Verification failed:", err);
+        }
+      };
+      verifyPayment();
+    }
+  }, [searchParams, user]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,7 +101,8 @@ const Transactions: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <LicenseGuard>
+      <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Transactions</h1>
@@ -195,7 +222,8 @@ const Transactions: React.FC = () => {
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </LicenseGuard>
   );
 };
 

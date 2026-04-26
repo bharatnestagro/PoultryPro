@@ -140,7 +140,7 @@ const Register: React.FC = () => {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="farmType">Farm Type</Label>
-                <Select onValueChange={(value) => setFormData({ ...formData, farmType: value })}>
+                <Select onValueChange={(value: string) => setFormData({ ...formData, farmType: value })}>
                   <SelectTrigger className="rounded-xl">
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
@@ -149,6 +149,7 @@ const Register: React.FC = () => {
                     <SelectItem value="Sonali Farm">Sonali Farm</SelectItem>
                     <SelectItem value="Broiler Farm">Broiler Farm</SelectItem>
                     <SelectItem value="Layer Farm">Layer Farm</SelectItem>
+                    <SelectItem value="Hatchery">Hatchery</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

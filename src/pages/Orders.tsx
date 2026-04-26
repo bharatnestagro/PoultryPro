@@ -76,49 +76,50 @@ const Orders: React.FC = () => {
                     className="border-none shadow-sm bg-white rounded-2xl overflow-hidden cursor-pointer hover:shadow-md transition-all group"
                     onClick={() => setSelectedOrder(order)}
                   >
-                  <CardContent className="p-6">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="flex items-start gap-4">
-                        <div className="bg-slate-50 p-3 rounded-xl text-slate-400 group-hover:bg-emerald-50 group-hover:text-emerald-600 transition-colors">
-                          <Package size={24} />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-bold text-slate-900">
-                              {order.items ? `${order.items.length} Items` : order.productName}
-                            </h3>
-                            <ChevronRight size={14} className="text-slate-300 group-hover:text-emerald-400 transition-colors" />
+                    <CardContent className="p-6">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-start gap-4">
+                          <div className="bg-slate-50 p-3 rounded-xl text-slate-400 group-hover:bg-emerald-50 group-hover:text-emerald-600 transition-colors">
+                            <Package size={24} />
                           </div>
-                          <div className="flex items-center gap-3 mt-1">
-                            <span className="text-xs font-medium text-slate-500 flex items-center gap-1">
-                              <Calendar size={12} />
-                              {format(new Date(order.date), 'MMM dd, yyyy')}
-                            </span>
-                            <span className="text-xs font-medium text-slate-500">
-                              {order.items 
-                                ? order.items.map((i: any) => i.name).join(', ').substring(0, 30) + (order.items.map((i: any) => i.name).join(', ').length > 30 ? '...' : '')
-                                : `Qty: ${order.quantity} ${order.unit}`
-                              }
-                            </span>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-bold text-slate-900">
+                                {order.items ? `${order.items.length} Items` : order.productName}
+                              </h3>
+                              <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 rounded-md">#{order.id.slice(-6).toUpperCase()}</span>
+                              <ChevronRight size={14} className="text-slate-300 group-hover:text-emerald-400 transition-colors" />
+                            </div>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="text-xs font-medium text-slate-500 flex items-center gap-1">
+                                <Calendar size={12} />
+                                {format(new Date(order.date), 'MMM dd, yyyy')}
+                              </span>
+                              <span className="text-xs font-medium text-slate-500">
+                                {order.items 
+                                  ? order.items.map((i: any) => i.name).join(', ').substring(0, 30) + (order.items.map((i: any) => i.name).join(', ').length > 30 ? '...' : '')
+                                  : `Qty: ${order.quantity} ${order.unit}`
+                                }
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="flex flex-row md:flex-col items-center md:items-end justify-between gap-2">
-                        <div className="flex items-center text-emerald-600 font-bold text-lg">
-                          <IndianRupee size={16} />
-                          <span>{order.totalAmount?.toLocaleString()}</span>
+                        <div className="flex flex-row md:flex-col items-center md:items-end justify-between gap-2">
+                          <div className="flex items-center text-emerald-600 font-bold text-lg">
+                            <IndianRupee size={16} />
+                            <span>{order.totalAmount?.toLocaleString()}</span>
+                          </div>
+                          {getStatusBadge(order.status)}
                         </div>
-                        {getStatusBadge(order.status)}
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
                 } />
               <DialogContent className="rounded-3xl sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle className="text-2xl font-bold">Order Details</DialogTitle>
-                  <CardDescription>Order ID: #{order.id.substring(0, 8).toUpperCase()}</CardDescription>
+                  <CardDescription>Order ID: #{order.id.slice(-6).toUpperCase()}</CardDescription>
                 </DialogHeader>
                 
                 <div className="py-6 space-y-8">
@@ -178,9 +179,17 @@ const Orders: React.FC = () => {
                       <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
                         <MapPin size={12} /> Delivery Address
                       </h4>
-                      <p className="text-sm text-slate-600 bg-slate-50 p-3 rounded-xl min-h-[60px]">
-                        {order.deliveryAddress || 'No address provided'}
-                      </p>
+                      <div className="text-[10px] text-slate-600 bg-slate-50 p-3 rounded-xl min-h-[60px] text-left">
+                        {typeof order.deliveryAddress === 'object' ? (
+                          <>
+                            <p className="font-bold">{order.deliveryAddress.farmName || order.deliveryAddress.name}</p>
+                            <p>{order.deliveryAddress.line1}, {order.deliveryAddress.locality}</p>
+                            <p>{order.deliveryAddress.district}, {order.deliveryAddress.state} - {order.deliveryAddress.pincode}</p>
+                          </>
+                        ) : (
+                          order.deliveryAddress || 'No address provided'
+                        )}
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">

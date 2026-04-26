@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Plus, Trash2, Edit2, Package } from 'lucide-react';
+import LicenseGuard from '@/src/components/LicenseGuard';
 
 const FlockManagement: React.FC = () => {
   const { user } = useAuth();
@@ -24,6 +25,8 @@ const FlockManagement: React.FC = () => {
     breed: 'Broiler',
     placementDate: new Date().toISOString().split('T')[0],
     initialCount: '',
+    count: '',
+    age: '',
     source: '',
     farmType: '',
   });
@@ -62,6 +65,8 @@ const FlockManagement: React.FC = () => {
         breed: 'Broiler', 
         placementDate: new Date().toISOString().split('T')[0], 
         initialCount: '',
+        count: '',
+        age: '',
         source: '',
         farmType: ''
       });
@@ -104,6 +109,8 @@ const FlockManagement: React.FC = () => {
       breed: flock.breed,
       placementDate: flock.placementDate,
       initialCount: flock.initialCount.toString(),
+      count: flock.currentCount?.toString() || '',
+      age: flock.age?.toString() || '',
       source: flock.source || '',
       farmType: flock.farmType || '',
     });
@@ -111,7 +118,8 @@ const FlockManagement: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <LicenseGuard>
+      <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Flock Management</h1>
@@ -287,7 +295,8 @@ const FlockManagement: React.FC = () => {
           </form>
         </DialogContent>
       </Dialog>
-    </div>
+      </div>
+    </LicenseGuard>
   );
 };
 

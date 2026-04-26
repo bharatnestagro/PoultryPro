@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, addDoc, doc, updateDoc, getDocs, deleteDoc, orderBy } from 'firebase/firestore';
+import { useSearchParams } from 'react-router-dom';
+import { collection, query, where, onSnapshot, addDoc, doc, updateDoc, getDoc, getDocs, deleteDoc, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/src/lib/firebase';
 import { useAuth } from '@/src/lib/AuthContext';
 import { handleFirestoreError, OperationType } from '@/src/lib/errorHandlers';
@@ -13,8 +14,9 @@ import {
   Bird, Thermometer, Utensils, Scale, Pill, 
   ShieldCheck, IndianRupee, AlertTriangle, Plus, Save,
   Package, Droplets, Edit2, Trash2, ArrowDownRight, FileText, ShoppingBag,
-  ClipboardList
+  ClipboardList, Egg, TrendingUp, Download, ChevronDown, ChevronUp
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { 
@@ -22,14 +24,29 @@ import {
   BarChart, Bar, Legend, Cell, PieChart, Pie
 } from 'recharts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { jsPDF } from 'jspdf';
+import domtoimage from 'dom-to-image';
+import html2canvas from 'html2canvas';
+import LicenseGuard from '@/src/components/LicenseGuard';
+import { runAutoAlertEngine, fetchWeather } from '@/src/lib/alertEngine';
 
 const AddData: React.FC = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const [searchParams] = useSearchParams();
+  const reportRef = React.useRef<HTMLDivElement>(null);
   const [flocks, setFlocks] = useState<any[]>([]);
   const [soldFlocks, setSoldFlocks] = useState<any[]>([]);
   const [selectedFlockId, setSelectedFlockId] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string | null>(searchParams.get('tab'));
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
+  const [redirectToAlerts, setRedirectToAlerts] = useState(false);
+  const toggleSection = (sectionId: string) => {
+    // Exclusive expansion: set only the selected one to true, others false
+    setExpandedSections(prev => ({
+      [sectionId]: !prev[sectionId]
+    }));
+  };
   const [medicineStock, setMedicineStock] = useState<any[]>([]);
   const [feedStock, setFeedStock] = useState<any[]>([]);
   const [editingFlock, setEditingFlock] = useState<any>(null);
@@ -39,6 +56,101 @@ const AddData: React.FC = () => {
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
   const [historyFilter, setHistoryFilter] = useState('daily');
   const [reportFlockId, setReportFlockId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
+
+  const handleDownloadPDF = async (flockName: string) => {
+    if (!reportRef.current) return;
+    
+    const toastId = toast.loading('Brewing your report...');
+    
+    try {
+      // 1. Create a clone and sanitize colors to avoid html2canvas parser crash
+      const reportClone = reportRef.current.cloneNode(true) as HTMLElement;
+      
+      // Clean up buttons and unwanted UI
+      reportClone.querySelectorAll('button, .pdf-ignore').forEach(el => el.remove());
+      
+      // EXTREME Color Sanitization: html2canvas CRASHES on oklch()
+      const sanitizeOklch = (element: HTMLElement) => {
+        try {
+          const computed = window.getComputedStyle(element);
+          const styles = ['color', 'backgroundColor', 'borderColor', 'outlineColor', 'fill', 'stroke'];
+          
+          styles.forEach(prop => {
+            const val = (element.style as any)[prop] || computed.getPropertyValue(prop);
+            if (val && val.includes('oklch')) {
+              if (prop === 'backgroundColor') (element.style as any)[prop] = '#ffffff';
+              else if (prop === 'color') (element.style as any)[prop] = '#1e293b';
+              else (element.style as any)[prop] = '#e2e8f0';
+            }
+          });
+        } catch (e) {
+          // Fallback if computed style fails
+        }
+        
+        Array.from(element.children).forEach(child => sanitizeOklch(child as HTMLElement));
+      };
+      
+      sanitizeOklch(reportClone);
+
+      // Wrapper to ensure proper rendering context
+      const wrapper = document.createElement('div');
+      wrapper.style.position = 'fixed';
+      wrapper.style.left = '-10000px';
+      wrapper.style.top = '0';
+      wrapper.style.width = '800px';
+      wrapper.style.background = '#f8fafc';
+      
+      const header = document.createElement('div');
+      header.style.padding = '40px';
+      header.style.textAlign = 'center';
+      header.style.backgroundColor = '#122B21';
+      header.style.color = '#ffffff';
+      header.innerHTML = `
+        <h1 style="font-size: 32px; font-weight: 900; letter-spacing: -1px; margin: 0; font-family: sans-serif;">PoultryPro <span style="font-weight: 400; opacity: 0.7; font-size: 20px;">by GavthiWallah</span></h1>
+        <p style="margin-top: 8px; margin-bottom: 0; opacity: 0.6; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px;">Batch Performance Report • ${new Date().toLocaleDateString()}</p>
+      `;
+      
+      wrapper.appendChild(header);
+      wrapper.appendChild(reportClone);
+      document.body.appendChild(wrapper);
+
+      // 2. Capture using html2canvas
+      const canvas = await html2canvas(wrapper, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#f8fafc',
+        logging: false,
+        onclone: (clonedDoc) => {
+          const styles = clonedDoc.getElementsByTagName('style');
+          for (let i = 0; i < styles.length; i++) {
+            styles[i].innerHTML = styles[i].innerHTML.replace(/oklch\([^)]+\)/g, '#64748b');
+          }
+        }
+      });
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.9);
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`${flockName}_Report.pdf`);
+      
+      document.body.removeChild(wrapper);
+      toast.success('Report downloaded!', { id: toastId });
+    } catch (error: any) {
+      console.error('PDF Error:', error);
+      toast.error('PDF Generation failed.', { id: toastId });
+    }
+  };
 
   const historyFilters = [
     { id: 'daily', title: 'Daily Data', icon: ClipboardList, color: 'emerald' },
@@ -54,30 +166,52 @@ const AddData: React.FC = () => {
 
     return (
       <div className="mt-10 space-y-4">
-        <h3 className="font-bold text-slate-700 flex items-center gap-2">
-          <IndianRupee size={18} className="text-emerald-700" />
-          Recent Transactions
-        </h3>
-        <div className="space-y-3">
-          {transactions.slice(0, 5).map(tx => (
-            <div key={tx.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center">
-              <div>
-                <p className="text-sm font-bold text-slate-900">{tx.description || tx.category}</p>
-                <p className={`text-xs font-bold ${tx.type === 'Income' ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {tx.type === 'Income' ? '+' : '-'} ₹{tx.amount.toLocaleString()}
-                </p>
-                <p className="text-[10px] text-slate-500">{format(new Date(tx.date), 'MMM dd, yyyy')}</p>
+        <div className="flex justify-between items-center">
+          <h3 className="font-bold text-slate-700 flex items-center gap-2">
+            <IndianRupee size={18} className="text-emerald-700" />
+            Financial Transactions
+          </h3>
+          <Badge variant="outline" className="text-[10px]">{transactions.length} total</Badge>
+        </div>
+        <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200">
+          {transactions.map(tx => {
+            const amount = Number(tx.amount) || 0;
+            const dateStr = tx.date || tx.timestamp;
+            let formattedDate = 'N/A';
+            if (dateStr) {
+              try {
+                const dateObj = new Date(dateStr);
+                if (!isNaN(dateObj.getTime())) {
+                  formattedDate = format(dateObj, 'MMM dd, yyyy');
+                }
+              } catch (e) {
+                console.error("Date formatting error", e);
+              }
+            }
+
+            return (
+              <div key={tx.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center">
+                <div className="flex-1 min-w-0 pr-4">
+                  <p className="text-sm font-bold text-slate-900 truncate">{tx.description || tx.category || 'No Description'}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className={`text-xs font-bold ${tx.type === 'Income' ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {tx.type === 'Income' ? '+' : '-'} ₹{amount.toLocaleString()}
+                    </p>
+                    <span className="text-[10px] text-slate-300">•</span>
+                    <p className="text-[10px] text-slate-400">{formattedDate}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="icon" onClick={() => setEditingTransaction(tx)} className="h-8 w-8 rounded-full">
+                    <Edit2 size={14} />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => handleDeleteTransaction(tx.id)} className="h-8 w-8 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50">
+                    <Trash2 size={14} />
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <Button variant="ghost" size="icon" onClick={() => setEditingTransaction(tx)} className="h-8 w-8 rounded-full">
-                  <Edit2 size={14} />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={() => handleDeleteTransaction(tx.id)} className="h-8 w-8 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50">
-                  <Trash2 size={14} />
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -129,8 +263,32 @@ const AddData: React.FC = () => {
             return (
               <div key={log.id} className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center hover:border-emerald-200 transition-colors">
                 <div>
+                  <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">
+                    {[...flocks, ...soldFlocks].find(f => f.id === log.flockId)?.name || 'Unknown Batch'}
+                  </p>
                   <p className="text-sm font-bold text-slate-900">{valueDisplay}</p>
-                  <p className="text-[10px] text-slate-500 font-medium">{format(new Date(log.date), 'MMM dd, yyyy')} • {log.timestamp ? format(new Date(log.timestamp), 'hh:mm a') : 'No time'}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-[10px] text-slate-500 font-medium">
+                      {(() => {
+                        try {
+                          return format(new Date(log.date), 'MMM dd, yyyy');
+                        } catch (e) {
+                          return 'N/A';
+                        }
+                      })()}
+                    </p>
+                    <span className="text-[10px] text-slate-300">•</span>
+                    <p className="text-[10px] text-slate-500 font-medium">
+                      {(() => {
+                        try {
+                          const date = log.timestamp ? new Date(log.timestamp) : new Date(log.date);
+                          return format(date, 'hh:mm a');
+                        } catch (e) {
+                          return 'No time';
+                        }
+                      })()}
+                    </p>
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="ghost" size="icon" onClick={() => setEditingLog(log)} className="h-8 w-8 rounded-full hover:bg-emerald-50 hover:text-emerald-600">
@@ -150,14 +308,16 @@ const AddData: React.FC = () => {
 
   const categories = [
     { id: 'daily_data', title: 'Add Daily Data', icon: FileText, color: 'bg-emerald-600', desc: 'Daily feed, growth, health & production' },
+    { id: 'incubator', title: 'Incubator Log', icon: Thermometer, color: 'bg-indigo-400', desc: 'Daily temp/humidity checks' },
     { id: 'flock', title: 'Flock Details', icon: Bird, color: 'bg-blue-600', desc: 'Register new batches' },
+    { id: 'hatchery', title: 'Hatchery Management', icon: Egg, color: 'bg-emerald-700', desc: 'Batches & Incubation' },
+    { id: 'feed_stock', title: 'Feed Stock', icon: Package, color: 'bg-orange-600', desc: 'Manage feed inventory' },
+    { id: 'medicine_stock', title: 'Medicine Stock', icon: Pill, color: 'bg-purple-600', desc: 'Manage medicines' },
     { id: 'sold_flock', title: 'Sold Flock', icon: ShoppingBag, color: 'bg-amber-600', desc: 'Record flock sales & closing' },
     { id: 'alerts', title: 'Alerts', icon: AlertTriangle, color: 'bg-red-600', desc: 'Warning signals' },
-    { id: 'medicine_stock', title: 'Medicine Stock', icon: Pill, color: 'bg-purple-600', desc: 'Manage medicines' },
-    { id: 'feed_stock', title: 'Feed Stock', icon: Package, color: 'bg-orange-600', desc: 'Manage feed inventory' },
     { id: 'finance', title: 'Financials', icon: IndianRupee, color: 'bg-emerald-500', desc: 'Costs & sales' },
-    { id: 'logs_history', title: 'Logs History', icon: FileText, color: 'bg-slate-700', desc: 'View, edit & delete records' },
-    { id: 'analyze', title: 'Analyze', icon: FileText, color: 'bg-indigo-600', desc: 'Full-fledged analytics' },
+    { id: 'logs_history', title: 'Log history', icon: FileText, color: 'bg-slate-700', desc: 'View, edit & delete records' },
+    { id: 'analyze', title: 'Analyze', icon: TrendingUp, color: 'bg-indigo-600', desc: 'Full-fledged analytics' },
   ];
 
   // Form States
@@ -207,6 +367,40 @@ const AddData: React.FC = () => {
     purchaseCost: '',
   });
 
+  const [incubatorLog, setIncubatorLog] = useState({
+    batchId: '',
+    date: format(new Date(), 'yyyy-MM-dd'),
+    time: format(new Date(), 'HH:mm'),
+    temperature: '',
+    humidity: '',
+    ventilation: 'Normal',
+    turning: true,
+    waterLevel: 'Full',
+    notes: ''
+  });
+
+  const handleSaveIncubatorLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+    try {
+      await addDoc(collection(db, 'incubatorLogs'), {
+        ...incubatorLog,
+        userId: user.uid,
+        temperature: Number(incubatorLog.temperature) || 0,
+        humidity: Number(incubatorLog.humidity) || 0,
+        timestamp: new Date().toISOString()
+      });
+      toast.success('Incubator reading saved');
+      setIncubatorLog({ ...incubatorLog, temperature: '', humidity: '', notes: '' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'incubatorLogs');
+      toast.error('Failed to save log');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const [soldFlockData, setSoldFlockData] = useState({
     saleType: 'Full',
     saleDate: format(new Date(), 'yyyy-MM-dd'),
@@ -216,6 +410,24 @@ const AddData: React.FC = () => {
     totalPrice: '',
     buyerName: '',
     notes: '',
+  });
+
+  const [hatcheryBatches, setHatcheryBatches] = useState<any[]>([]);
+  const [incubatorLogs, setIncubatorLogs] = useState<any[]>([]);
+  const [editingHatcheryBatch, setEditingHatcheryBatch] = useState<any>(null);
+  const [hatcheryData, setHatcheryData] = useState({
+    batchName: '',
+    eggsSet: '',
+    setDate: format(new Date(), 'yyyy-MM-dd'),
+    expectedHatchDate: format(new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
+    actualHatchDate: '',
+    chicksHatched: '',
+    gradeA: '',
+    gradeB: '',
+    mortality: '',
+    cost: '',
+    status: 'Incubating',
+    notes: ''
   });
 
   useEffect(() => {
@@ -253,8 +465,24 @@ const AddData: React.FC = () => {
     const unsubTxs = onSnapshot(qTxs, (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       // Sort client-side to avoid index requirements for now
-      setTransactions(list.sort((a: any, b: any) => new Date(b.date || b.timestamp).getTime() - new Date(a.date || a.timestamp).getTime()));
+      setTransactions(list.sort((a: any, b: any) => {
+        const dateA = new Date(a.date || a.timestamp).getTime();
+        const dateB = new Date(b.date || b.timestamp).getTime();
+        if (isNaN(dateA)) return 1;
+        if (isNaN(dateB)) return -1;
+        return dateB - dateA;
+      }));
     }, (error) => handleFirestoreError(error, OperationType.GET, 'transactions'));
+
+    const qHatchery = query(collection(db, 'hatcheryBatches'), where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+    const unsubHatchery = onSnapshot(qHatchery, (snapshot) => {
+      setHatcheryBatches(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'hatcheryBatches'));
+
+    const qIncubator = query(collection(db, 'incubatorLogs'), where('userId', '==', user.uid), orderBy('timestamp', 'desc'), limit(50));
+    const unsubIncubator = onSnapshot(qIncubator, (snapshot) => {
+      setIncubatorLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'incubatorLogs'));
 
     return () => {
       unsubscribe();
@@ -262,6 +490,8 @@ const AddData: React.FC = () => {
       unsubFeed();
       unsubLogs();
       unsubTxs();
+      unsubHatchery();
+      unsubIncubator();
     };
   }, [user]);
 
@@ -281,7 +511,22 @@ const AddData: React.FC = () => {
         status: 'Active',
         createdAt: new Date().toISOString(),
       });
-      toast.success('Flock created successfully');
+
+      // Record chicks purchase as a transaction if cost > 0
+      if (Number(flockData.chicksCost) > 0) {
+        await addDoc(collection(db, 'transactions'), {
+          userId: user.uid,
+          flockId: docRef.id,
+          type: 'Expense',
+          category: 'Chicks',
+          amount: Number(flockData.chicksCost) || 0,
+          description: `Purchase of ${flockData.initialCount} birds - ${flockData.name}`,
+          date: flockData.placementDate,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      toast.success('Flock created and chicks cost recorded');
       setSelectedFlockId(docRef.id);
       setActiveTab('environment');
     } catch (error) {
@@ -327,9 +572,77 @@ const AddData: React.FC = () => {
   };
 
   const handleDeleteLog = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this record? Inventory stock and bird counts will be added back accordingly.')) return;
+    
     try {
+      // 1. Fetch Log First to know what to revert
+      const logSnap = await getDoc(doc(db, 'dailyLogs', id));
+      if (!logSnap.exists()) return;
+      const logData = logSnap.data();
+      const flockId = logData.flockId;
+
+      // 2. Revert Feed Stock
+      const feedIntake = Number(logData.consumption?.feedIntake) || 0;
+      const feedType = logData.consumption?.feedType;
+      if (feedIntake > 0 && feedType) {
+        const q = query(collection(db, 'feedStock'), where('userId', '==', user?.uid), where('type', '==', feedType));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const stockDoc = snap.docs[0];
+          await updateDoc(doc(db, 'feedStock', stockDoc.id), {
+            quantity: (Number(stockDoc.data().quantity) || 0) + feedIntake
+          });
+        }
+      }
+
+      // 3. Revert Medicine/Vaccine Stock
+      const medName = logData.health?.medicines;
+      const medDoses = Number(logData.health?.medicineDoses) || 0;
+      if (medDoses > 0 && medName && medName !== 'none') {
+        const q = query(collection(db, 'medicineStock'), where('userId', '==', user?.uid), where('name', '==', medName), where('type', '==', 'Medicine'));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const stockDoc = snap.docs[0];
+          await updateDoc(doc(db, 'medicineStock', stockDoc.id), {
+            quantity: (Number(stockDoc.data().quantity) || 0) + medDoses
+          });
+        }
+      }
+
+      const vacName = logData.health?.vaccines;
+      const vacDoses = Number(logData.health?.vaccineDoses) || 0;
+      if (vacDoses > 0 && vacName && vacName !== 'none') {
+        const q = query(collection(db, 'medicineStock'), where('userId', '==', user?.uid), where('name', '==', vacName), where('type', '==', 'Vaccine'));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const stockDoc = snap.docs[0];
+          await updateDoc(doc(db, 'medicineStock', stockDoc.id), {
+            quantity: (Number(stockDoc.data().quantity) || 0) + vacDoses
+          });
+        }
+      }
+
+      // 4. Revert Flock Totals
+      if (flockId) {
+        const flockSnap = await getDoc(doc(db, 'flocks', flockId));
+        if (flockSnap.exists()) {
+          const flock = flockSnap.data();
+          const mortality = Number(logData.health?.mortality) || 0;
+          const culling = Number(logData.health?.culling) || 0;
+          const eggs = Number(logData.production?.eggCount) || 0;
+
+          await updateDoc(doc(db, 'flocks', flockId), {
+            totalMortality: Math.max(0, (Number(flock.totalMortality) || 0) - (mortality + culling)),
+            totalEggs: Math.max(0, (Number(flock.totalEggs) || 0) - eggs),
+            currentCount: (Number(flock.currentCount) || 0) + (mortality + culling),
+            daysCount: Math.max(0, (Number(flock.daysCount) || 0) - 1)
+          });
+        }
+      }
+
+      // 5. Final Delete
       await deleteDoc(doc(db, 'dailyLogs', id));
-      toast.success('Record deleted successfully');
+      toast.success('Record deleted and inventory reverted successfully');
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'dailyLogs');
       toast.error('Failed to delete record');
@@ -341,6 +654,11 @@ const AddData: React.FC = () => {
     if (!user || !editingLog) return;
     setLoading(true);
     try {
+      // 1. Fetch ORIGINAL log to calculate delta
+      const originalLogSnap = await getDoc(doc(db, 'dailyLogs', editingLog.id));
+      if (!originalLogSnap.exists()) throw new Error('Original record not found');
+      const originalLog = originalLogSnap.data();
+
       const logRef = doc(db, 'dailyLogs', editingLog.id);
       const updatedLog = {
         ...editingLog,
@@ -373,8 +691,44 @@ const AddData: React.FC = () => {
           visitors: Number(editingLog.biosecurity?.visitors) || 0,
         }
       };
+
+      // 2. Adjust Stock Deltas
+      // Feed
+      const oldFeed = Number(originalLog.consumption?.feedIntake) || 0;
+      const newFeed = updatedLog.consumption?.feedIntake || 0;
+      const feedType = originalLog.consumption?.feedType; // Assume type doesn't change for simple edit
+      if (oldFeed !== newFeed && feedType) {
+        const q = query(collection(db, 'feedStock'), where('userId', '==', user.uid), where('type', '==', feedType));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const stockDoc = snap.docs[0];
+          await updateDoc(doc(db, 'feedStock', stockDoc.id), {
+            quantity: (Number(stockDoc.data().quantity) || 0) + (oldFeed - newFeed)
+          });
+        }
+      }
+
+      // 3. Update Flock Totals if birds/eggs changed
+      const oldMortality = (Number(originalLog.health?.mortality) || 0) + (Number(originalLog.health?.culling) || 0);
+      const newMortality = (Number(updatedLog.health?.mortality) || 0) + (Number(updatedLog.health?.culling) || 0);
+      const oldEggs = Number(originalLog.production?.eggCount) || 0;
+      const newEggs = Number(updatedLog.production?.eggCount) || 0;
+
+      if (oldMortality !== newMortality || oldEggs !== newEggs) {
+        const flockRef = doc(db, 'flocks', editingLog.flockId);
+        const flockSnap = await getDoc(flockRef);
+        if (flockSnap.exists()) {
+          const flock = flockSnap.data();
+          await updateDoc(flockRef, {
+            totalMortality: (Number(flock.totalMortality) || 0) - oldMortality + newMortality,
+            totalEggs: (Number(flock.totalEggs) || 0) - oldEggs + newEggs,
+            currentCount: (Number(flock.currentCount) || 0) + oldMortality - newMortality
+          });
+        }
+      }
+
       await updateDoc(logRef, updatedLog);
-      toast.success('Record updated successfully');
+      toast.success('Record and inventory adjusted successfully');
       setEditingLog(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'dailyLogs');
@@ -438,12 +792,15 @@ const AddData: React.FC = () => {
       const medQty = Number(newMedicine.quantity) || 0;
       const cost = Number(newMedicine.purchaseCost) || 0;
       const date = new Date().toISOString();
+      const unitPrice = medQty > 0 ? (cost / medQty) : 0;
 
       // 1. Add to Medicine Stock
       await addDoc(collection(db, 'medicineStock'), {
         ...newMedicine,
         userId: user.uid,
-        quantity: medQty,
+        quantity: medQty, // remaining
+        initialQuantity: medQty, // initial
+        unitPrice: unitPrice,
         purchaseCost: cost,
         createdAt: date,
       });
@@ -481,12 +838,15 @@ const AddData: React.FC = () => {
       const feedQty = Number(newFeed.quantity) || 0;
       const cost = Number(newFeed.purchaseCost) || 0;
       const date = new Date().toISOString();
+      const unitPrice = feedQty > 0 ? (cost / feedQty) : 0;
 
       // 1. Add to Feed Stock
       await addDoc(collection(db, 'feedStock'), {
         ...newFeed,
         userId: user.uid,
-        quantity: feedQty,
+        quantity: feedQty, // This will act as remaining quantity
+        initialQuantity: feedQty, // Persistent original quantity
+        unitPrice: unitPrice, // Persistent unit price
         purchaseCost: cost,
         createdAt: date,
       });
@@ -658,10 +1018,14 @@ const AddData: React.FC = () => {
       }
 
       // Convert strings to numbers where necessary
+      const mortalityValue = Number(dailyLog.health.mortality) || 0;
+      
       const formattedLog = {
         ...dailyLog,
         userId: user.uid,
         flockId: selectedFlockId,
+        approved: mortalityValue === 0,
+        approvalType: mortalityValue > 0 ? 'Mortality' : null,
         environment: {
           ...dailyLog.environment,
           temperature: Number(dailyLog.environment.temperature) || 0,
@@ -695,7 +1059,52 @@ const AddData: React.FC = () => {
       };
 
       try {
-        await addDoc(collection(db, 'dailyLogs'), formattedLog);
+        const addedLog = await addDoc(collection(db, 'dailyLogs'), formattedLog);
+        
+        // 2.5 Run Auto Alert Engine (Async)
+        const triggerAlerts = async () => {
+          try {
+            // Default location (e.g., Pune, India) or attempt to get from farm profile if added later
+            let lat = 18.5204, lon = 73.8567;
+            
+            // Try to get geolocation if possible 
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(async (pos) => {
+                    const weather = await fetchWeather(pos.coords.latitude, pos.coords.longitude);
+                    await runAutoAlertEngine({
+                        flockId: selectedFlockId,
+                        userId: user.uid,
+                        farmType: profile?.farmType || 'Broiler Farm',
+                        data: { id: addedLog.id, ...formattedLog },
+                        weather
+                    });
+                }, async () => {
+                    // Fallback
+                    const weather = await fetchWeather(lat, lon);
+                    await runAutoAlertEngine({
+                        flockId: selectedFlockId,
+                        userId: user.uid,
+                        farmType: profile?.farmType || 'Broiler Farm',
+                        data: { id: addedLog.id, ...formattedLog },
+                        weather
+                    });
+                });
+            } else {
+                const weather = await fetchWeather(lat, lon);
+                await runAutoAlertEngine({
+                    flockId: selectedFlockId,
+                    userId: user.uid,
+                    farmType: profile?.farmType || 'Broiler Farm',
+                    data: { id: addedLog.id, ...formattedLog },
+                    weather
+                });
+            }
+          } catch (e) {
+            console.error("Auto Alert Engine failed", e);
+          }
+        };
+        triggerAlerts();
+
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, 'dailyLogs');
         throw error;
@@ -783,6 +1192,49 @@ const AddData: React.FC = () => {
           updateData.currentWeight = formattedLog.production.avgWeight;
         }
 
+        // --- Recalculate Per-Bird Cost (New Methodology) ---
+        const chicksCost = Number(currentFlock.chicksCost) || 0;
+        let consumedFeedCost = 0;
+        let consumedMedCost = 0;
+
+        // Fetch all logs again including the new one (locally)
+        const allLogsIncludingNew = [...logsSnapshot.docs.map(d => d.data()), formattedLog];
+        
+        allLogsIncludingNew.forEach(log => {
+          const intake = Number(log.consumption?.feedIntake) || 0;
+          const fType = log.consumption?.feedType;
+          if (intake > 0 && fType) {
+            const stock = feedStock.find(s => s.type === fType);
+            if (stock && stock.purchaseCost && stock.quantity) {
+              consumedFeedCost += intake * (stock.purchaseCost / stock.quantity);
+            }
+          }
+          const mName = log.health?.medicines;
+          const mDoses = Number(log.health?.medicineDoses) || 0;
+          if (mDoses > 0 && mName && mName !== 'none') {
+            const stock = medicineStock.find(s => s.name === mName);
+            if (stock && stock.purchaseCost && stock.quantity) {
+              consumedMedCost += mDoses * (stock.purchaseCost / stock.quantity);
+            }
+          }
+          const vName = log.health?.vaccines;
+          const vDoses = Number(log.health?.vaccineDoses) || 0;
+          if (vDoses > 0 && vName && vName !== 'none') {
+            const stock = medicineStock.find(s => s.name === vName);
+            if (stock && stock.purchaseCost && stock.quantity) {
+              consumedMedCost += vDoses * (stock.purchaseCost / stock.quantity);
+            }
+          }
+        });
+
+        const totalOperationalCost = chicksCost + consumedFeedCost + consumedMedCost;
+        if (updateData.currentCount > 0) {
+          updateData.costPerBird = totalOperationalCost / updateData.currentCount;
+        } else {
+          updateData.costPerBird = 0;
+        }
+        // --- End Recalculation ---
+
         await updateDoc(flockRef, updateData);
       } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, 'flocks');
@@ -800,13 +1252,115 @@ const AddData: React.FC = () => {
         alerts: { feedDrop: false, mortalityIncrease: false, eggDrop: false, abnormalBehavior: '' }
       });
 
-      toast.success('Daily log saved successfully');
+      if (redirectToAlerts) {
+        setActiveTab('alerts');
+        setRedirectToAlerts(false);
+        toast.info('Record saved. Please complete the Health Alert details below.');
+      } else {
+        toast.success('Daily log saved successfully');
+      }
     } catch (error) {
-      // This catch block handles the initial dailyLog creation failure
       if (!(error instanceof Error && error.message.includes('authInfo'))) {
         handleFirestoreError(error, OperationType.WRITE, 'dailyLogs');
       }
       toast.error('Failed to save log');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateHatcheryBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+    try {
+      const eggsSet = Number(hatcheryData.eggsSet) || 0;
+      const chicksHatched = Number(hatcheryData.chicksHatched) || 0;
+      const hatchability = eggsSet > 0 ? (chicksHatched / eggsSet) * 100 : 0;
+      
+      const docRef = await addDoc(collection(db, 'hatcheryBatches'), {
+        ...hatcheryData,
+        userId: user.uid,
+        eggsSet,
+        chicksHatched: chicksHatched,
+        gradeA: Number(hatcheryData.gradeA) || 0,
+        gradeB: Number(hatcheryData.gradeB) || 0,
+        mortality: Number(hatcheryData.mortality) || 0,
+        cost: Number(hatcheryData.cost) || 0,
+        hatchability: Number(hatchability.toFixed(2)),
+        createdAt: new Date().toISOString(),
+      });
+
+      if (Number(hatcheryData.cost) > 0) {
+        await addDoc(collection(db, 'transactions'), {
+          userId: user.uid,
+          type: 'Expense',
+          category: 'Hatchery',
+          amount: Number(hatcheryData.cost) || 0,
+          description: `Total expenses for hatchery batch: ${hatcheryData.batchName}`,
+          date: hatcheryData.setDate,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      toast.success('Hatchery batch recorded successfully');
+      setHatcheryData({
+        batchName: '',
+        eggsSet: '',
+        setDate: format(new Date(), 'yyyy-MM-dd'),
+        expectedHatchDate: format(new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
+        actualHatchDate: '',
+        chicksHatched: '',
+        gradeA: '',
+        gradeB: '',
+        mortality: '',
+        cost: '',
+        status: 'Incubating',
+        notes: ''
+      });
+      setActiveTab(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'hatcheryBatches');
+      toast.error('Failed to create hatchery batch');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteHatcheryBatch = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'hatcheryBatches', id));
+      toast.success('Hatchery batch deleted successfully');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'hatcheryBatches');
+      toast.error('Failed to delete hatchery batch');
+    }
+  };
+
+  const handleUpdateHatcheryBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingHatcheryBatch) return;
+    setLoading(true);
+    try {
+      const eggsSet = Number(editingHatcheryBatch.eggsSet) || 0;
+      const chicksHatched = Number(editingHatcheryBatch.chicksHatched) || 0;
+      const hatchability = eggsSet > 0 ? (chicksHatched / eggsSet) * 100 : 0;
+
+      await updateDoc(doc(db, 'hatcheryBatches', editingHatcheryBatch.id), {
+        ...editingHatcheryBatch,
+        eggsSet,
+        chicksHatched,
+        gradeA: Number(editingHatcheryBatch.gradeA) || 0,
+        gradeB: Number(editingHatcheryBatch.gradeB) || 0,
+        mortality: Number(editingHatcheryBatch.mortality) || 0,
+        cost: Number(editingHatcheryBatch.cost) || 0,
+        hatchability: Number(hatchability.toFixed(2)),
+      });
+      toast.success('Hatchery batch updated successfully');
+      setEditingHatcheryBatch(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'hatcheryBatches');
+      toast.error('Failed to update hatchery batch');
     } finally {
       setLoading(false);
     }
@@ -863,7 +1417,9 @@ const AddData: React.FC = () => {
               <Label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Select Flock</Label>
               <Select value={selectedFlockId} onValueChange={setSelectedFlockId}>
                 <SelectTrigger className="rounded-xl border-emerald-100 bg-emerald-50/50">
-                  <SelectValue placeholder="Choose a flock" />
+                  <SelectValue placeholder="Choose a flock">
+                    {flocks.find(f => f.id === selectedFlockId)?.name || 'Choose a flock'}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {flocks.map(f => (
@@ -890,45 +1446,158 @@ const AddData: React.FC = () => {
       {!activeTab ? (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {categories.map((cat) => (
-            <Card 
-              key={cat.id} 
-              className="border-none shadow-md hover:shadow-xl transition-all cursor-pointer group rounded-3xl overflow-hidden"
-              onClick={() => setActiveTab(cat.id)}
-            >
-              <CardContent className="p-6 flex flex-col items-center text-center space-y-3">
-                <div className={`${cat.color} p-5 rounded-2xl text-white shadow-xl group-hover:scale-110 transition-transform shadow-slate-200`}>
-                  <cat.icon size={32} />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-lg">{cat.title}</h3>
-                  <p className="text-xs text-slate-600 font-medium mt-1">{cat.desc}</p>
-                </div>
-              </CardContent>
-            </Card>
+            <LicenseGuard key={cat.id} mode="interaction">
+              <Card 
+                className="border-none shadow-md hover:shadow-xl transition-all cursor-pointer group rounded-3xl overflow-hidden"
+                onClick={() => setActiveTab(cat.id)}
+              >
+                <CardContent className="p-6 flex flex-col items-center text-center space-y-3">
+                  <div className={`${cat.color} p-5 rounded-2xl text-white shadow-xl group-hover:scale-110 transition-transform shadow-slate-200`}>
+                    <cat.icon size={32} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-lg">{cat.title}</h3>
+                    <p className="text-xs text-slate-600 font-medium mt-1">{cat.desc}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </LicenseGuard>
           ))}
         </div>
       ) : (
         <div className="w-full">
+          {/* Tab: Incubator Log */}
+          {activeTab === 'incubator' && (
+            <Card className="border-none shadow-sm rounded-3xl">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Thermometer className="text-indigo-600" />
+                  Incubator Monitoring log
+                </CardTitle>
+                <CardDescription>Record temperature and humidity for active batches</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleSaveIncubatorLog} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Active Hatchery Batch</Label>
+                      <Select value={incubatorLog.batchId} onValueChange={v => setIncubatorLog({...incubatorLog, batchId: v})}>
+                        <SelectTrigger className="rounded-xl">
+                          <SelectValue placeholder="Select batch" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {hatcheryBatches.filter(b => b.status === 'Incubating').map(b => (
+                            <SelectItem key={b.id} value={b.id}>{b.batchName}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {hatcheryBatches.filter(b => b.status === 'Incubating').length === 0 && (
+                         <p className="text-[10px] text-amber-600">No incubating batches found. Create one in Hatchery Management tab.</p>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-2">
+                        <Label>Date</Label>
+                        <Input type="date" value={incubatorLog.date} onChange={e => setIncubatorLog({...incubatorLog, date: e.target.value})} className="rounded-xl" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Time</Label>
+                        <Input type="time" value={incubatorLog.time} onChange={e => setIncubatorLog({...incubatorLog, time: e.target.value})} className="rounded-xl" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Temperature (°C)</Label>
+                      <Input type="number" step="0.1" required value={incubatorLog.temperature} onChange={e => setIncubatorLog({...incubatorLog, temperature: e.target.value})} placeholder="e.g. 37.5" className="rounded-xl" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Humidity (%)</Label>
+                      <Input type="number" step="0.1" required value={incubatorLog.humidity} onChange={e => setIncubatorLog({...incubatorLog, humidity: e.target.value})} placeholder="e.g. 60" className="rounded-xl" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Ventilation</Label>
+                      <Select value={incubatorLog.ventilation} onValueChange={v => setIncubatorLog({...incubatorLog, ventilation: v})}>
+                        <SelectTrigger className="rounded-xl">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Low">Low</SelectItem>
+                          <SelectItem value="Normal">Normal</SelectItem>
+                          <SelectItem value="High">High</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Water Level</Label>
+                      <Select value={incubatorLog.waterLevel} onValueChange={v => setIncubatorLog({...incubatorLog, waterLevel: v})}>
+                        <SelectTrigger className="rounded-xl">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Low">Low</SelectItem>
+                          <SelectItem value="Medium">Medium</SelectItem>
+                          <SelectItem value="Full">Full</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Notes</Label>
+                      <Input value={incubatorLog.notes} onChange={e => setIncubatorLog({...incubatorLog, notes: e.target.value})} placeholder="Any observations..." className="rounded-xl" />
+                    </div>
+                  </div>
+                  <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 rounded-xl py-6" disabled={loading}>
+                    <Save className="mr-2" size={20} />
+                    Save Reading
+                  </Button>
+                </form>
+
+                <div className="mt-8">
+                  <h3 className="font-bold text-slate-700 mb-4">Recent Readings</h3>
+                  <div className="space-y-3">
+                    {incubatorLogs.slice(0, 10).map(log => {
+                      const batch = hatcheryBatches.find(b => b.id === log.batchId);
+                      return (
+                        <div key={log.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center">
+                          <div>
+                            <p className="text-xs font-bold text-indigo-600 uppercase tracking-tight">{batch?.batchName || 'Unknown Batch'}</p>
+                            <p className="text-sm font-bold text-slate-800">{log.temperature}°C / {log.humidity}% Humidity</p>
+                            <p className="text-[10px] text-slate-500">{format(new Date(log.date), 'MMM dd')} at {log.time}</p>
+                          </div>
+                          <div className="text-right">
+                             <span className="text-[10px] font-bold bg-white px-2 py-1 rounded-lg border border-slate-200">
+                               Vent: {log.ventilation}
+                             </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Tab: Daily Data (Comprehensive) */}
           {activeTab === 'daily_data' && (
             <div className="space-y-6">
-              <Card className="border-none shadow-sm rounded-3xl">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
+              <Card className="border-none shadow-sm rounded-3xl overflow-hidden">
+                <CardHeader className="bg-emerald-50/50">
+                  <CardTitle className="flex items-center gap-2 text-emerald-900">
                     <FileText className="text-emerald-600" />
                     Daily Farm Data Entry
                   </CardTitle>
                   <CardDescription>Record all daily activities for the selected flock</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleSaveDailyLog} className="space-y-8">
-                    {/* Selection Section */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <CardContent className="p-6">
+                  <form onSubmit={handleSaveDailyLog} className="space-y-4">
+                    {/* Selection Section - Always visible */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-5 bg-slate-50 rounded-2xl border border-slate-100 mb-6">
                       <div className="space-y-2">
                         <Label className="text-xs font-bold uppercase text-slate-500">Select Batch / Flock</Label>
                         <Select value={selectedFlockId} onValueChange={setSelectedFlockId}>
                           <SelectTrigger className="rounded-xl border-emerald-100 bg-white">
-                            <SelectValue placeholder="Choose a flock" />
+                            <SelectValue placeholder="Choose a flock">
+                              {flocks.find(f => f.id === selectedFlockId)?.name || 'Choose a flock'}
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             {flocks.map(f => (
@@ -948,346 +1617,468 @@ const AddData: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Feed Section */}
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-                        <Utensils size={20} className="text-orange-500" />
-                        Feed Section
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="feedIntake">Daily Feed Given (KG)</Label>
-                          <Input 
-                            id="feedIntake" 
-                            type="number" 
-                            value={dailyLog.consumption.feedIntake} 
-                            onChange={e => setDailyLog({...dailyLog, consumption: {...dailyLog.consumption, feedIntake: e.target.value}})}
-                            placeholder="0.00"
-                            className="rounded-xl"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="feedType">Feed Type</Label>
-                          <div className="flex gap-2">
-                            <div className="flex-1">
-                              <Select value={dailyLog.consumption.feedType} onValueChange={v => setDailyLog({...dailyLog, consumption: {...dailyLog.consumption, feedType: v}})}>
-                                <SelectTrigger className="rounded-xl">
-                                  <SelectValue placeholder="Select feed type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {['Pre-Starter', 'Starter', 'Finisher', 'Layer', 'Counter'].map(type => (
-                                    <SelectItem key={type} value={type}>{type}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                    <div className="space-y-3">
+                      {/* 1. Feed Section */}
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('feed')}
+                          className="w-full px-5 py-4 flex items-center justify-between bg-slate-50/50 hover:bg-orange-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-orange-100 rounded-xl text-orange-600">
+                              <Utensils size={18} />
                             </div>
-                            <div className="w-32 flex flex-col justify-center px-3 bg-slate-50 rounded-xl border border-slate-100">
-                              <span className="text-[10px] text-slate-500 uppercase font-bold">Available</span>
-                              <span className="text-sm font-bold text-emerald-600">
-                                {feedStock.find(s => s.type === dailyLog.consumption.feedType)?.quantity || 0} kg
-                              </span>
+                            <span className="font-bold text-slate-900">Feed Section</span>
+                          </div>
+                          {expandedSections.feed ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+                        </button>
+                        {expandedSections.feed && (
+                          <div className="p-5 border-t border-slate-50 animate-in slide-in-from-top-2 duration-200">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="feedIntake">Daily Feed Given (KG)</Label>
+                                <Input 
+                                  id="feedIntake" 
+                                  type="number" 
+                                  value={dailyLog.consumption.feedIntake} 
+                                  onChange={e => setDailyLog({...dailyLog, consumption: {...dailyLog.consumption, feedIntake: e.target.value}})}
+                                  placeholder="0.00"
+                                  className="rounded-xl"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="feedType">Feed Type</Label>
+                                <div className="flex gap-2">
+                                  <div className="flex-1">
+                                    <Select value={dailyLog.consumption.feedType} onValueChange={v => setDailyLog({...dailyLog, consumption: {...dailyLog.consumption, feedType: v}})}>
+                                      <SelectTrigger className="rounded-xl">
+                                        <SelectValue placeholder="Select feed type" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {['Pre-Starter', 'Starter', 'Finisher', 'Layer', 'Counter'].map(type => (
+                                          <SelectItem key={type} value={type}>{type}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="w-32 flex flex-col justify-center px-3 bg-slate-50 rounded-xl border border-slate-100">
+                                    <span className="text-[10px] text-slate-500 uppercase font-bold">Available</span>
+                                    <span className="text-sm font-bold text-emerald-600">
+                                      {feedStock.find(s => s.type === dailyLog.consumption.feedType)?.quantity || 0} kg
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
                           </div>
-                        </div>
+                        )}
                       </div>
-                    </div>
 
-                    {/* Water Consumption Section */}
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-                        <Droplets size={20} className="text-blue-500" />
-                        Water Consumption Section
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="waterIntake">Daily Water Intake (Liters)</Label>
-                          <Input 
-                            id="waterIntake" 
-                            type="number" 
-                            value={dailyLog.consumption.waterIntake} 
-                            onChange={e => setDailyLog({...dailyLog, consumption: {...dailyLog.consumption, waterIntake: e.target.value}})}
-                            placeholder="0"
-                            className="rounded-xl"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Growth Section */}
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-                        <Scale size={20} className="text-purple-500" />
-                        Growth Section
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="avgWeight">Avg Body Weight (Grams) - Weekly Entry</Label>
-                          <Input 
-                            id="avgWeight" 
-                            type="number" 
-                            value={dailyLog.production.avgWeight} 
-                            onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, avgWeight: e.target.value}})}
-                            placeholder="0"
-                            className="rounded-xl"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Eggs Section */}
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-                        <Plus size={20} className="text-emerald-500" />
-                        Eggs Section
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="eggCount">Daily Egg Count</Label>
-                          <Input 
-                            id="eggCount" 
-                            type="number" 
-                            value={dailyLog.production.eggCount} 
-                            onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, eggCount: e.target.value}})}
-                            placeholder="0"
-                            className="rounded-xl"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="eggWeight">Avg Egg Weight (Grams)</Label>
-                          <Input 
-                            id="eggWeight" 
-                            type="number" 
-                            value={dailyLog.production.eggWeight} 
-                            onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, eggWeight: e.target.value}})}
-                            placeholder="0"
-                            className="rounded-xl"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="badEggs">Bad Eggs</Label>
-                          <Input 
-                            id="badEggs" 
-                            type="number" 
-                            value={dailyLog.production.badEggs} 
-                            onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, badEggs: e.target.value}})}
-                            placeholder="0"
-                            className="rounded-xl"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="eggQuality">Egg Quality</Label>
-                          <Select value={dailyLog.production.eggQuality} onValueChange={v => setDailyLog({...dailyLog, production: {...dailyLog.production, eggQuality: v}})}>
-                            <SelectTrigger className="rounded-xl">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Excellent">Excellent</SelectItem>
-                              <SelectItem value="Good">Good</SelectItem>
-                              <SelectItem value="Fair">Fair</SelectItem>
-                              <SelectItem value="Poor">Poor</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Health & Medication Section */}
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-                        <Pill size={20} className="text-red-500" />
-                        Health & Medication
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="vaccines">Vaccination Given</Label>
-                          <div className="flex gap-2">
-                            <div className="flex-1">
-                              <Select 
-                                value={dailyLog.health.vaccines} 
-                                onValueChange={v => setDailyLog({...dailyLog, health: {...dailyLog.health, vaccines: v}})}
-                              >
-                                <SelectTrigger className="rounded-xl">
-                                  <SelectValue placeholder="Select vaccine" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="none">None</SelectItem>
-                                  {medicineStock.filter(m => m.type === 'Vaccine' && m.quantity > 0).map(m => (
-                                    <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                      {/* 2. Water Consumption Section */}
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('water')}
+                          className="w-full px-5 py-4 flex items-center justify-between bg-slate-50/50 hover:bg-blue-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-blue-100 rounded-xl text-blue-600">
+                              <Droplets size={18} />
                             </div>
-                            <div className="w-32 flex flex-col justify-center px-3 bg-slate-50 rounded-xl border border-slate-100">
-                              <span className="text-[10px] text-slate-500 uppercase font-bold">Available</span>
-                              <span className="text-sm font-bold text-emerald-600">
-                                {(() => {
-                                  const med = medicineStock.find(m => m.name === dailyLog.health.vaccines && m.type === 'Vaccine');
-                                  return med ? `${med.quantity} ${med.unit || 'doses'}` : '0 doses';
-                                })()}
-                              </span>
+                            <span className="font-bold text-slate-900">Water Consumption Section</span>
+                          </div>
+                          {expandedSections.water ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+                        </button>
+                        {expandedSections.water && (
+                          <div className="p-5 border-t border-slate-50 animate-in slide-in-from-top-2 duration-200">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="waterIntake">Daily Water Intake (Liters)</Label>
+                                <Input 
+                                  id="waterIntake" 
+                                  type="number" 
+                                  value={dailyLog.consumption.waterIntake} 
+                                  onChange={e => setDailyLog({...dailyLog, consumption: {...dailyLog.consumption, waterIntake: e.target.value}})}
+                                  placeholder="0"
+                                  className="rounded-xl"
+                                />
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="vaccineDoses">Vaccine Doses</Label>
-                          <Input 
-                            id="vaccineDoses" 
-                            type="number"
-                            value={dailyLog.health.vaccineDoses} 
-                            onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, vaccineDoses: e.target.value}})}
-                            placeholder="0"
-                            className="rounded-xl"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="medicines">Medicines Given</Label>
-                          <div className="flex gap-2">
-                            <div className="flex-1">
-                              <Select 
-                                value={dailyLog.health.medicines} 
-                                onValueChange={v => setDailyLog({...dailyLog, health: {...dailyLog.health, medicines: v}})}
-                              >
-                                <SelectTrigger className="rounded-xl">
-                                  <SelectValue placeholder="Select medicine" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="none">None</SelectItem>
-                                  {medicineStock.filter(m => m.type === 'Medicine' && m.quantity > 0).map(m => (
-                                    <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                        )}
+                      </div>
+
+                      {/* 3. Health & Medication Section */}
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('health')}
+                          className="w-full px-5 py-4 flex items-center justify-between bg-slate-50/50 hover:bg-red-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-red-100 rounded-xl text-red-600">
+                              <Pill size={18} />
                             </div>
-                            <div className="w-32 flex flex-col justify-center px-3 bg-slate-50 rounded-xl border border-slate-100">
-                              <span className="text-[10px] text-slate-500 uppercase font-bold">Available</span>
-                              <span className="text-sm font-bold text-emerald-600">
-                                {(() => {
-                                  const med = medicineStock.find(m => m.name === dailyLog.health.medicines && m.type === 'Medicine');
-                                  return med ? `${med.quantity} ${med.unit || 'ml'}` : '0 ml';
-                                })()}
-                              </span>
+                            <span className="font-bold text-slate-900">Health & Medication</span>
+                          </div>
+                          {expandedSections.health ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+                        </button>
+                        {expandedSections.health && (
+                          <div className="p-5 border-t border-slate-50 animate-in slide-in-from-top-2 duration-200">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="vaccines">Vaccination Given</Label>
+                                <div className="flex gap-2">
+                                  <div className="flex-1">
+                                    <Select 
+                                      value={dailyLog.health.vaccines} 
+                                      onValueChange={v => setDailyLog({...dailyLog, health: {...dailyLog.health, vaccines: v}})}
+                                    >
+                                      <SelectTrigger className="rounded-xl">
+                                        <SelectValue placeholder="Select vaccine" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="none">None</SelectItem>
+                                        {medicineStock.filter(m => m.type === 'Vaccine' && m.quantity > 0).map(m => (
+                                          <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="w-32 flex flex-col justify-center px-3 bg-slate-50 rounded-xl border border-slate-100">
+                                    <span className="text-[10px] text-slate-500 uppercase font-bold">Available</span>
+                                    <span className="text-sm font-bold text-emerald-600">
+                                      {(() => {
+                                        const med = medicineStock.find(m => m.name === dailyLog.health.vaccines && m.type === 'Vaccine');
+                                        return med ? `${med.quantity} ${med.unit || 'doses'}` : '0 doses';
+                                      })()}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="vaccineDoses">Vaccine Doses</Label>
+                                <Input 
+                                  id="vaccineDoses" 
+                                  type="number"
+                                  value={dailyLog.health.vaccineDoses} 
+                                  onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, vaccineDoses: e.target.value}})}
+                                  placeholder="0"
+                                  className="rounded-xl"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="medicines">Medicines Given</Label>
+                                <div className="flex gap-2">
+                                  <div className="flex-1">
+                                    <Select 
+                                      value={dailyLog.health.medicines} 
+                                      onValueChange={v => setDailyLog({...dailyLog, health: {...dailyLog.health, medicines: v}})}
+                                    >
+                                      <SelectTrigger className="rounded-xl">
+                                        <SelectValue placeholder="Select medicine" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="none">None</SelectItem>
+                                        {medicineStock.filter(m => m.type === 'Medicine' && m.quantity > 0).map(m => (
+                                          <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="w-32 flex flex-col justify-center px-3 bg-slate-50 rounded-xl border border-slate-100">
+                                    <span className="text-[10px] text-slate-500 uppercase font-bold">Available</span>
+                                    <span className="text-sm font-bold text-emerald-600">
+                                      {(() => {
+                                        const med = medicineStock.find(m => m.name === dailyLog.health.medicines && m.type === 'Medicine');
+                                        return med ? `${med.quantity} ${med.unit || 'ml'}` : '0 ml';
+                                      })()}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="medicineDoses">Medicine Doses</Label>
+                                <Input 
+                                  id="medicineDoses" 
+                                  type="number"
+                                  value={dailyLog.health.medicineDoses} 
+                                  onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, medicineDoses: e.target.value}})}
+                                  placeholder="0"
+                                  className="rounded-xl"
+                                />
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="medicineDoses">Medicine Doses</Label>
-                          <Input 
-                            id="medicineDoses" 
-                            type="number"
-                            value={dailyLog.health.medicineDoses} 
-                            onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, medicineDoses: e.target.value}})}
-                            placeholder="0"
-                            className="rounded-xl"
-                          />
-                        </div>
+                        )}
+                      </div>
+
+                      {/* 4. Mortality & Culling Section */}
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('mortality')}
+                          className="w-full px-5 py-4 flex items-center justify-between bg-slate-50/50 hover:bg-slate-100 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-slate-200 rounded-xl text-slate-600">
+                              <Trash2 size={18} />
+                            </div>
+                            <span className="font-bold text-slate-900">Mortality & Culling</span>
+                          </div>
+                          {expandedSections.mortality ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+                        </button>
+                        {expandedSections.mortality && (
+                          <div className="p-5 border-t border-slate-50 animate-in slide-in-from-top-2 duration-200">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="mortality">Mortality Entry (Birds)</Label>
+                                <Input 
+                                  id="mortality" 
+                                  type="number" 
+                                  value={dailyLog.health.mortality} 
+                                  onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, mortality: e.target.value}})}
+                                  placeholder="0"
+                                  className="rounded-xl"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="culling">Culling Records (Birds)</Label>
+                                <Input 
+                                  id="culling" 
+                                  type="number" 
+                                  value={dailyLog.health.culling} 
+                                  onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, culling: e.target.value}})}
+                                  placeholder="0"
+                                  className="rounded-xl"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 5. Egg Section */}
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('eggs')}
+                          className="w-full px-5 py-4 flex items-center justify-between bg-slate-50/50 hover:bg-emerald-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-emerald-100 rounded-xl text-emerald-600">
+                              <Egg size={18} />
+                            </div>
+                            <span className="font-bold text-slate-900">Egg Section</span>
+                          </div>
+                          {expandedSections.eggs ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+                        </button>
+                        {expandedSections.eggs && (
+                          <div className="p-5 border-t border-slate-50 animate-in slide-in-from-top-2 duration-200">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="eggCount">Daily Egg Count</Label>
+                                <Input 
+                                  id="eggCount" 
+                                  type="number" 
+                                  value={dailyLog.production.eggCount} 
+                                  onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, eggCount: e.target.value}})}
+                                  placeholder="0"
+                                  className="rounded-xl"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="eggWeight">Avg Egg Weight (Grams)</Label>
+                                <Input 
+                                  id="eggWeight" 
+                                  type="number" 
+                                  value={dailyLog.production.eggWeight} 
+                                  onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, eggWeight: e.target.value}})}
+                                  placeholder="0"
+                                  className="rounded-xl"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="badEggs">Bad Eggs</Label>
+                                <Input 
+                                  id="badEggs" 
+                                  type="number" 
+                                  value={dailyLog.production.badEggs} 
+                                  onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, badEggs: e.target.value}})}
+                                  placeholder="0"
+                                  className="rounded-xl"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="eggQuality">Egg Quality</Label>
+                                <Select value={dailyLog.production.eggQuality} onValueChange={v => setDailyLog({...dailyLog, production: {...dailyLog.production, eggQuality: v}})}>
+                                  <SelectTrigger className="rounded-xl">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="Excellent">Excellent</SelectItem>
+                                    <SelectItem value="Good">Good</SelectItem>
+                                    <SelectItem value="Fair">Fair</SelectItem>
+                                    <SelectItem value="Poor">Poor</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 6. Biosecurity Section */}
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('biosecurity')}
+                          className="w-full px-5 py-4 flex items-center justify-between bg-slate-50/50 hover:bg-emerald-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-emerald-100 rounded-xl text-emerald-600">
+                              <ShieldCheck size={18} />
+                            </div>
+                            <span className="font-bold text-slate-900">Biosecurity Section</span>
+                          </div>
+                          {expandedSections.biosecurity ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+                        </button>
+                        {expandedSections.biosecurity && (
+                          <div className="p-5 border-t border-slate-50 animate-in slide-in-from-top-2 duration-200">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              <div className="flex items-center space-x-2 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                <input 
+                                  type="checkbox" 
+                                  id="cleaning" 
+                                  checked={dailyLog.biosecurity.cleaning} 
+                                  onChange={e => setDailyLog({...dailyLog, biosecurity: {...dailyLog.biosecurity, cleaning: e.target.checked}})}
+                                  className="w-4 h-4 text-emerald-600 rounded"
+                                />
+                                <Label htmlFor="cleaning" className="text-xs font-bold cursor-pointer">Cleaning</Label>
+                              </div>
+                              <div className="flex items-center space-x-2 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                <input 
+                                  type="checkbox" 
+                                  id="disinfection" 
+                                  checked={dailyLog.biosecurity.disinfection} 
+                                  onChange={e => setDailyLog({...dailyLog, biosecurity: {...dailyLog.biosecurity, disinfection: e.target.checked}})}
+                                  className="w-4 h-4 text-emerald-600 rounded"
+                                />
+                                <Label htmlFor="disinfection" className="text-xs font-bold cursor-pointer">Disinfection</Label>
+                              </div>
+                              <div className="flex items-center space-x-2 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                <input 
+                                  type="checkbox" 
+                                  id="footbath" 
+                                  checked={dailyLog.biosecurity.footbath} 
+                                  onChange={e => setDailyLog({...dailyLog, biosecurity: {...dailyLog.biosecurity, footbath: e.target.checked}})}
+                                  className="w-4 h-4 text-emerald-600 rounded"
+                                />
+                                <Label htmlFor="footbath" className="text-xs font-bold cursor-pointer">Footbath</Label>
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="visitors" className="text-xs">Visitors Count</Label>
+                                <Input 
+                                  id="visitors" 
+                                  type="number" 
+                                  value={dailyLog.biosecurity.visitors} 
+                                  onChange={e => setDailyLog({...dailyLog, biosecurity: {...dailyLog.biosecurity, visitors: e.target.value}})}
+                                  placeholder="0"
+                                  className="rounded-xl h-8"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 7. Disease Observation Section */}
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('disease')}
+                          className="w-full px-5 py-4 flex items-center justify-between bg-slate-50/50 hover:bg-amber-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-amber-100 rounded-xl text-amber-600">
+                              <AlertTriangle size={18} />
+                            </div>
+                            <span className="font-bold text-slate-900">Disease Observation</span>
+                          </div>
+                          {expandedSections.disease ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+                        </button>
+                        {expandedSections.disease && (
+                          <div className="p-5 border-t border-slate-50 animate-in slide-in-from-top-2 duration-200">
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="symptoms">Observations / Symptoms (Flock Uncertainty)</Label>
+                                <textarea 
+                                  id="symptoms" 
+                                  value={dailyLog.health.symptoms} 
+                                  onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, symptoms: e.target.value}})}
+                                  placeholder="Describe any unusual behavior or symptoms observed..."
+                                  className="w-full min-h-[100px] rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                              </div>
+                              <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-100 rounded-xl">
+                                <input 
+                                  type="checkbox" 
+                                  id="diseaseAlert" 
+                                  checked={redirectToAlerts} 
+                                  onChange={e => setRedirectToAlerts(e.target.checked)} 
+                                  className="w-5 h-5 rounded accent-amber-600 cursor-pointer"
+                                />
+                                <Label htmlFor="diseaseAlert" className="text-xs font-bold text-amber-900 cursor-pointer">
+                                  Critical Issue? Mark for Health Alert & Diagnosis
+                                </Label>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Growth Section - Moved to bottom (or could be merged elsewhere) */}
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm opacity-80 hover:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('growth')}
+                          className="w-full px-5 py-4 flex items-center justify-between bg-slate-50/50 hover:bg-purple-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-purple-100 rounded-xl text-purple-600">
+                              <Scale size={18} />
+                            </div>
+                            <span className="font-bold text-slate-900">Growth / Weight Tracking</span>
+                          </div>
+                          {expandedSections.growth ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+                        </button>
+                        {expandedSections.growth && (
+                          <div className="p-5 border-t border-slate-50 animate-in slide-in-from-top-2 duration-200">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="avgWeight">Avg Body Weight (Grams)</Label>
+                                <Input 
+                                  id="avgWeight" 
+                                  type="number" 
+                                  value={dailyLog.production.avgWeight} 
+                                  onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, avgWeight: e.target.value}})}
+                                  placeholder="0"
+                                  className="rounded-xl"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    {/* Disease Observation Section */}
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-                        <AlertTriangle size={20} className="text-amber-500" />
-                        Disease Observation
-                      </h3>
-                      <div className="space-y-2">
-                        <Label htmlFor="symptoms">Observations / Symptoms (Flock Uncertainty)</Label>
-                        <textarea 
-                          id="symptoms" 
-                          value={dailyLog.health.symptoms} 
-                          onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, symptoms: e.target.value}})}
-                          placeholder="Describe any unusual behavior or symptoms observed..."
-                          className="w-full min-h-[100px] rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        />
-                      </div>
+                    <div className="pt-6">
+                      <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 rounded-2xl py-8 text-xl font-bold shadow-xl shadow-emerald-900/20" disabled={loading}>
+                        <Save className="mr-2" size={28} />
+                        Save Daily Data
+                      </Button>
                     </div>
-
-                    {/* Mortality Section */}
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-                        <Trash2 size={20} className="text-slate-500" />
-                        Mortality & Culling
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="mortality">Mortality Entry (Birds)</Label>
-                          <Input 
-                            id="mortality" 
-                            type="number" 
-                            value={dailyLog.health.mortality} 
-                            onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, mortality: e.target.value}})}
-                            placeholder="0"
-                            className="rounded-xl"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="culling">Culling Records (Birds)</Label>
-                          <Input 
-                            id="culling" 
-                            type="number" 
-                            value={dailyLog.health.culling} 
-                            onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, culling: e.target.value}})}
-                            placeholder="0"
-                            className="rounded-xl"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Biosecurity Section */}
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-                        <ShieldCheck size={20} className="text-emerald-600" />
-                        Biosecurity Section
-                      </h3>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="flex items-center space-x-2 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                          <input 
-                            type="checkbox" 
-                            id="cleaning" 
-                            checked={dailyLog.biosecurity.cleaning} 
-                            onChange={e => setDailyLog({...dailyLog, biosecurity: {...dailyLog.biosecurity, cleaning: e.target.checked}})}
-                            className="w-4 h-4 text-emerald-600 rounded"
-                          />
-                          <Label htmlFor="cleaning" className="text-xs font-bold cursor-pointer">Cleaning</Label>
-                        </div>
-                        <div className="flex items-center space-x-2 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                          <input 
-                            type="checkbox" 
-                            id="disinfection" 
-                            checked={dailyLog.biosecurity.disinfection} 
-                            onChange={e => setDailyLog({...dailyLog, biosecurity: {...dailyLog.biosecurity, disinfection: e.target.checked}})}
-                            className="w-4 h-4 text-emerald-600 rounded"
-                          />
-                          <Label htmlFor="disinfection" className="text-xs font-bold cursor-pointer">Disinfection</Label>
-                        </div>
-                        <div className="flex items-center space-x-2 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                          <input 
-                            type="checkbox" 
-                            id="footbath" 
-                            checked={dailyLog.biosecurity.footbath} 
-                            onChange={e => setDailyLog({...dailyLog, biosecurity: {...dailyLog.biosecurity, footbath: e.target.checked}})}
-                            className="w-4 h-4 text-emerald-600 rounded"
-                          />
-                          <Label htmlFor="footbath" className="text-xs font-bold cursor-pointer">Footbath</Label>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="visitors" className="text-xs">Visitors Count</Label>
-                          <Input 
-                            id="visitors" 
-                            type="number" 
-                            value={dailyLog.biosecurity.visitors} 
-                            onChange={e => setDailyLog({...dailyLog, biosecurity: {...dailyLog.biosecurity, visitors: e.target.value}})}
-                            placeholder="0"
-                            className="rounded-xl h-8"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 rounded-xl py-6 text-lg font-bold shadow-lg shadow-emerald-900/10" disabled={loading}>
-                      <Save className="mr-2" size={24} />
-                      Save Daily Data
-                    </Button>
                   </form>
 
                   {renderSavedLogs('Daily Data')}
@@ -1563,7 +2354,17 @@ const AddData: React.FC = () => {
                                 <div className="flex items-center gap-2 mb-1">
                                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{flock?.name || 'Unknown Flock'}</span>
                                   <span className="text-[10px] text-slate-300">•</span>
-                                  <span className="text-xs font-medium text-slate-500">{item.date ? format(new Date(item.date), 'MMM dd, yyyy') : 'N/A'}</span>
+                                  <span className="text-xs font-medium text-slate-500">
+                                    {(() => {
+                                      try {
+                                        const d = item.date || (item as any).timestamp;
+                                        if (!d) return 'N/A';
+                                        return format(new Date(d), 'MMM dd, yyyy');
+                                      } catch (e) {
+                                        return 'N/A';
+                                      }
+                                    })()}
+                                  </span>
                                 </div>
                                 <p className="text-sm font-bold text-slate-900">{item.title}</p>
                                 {item.amount && <span className="text-xs font-bold text-emerald-600">₹{Number(item.amount).toLocaleString()}</span>}
@@ -1650,7 +2451,9 @@ const AddData: React.FC = () => {
                       <Label className="text-xs font-bold uppercase text-slate-500">Select Flock</Label>
                       <Select value={selectedFlockId} onValueChange={setSelectedFlockId}>
                         <SelectTrigger className="rounded-xl border-amber-100 bg-white">
-                          <SelectValue placeholder="Choose a flock" />
+                          <SelectValue placeholder="Choose a flock">
+                            {flocks.find(f => f.id === selectedFlockId)?.name || 'Choose a flock'}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {flocks.map(f => (
@@ -1888,7 +2691,15 @@ const AddData: React.FC = () => {
                                 </span>
                               </div>
                               <p className="text-xs text-slate-500 font-medium">
-                                Sold on {item.date ? format(new Date(item.date), 'MMM dd, yyyy') : 'N/A'}
+                                Sold on {(() => {
+                                  if (!item.date) return 'N/A';
+                                  try {
+                                    const d = new Date(item.date);
+                                    return isNaN(d.getTime()) ? 'N/A' : format(d, 'MMM dd, yyyy');
+                                  } catch (e) {
+                                    return 'N/A';
+                                  }
+                                })()}
                               </p>
                             </div>
                             <div className="flex flex-wrap gap-3">
@@ -1922,6 +2733,232 @@ const AddData: React.FC = () => {
                         </div>
                       ));
                     })()}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Tab: Hatchery Data */}
+          {activeTab === 'hatchery' && (
+            <Card className="border-none shadow-sm rounded-3xl">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Egg className="text-indigo-600" />
+                  Hatchery Batch Management
+                </CardTitle>
+                <CardDescription>Track egg incubation and hatching performance</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleCreateHatcheryBatch} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="batchName">Batch Name / ID</Label>
+                      <Input 
+                        id="batchName" 
+                        required 
+                        value={hatcheryData.batchName} 
+                        onChange={e => setHatcheryData({...hatcheryData, batchName: e.target.value})} 
+                        placeholder="e.g. HATCH-2024-001" 
+                        className="rounded-xl" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="status">Current Status</Label>
+                      <Select 
+                        value={hatcheryData.status} 
+                        onValueChange={v => setHatcheryData({...hatcheryData, status: v})}
+                      >
+                        <SelectTrigger className="rounded-xl">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Incubating">Incubating</SelectItem>
+                          <SelectItem value="Hatched">Hatched</SelectItem>
+                          <SelectItem value="Cancelled">Cancelled</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="setDate">Date Eggs Set</Label>
+                      <Input 
+                        id="setDate" 
+                        type="date" 
+                        required 
+                        value={hatcheryData.setDate} 
+                        onChange={e => setHatcheryData({...hatcheryData, setDate: e.target.value})} 
+                        className="rounded-xl" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="expectedHatchDate">Expected Hatch Date</Label>
+                      <Input 
+                        id="expectedHatchDate" 
+                        type="date" 
+                        required 
+                        value={hatcheryData.expectedHatchDate} 
+                        onChange={e => setHatcheryData({...hatcheryData, expectedHatchDate: e.target.value})} 
+                        className="rounded-xl" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="eggsSet">Total Eggs Set (Qty)</Label>
+                      <Input 
+                        id="eggsSet" 
+                        type="number" 
+                        required 
+                        value={hatcheryData.eggsSet} 
+                        onChange={e => setHatcheryData({...hatcheryData, eggsSet: e.target.value})} 
+                        placeholder="0" 
+                        className="rounded-xl" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="hatcheryCost">Incubation Cost (₹)</Label>
+                      <Input 
+                        id="hatcheryCost" 
+                        type="number" 
+                        value={hatcheryData.cost} 
+                        onChange={e => setHatcheryData({...hatcheryData, cost: e.target.value})} 
+                        placeholder="0.00" 
+                        className="rounded-xl" 
+                      />
+                    </div>
+                  </div>
+
+                  {hatcheryData.status === 'Hatched' && (
+                    <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 space-y-4 animate-in fade-in slide-in-from-top-2">
+                      <h4 className="font-bold text-indigo-900 text-sm flex items-center gap-2">
+                        <Plus size={16} />
+                        Hatching Results
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="actualHatchDate">Hatch Date</Label>
+                          <Input 
+                            id="actualHatchDate" 
+                            type="date" 
+                            value={hatcheryData.actualHatchDate} 
+                            onChange={e => setHatcheryData({...hatcheryData, actualHatchDate: e.target.value})} 
+                            className="rounded-xl" 
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="chicksHatched">Total Chicks Hatched</Label>
+                          <Input 
+                            id="chicksHatched" 
+                            type="number" 
+                            value={hatcheryData.chicksHatched} 
+                            onChange={e => setHatcheryData({...hatcheryData, chicksHatched: e.target.value})} 
+                            placeholder="0" 
+                            className="rounded-xl" 
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="gradeA">Grade A Chicks</Label>
+                          <Input 
+                            id="gradeA" 
+                            type="number" 
+                            value={hatcheryData.gradeA} 
+                            onChange={e => setHatcheryData({...hatcheryData, gradeA: e.target.value})} 
+                            placeholder="0" 
+                            className="rounded-xl" 
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="gradeB">Grade B Chicks</Label>
+                          <Input 
+                            id="gradeB" 
+                            type="number" 
+                            value={hatcheryData.gradeB} 
+                            onChange={e => setHatcheryData({...hatcheryData, gradeB: e.target.value})} 
+                            placeholder="0" 
+                            className="rounded-xl" 
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label htmlFor="hatcheryNotes">Notes</Label>
+                    <Input 
+                      id="hatcheryNotes" 
+                      value={hatcheryData.notes} 
+                      onChange={e => setHatcheryData({...hatcheryData, notes: e.target.value})} 
+                      placeholder="e.g. Fertility rate was good, temp fluctuations on day 5..." 
+                      className="rounded-xl" 
+                    />
+                  </div>
+
+                  <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 rounded-xl py-6 text-lg font-bold" disabled={loading}>
+                    <Plus className="mr-2" size={20} />
+                    Record Hatchery Batch
+                  </Button>
+                </form>
+
+                <div className="mt-12 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                      <Save size={20} className="text-indigo-600" />
+                      Hatchery History
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4">
+                    {hatcheryBatches.map(batch => (
+                      <div key={batch.id} className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm hover:border-indigo-200 transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-slate-900">{batch.batchName}</h4>
+                            <Badge variant={batch.status === 'Hatched' ? 'secondary' : batch.status === 'Cancelled' ? 'destructive' : 'default'} className="rounded-full">
+                              {batch.status}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-slate-500 font-medium">
+                            Set on {(() => {
+                              try {
+                                return format(new Date(batch.setDate), 'MMM dd, yyyy');
+                              } catch (e) {
+                                return 'N/A';
+                              }
+                            })()} • {batch.eggsSet} eggs
+                          </p>
+                          {batch.status === 'Hatched' && (
+                            <div className="flex gap-2 mt-1">
+                              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                                {batch.chicksHatched} Chicks Hatched ({batch.hatchability}%)
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex-1 sm:flex-none rounded-xl h-10 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                            onClick={() => setEditingHatcheryBatch(batch)}
+                          >
+                            <Edit2 size={14} className="mr-2" />
+                            Edit
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="flex-1 sm:flex-none rounded-xl h-10 text-red-500 hover:text-red-600 hover:bg-red-50"
+                            onClick={() => handleDeleteHatcheryBatch(batch.id)}
+                          >
+                            <Trash2 size={14} className="mr-2" />
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    {hatcheryBatches.length === 0 && (
+                      <div className="text-center py-12 bg-slate-50 rounded-3xl border border-dashed border-slate-200 text-slate-400">
+                        No hatchery batches recorded yet
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -2080,17 +3117,100 @@ const AddData: React.FC = () => {
                 const saleTx = transactions.find(t => t.flockId === reportFlockId && t.category === 'Flock Sale');
                 const totalRevenue = flockTxs.filter(t => t.type === 'Income').reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
                 
+                // Consumption-based Costs (as per user methodology)
+                let consumedFeedCost = 0;
+                let consumedMedCost = 0;
+
+                flockLogs.forEach(log => {
+                  // Feed Cost
+                  const intake = Number(log.consumption?.feedIntake) || 0;
+                  const fType = log.consumption?.feedType;
+                  if (intake > 0 && fType) {
+                    const stock = feedStock.find(s => s.type === fType);
+                    // Use stock.unitPrice if available, otherwise fallback to (purchaseCost / initialQuantity)
+                    const unitPrice = stock?.unitPrice || 
+                                     (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 
+                                     (stock?.quantity ? (stock.purchaseCost / stock.quantity) : 0));
+                    if (unitPrice > 0) {
+                      consumedFeedCost += intake * unitPrice;
+                    }
+                  }
+                  // Med/Vac Cost
+                  const mName = log.health?.medicines;
+                  const mDoses = Number(log.health?.medicineDoses) || 0;
+                  if (mDoses > 0 && mName && mName !== 'none') {
+                    const stock = medicineStock.find(s => s.name === mName);
+                    const unitPrice = stock?.unitPrice || 
+                                     (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 
+                                     (stock?.quantity ? (stock.purchaseCost / stock.quantity) : 0));
+                    if (unitPrice > 0) {
+                      consumedMedCost += mDoses * unitPrice;
+                    }
+                  }
+                  const vName = log.health?.vaccines;
+                  const vDoses = Number(log.health?.vaccineDoses) || 0;
+                  if (vDoses > 0 && vName && vName !== 'none') {
+                    const stock = medicineStock.find(s => s.name === vName);
+                    const unitPrice = stock?.unitPrice || 
+                                     (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 
+                                     (stock?.quantity ? (stock.purchaseCost / stock.quantity) : 0));
+                    if (unitPrice > 0) {
+                      consumedMedCost += vDoses * unitPrice;
+                    }
+                  }
+                });
+
+                // Detailed breakdowns for UI
+                const feedBreakdown: Record<string, { kg: number, cost: number }> = {};
+                const healthBreakdown: Record<string, { type: string, qty: number, cost: number }> = {};
+
+                flockLogs.forEach(log => {
+                  const intake = Number(log.consumption?.feedIntake) || 0;
+                  const fType = log.consumption?.feedType;
+                  if (intake > 0 && fType) {
+                    const stock = feedStock.find(s => s.type === fType);
+                    const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
+                    if (!feedBreakdown[fType]) feedBreakdown[fType] = { kg: 0, cost: 0 };
+                    feedBreakdown[fType].kg += intake;
+                    feedBreakdown[fType].cost += (intake * unitPrice);
+                  }
+
+                  const mName = log.health?.medicines;
+                  const mDoses = Number(log.health?.medicineDoses) || 0;
+                  if (mDoses > 0 && mName && mName !== 'none') {
+                    const stock = medicineStock.find(s => s.name === mName);
+                    const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
+                    if (!healthBreakdown[mName]) healthBreakdown[mName] = { type: 'Medicine', qty: 0, cost: 0 };
+                    healthBreakdown[mName].qty += mDoses;
+                    healthBreakdown[mName].cost += (mDoses * unitPrice);
+                  }
+
+                  const vName = log.health?.vaccines;
+                  const vDoses = Number(log.health?.vaccineDoses) || 0;
+                  if (vDoses > 0 && vName && vName !== 'none') {
+                    const stock = medicineStock.find(s => s.name === vName);
+                    const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
+                    if (!healthBreakdown[vName]) healthBreakdown[vName] = { type: 'Vaccine', qty: 0, cost: 0 };
+                    healthBreakdown[vName].qty += vDoses;
+                    healthBreakdown[vName].cost += (vDoses * unitPrice);
+                  }
+                });
+
                 const chicksCost = Number(flock.chicksCost) || 0;
-                const feedCost = flockTxs.filter(t => t.category === 'Feed').reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-                const medCost = flockTxs.filter(t => t.category === 'Medicine' || t.category === 'Vaccine').reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-                const otherCost = flockTxs.filter(t => t.type === 'Expense' && !['Feed', 'Medicine', 'Vaccine'].includes(t.category)).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+                const feedCost = consumedFeedCost; // Force consumption based
+                const medCost = consumedMedCost; // Force consumption based
+                const otherCost = flockTxs.filter(t => t.type === 'Expense' && !['Feed', 'Medicine', 'Vaccine', 'Chicks'].includes(t.category)).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
                 
                 const totalExpenses = chicksCost + feedCost + medCost + otherCost;
+                const currentAlive = Number(flock.currentCount) || 0;
+                const costPerBird = currentAlive > 0 ? totalExpenses / currentAlive : (totalExpenses / (flock.initialCount - totalMortality));
                 const netProfit = totalRevenue - totalExpenses;
                 const isProfit = netProfit >= 0;
 
-                const totalWeightSold = saleTx?.description?.match(/Weight: ([\d.]+)kg/)?.[1] || flock.saleDetails?.totalWeight || 0;
-                const fcr = totalWeightSold > 0 ? (totalFeed / Number(totalWeightSold)).toFixed(2) : 'N/A';
+                const totalWeightSold = Number(flock.saleDetails?.totalWeight) || 0;
+                const currentWeightKg = ((flock.currentWeight || flock.initialAvgWeight || 0) / 1000) * currentAlive;
+                const weightForFCR = totalWeightSold > 0 ? totalWeightSold : currentWeightKg;
+                const fcr = weightForFCR > 0 ? (totalFeed / weightForFCR).toFixed(2) : 'N/A';
 
                 const duration = flock.soldAt && flock.placementDate 
                   ? Math.ceil((new Date(flock.soldAt).getTime() - new Date(flock.placementDate).getTime()) / (1000 * 60 * 60 * 24))
@@ -2099,44 +3219,45 @@ const AddData: React.FC = () => {
                     : 'N/A';
 
                 return (
-                  <div className="bg-slate-50">
-                    <div className="p-6 bg-white border-b border-slate-100 sticky top-0 z-10 flex justify-between items-center">
-                      <div>
-                        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                          <ClipboardList className="text-amber-600" />
-                          Batch Performance Report
-                        </h2>
-                        <p className="text-sm text-slate-500 font-medium">{flock.name} • {flock.breed}</p>
+                  <div className="bg-slate-50 min-h-full">
+                    <div ref={reportRef}>
+                      <div className="p-6 bg-white border-b border-slate-100 sticky top-0 z-10 flex justify-between items-center group">
+                        <div>
+                          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                            <ClipboardList className="text-emerald-600 transition-transform group-hover:scale-110" />
+                            Batch Performance Report
+                          </h2>
+                          <p className="text-sm text-slate-500 font-medium uppercase tracking-tight">{flock.name} • {flock.breed}</p>
+                        </div>
+                        <Button variant="ghost" size="icon" onClick={() => setReportFlockId(null)} className="rounded-full hover:bg-slate-100">
+                          <Plus className="rotate-45 text-slate-400" size={24} />
+                        </Button>
                       </div>
-                      <Button variant="ghost" size="icon" onClick={() => setReportFlockId(null)} className="rounded-full">
-                        <Plus className="rotate-45" size={24} />
-                      </Button>
-                    </div>
 
-                    <div className="p-6 space-y-6">
-                      {/* Summary Cards */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Birds</p>
-                          <p className="text-lg font-bold text-slate-900">{flock.initialCount}</p>
-                          <p className="text-[10px] text-red-500 font-medium mt-1">{totalMortality} Deaths ({mortalityRate}%)</p>
+                      <div className="p-6 space-y-6">
+                        {/* Summary Cards */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Birds</p>
+                            <p className="text-lg font-black text-slate-900">{flock.initialCount}</p>
+                            <p className="text-[10px] text-red-500 font-bold mt-1 tracking-tight">{totalMortality} Deaths ({mortalityRate}%)</p>
+                          </div>
+                          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Feed</p>
+                            <p className="text-lg font-black text-slate-900">{totalFeed.toLocaleString()} kg</p>
+                            <p className="text-[10px] text-amber-600 font-bold mt-1 tracking-tight">FCR: {fcr}</p>
+                          </div>
+                          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Sale Weight</p>
+                            <p className="text-lg font-black text-slate-900">{totalWeightSold} kg</p>
+                            <p className="text-[10px] text-blue-600 font-bold mt-1 tracking-tight">Duration: {duration} Days</p>
+                          </div>
+                          <div className={`${isProfit ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'} border p-4 rounded-2xl shadow-sm transition-all hover:shadow-md`}>
+                            <p className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${isProfit ? 'text-emerald-600' : 'text-red-600'}`}>Net Profit/Loss</p>
+                            <p className={`text-lg font-black ${isProfit ? 'text-emerald-700' : 'text-red-700'}`}>₹{Math.abs(netProfit).toLocaleString()}</p>
+                            <p className={`text-[10px] font-bold mt-1 tracking-tight ${isProfit ? 'text-emerald-500' : 'text-red-500'}`}>{isProfit ? 'Profit' : 'Loss'}</p>
+                          </div>
                         </div>
-                        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Feed</p>
-                          <p className="text-lg font-bold text-slate-900">{totalFeed.toLocaleString()} kg</p>
-                          <p className="text-[10px] text-amber-600 font-medium mt-1">FCR: {fcr}</p>
-                        </div>
-                        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Sale Weight</p>
-                          <p className="text-lg font-bold text-slate-900">{totalWeightSold} kg</p>
-                          <p className="text-[10px] text-blue-600 font-medium mt-1">Duration: {duration} Days</p>
-                        </div>
-                        <div className={`p-4 rounded-2xl border shadow-sm ${isProfit ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
-                          <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${isProfit ? 'text-emerald-600' : 'text-red-600'}`}>Net Profit/Loss</p>
-                          <p className={`text-lg font-bold ${isProfit ? 'text-emerald-700' : 'text-red-700'}`}>₹{Math.abs(netProfit).toLocaleString()}</p>
-                          <p className={`text-[10px] font-medium mt-1 ${isProfit ? 'text-emerald-600' : 'text-red-600'}`}>{isProfit ? 'Profit' : 'Loss'}</p>
-                        </div>
-                      </div>
 
                       {/* Financial Breakdown */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -2147,26 +3268,61 @@ const AddData: React.FC = () => {
                               Expense Breakdown
                             </CardTitle>
                           </CardHeader>
-                          <CardContent className="p-4 space-y-3">
+                          <CardContent className="p-4 space-y-4">
                             <div className="flex justify-between items-center text-sm">
                               <span className="text-slate-500">Chicks Cost</span>
                               <span className="font-bold text-slate-700">₹{chicksCost.toLocaleString()}</span>
                             </div>
-                            <div className="flex justify-between items-center text-sm">
-                              <span className="text-slate-500">Feed Cost</span>
-                              <span className="font-bold text-slate-700">₹{feedCost.toLocaleString()}</span>
+
+                            {/* Detailed Feed Breakdown */}
+                            <div className="space-y-2">
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Feed Breakdown</p>
+                              {Object.entries(feedBreakdown).map(([type, data]) => (
+                                <div key={type} className="flex justify-between items-center text-xs bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                  <span className="text-slate-600 font-medium">{type} ({data.kg} kg)</span>
+                                  <span className="font-bold text-slate-800">₹{data.cost.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                                </div>
+                              ))}
+                              {Object.keys(feedBreakdown).length === 0 && (
+                                <p className="text-[10px] italic text-slate-400 pl-1">No feed records</p>
+                              )}
+                              <div className="flex justify-between items-center text-sm pt-1 border-t border-slate-100">
+                                <span className="text-slate-500">Total Feed Cost</span>
+                                <span className="font-bold text-slate-700">₹{feedCost.toLocaleString()}</span>
+                              </div>
                             </div>
-                            <div className="flex justify-between items-center text-sm">
-                              <span className="text-slate-500">Medicine & Vaccines</span>
-                              <span className="font-bold text-slate-700">₹{medCost.toLocaleString()}</span>
+
+                            {/* Detailed Health Breakdown */}
+                            <div className="space-y-2">
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Medicine & Vaccine Breakdown</p>
+                              {Object.entries(healthBreakdown).map(([name, data]) => (
+                                <div key={name} className="flex justify-between items-center text-xs bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                  <span className="text-slate-600 font-medium">{name} ({data.qty} doses/units)</span>
+                                  <span className="font-bold text-slate-800">₹{data.cost.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                                </div>
+                              ))}
+                              {Object.keys(healthBreakdown).length === 0 && (
+                                <p className="text-[10px] italic text-slate-400 pl-1">No health records</p>
+                              )}
+                              <div className="flex justify-between items-center text-sm pt-1 border-t border-slate-100">
+                                <span className="text-slate-500">Total Med Cost</span>
+                                <span className="font-bold text-slate-700">₹{medCost.toLocaleString()}</span>
+                              </div>
                             </div>
+
                             <div className="flex justify-between items-center text-sm">
                               <span className="text-slate-500">Other Expenses</span>
                               <span className="font-bold text-slate-700">₹{otherCost.toLocaleString()}</span>
                             </div>
-                            <div className="pt-2 border-t border-slate-100 flex justify-between items-center">
-                              <span className="font-bold text-slate-900">Total Expenses</span>
-                              <span className="font-bold text-red-600">₹{totalExpenses.toLocaleString()}</span>
+                            <div className="pt-2 border-t border-slate-100 flex justify-between items-center bg-slate-50 p-2 rounded-xl mt-2">
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">Cost Per Bird</p>
+                                <p className="text-sm font-bold text-emerald-600">₹{costPerBird.toFixed(2)}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">Total Expenses</p>
+                                <p className="text-sm font-bold text-red-600">₹{totalExpenses.toLocaleString()}</p>
+                              </div>
                             </div>
                           </CardContent>
                         </Card>
@@ -2227,20 +3383,21 @@ const AddData: React.FC = () => {
                           </div>
                         </CardContent>
                       </Card>
-
-                      <div className="flex justify-center pb-6">
-                        <Button 
-                          variant="outline" 
-                          className="rounded-xl border-slate-200 text-slate-600"
-                          onClick={() => window.print()}
-                        >
-                          <FileText size={16} className="mr-2" />
-                          Download PDF Report
-                        </Button>
-                      </div>
                     </div>
                   </div>
-                );
+
+                  <div className="flex justify-center pb-8 sticky bottom-0 bg-white/90 backdrop-blur-md p-6 border-t border-slate-100 z-20">
+                  <Button 
+                    variant="default" 
+                    className="rounded-2xl px-12 py-7 bg-[#122B21] hover:bg-[#1a3d2e] shadow-2xl shadow-emerald-950/20 flex items-center gap-3 font-black text-base transition-all active:scale-95 text-white"
+                    onClick={() => handleDownloadPDF(flock.name)}
+                  >
+                    <Download size={22} className="text-emerald-400" />
+                    DOWNLOAD PDF REPORT
+                  </Button>
+                </div>
+              </div>
+            );
               })()}
             </DialogContent>
           </Dialog>
@@ -2307,6 +3464,66 @@ const AddData: React.FC = () => {
             </DialogContent>
           </Dialog>
 
+          {/* Edit Hatchery Batch Dialog */}
+          <Dialog open={!!editingHatcheryBatch} onOpenChange={(open) => !open && setEditingHatcheryBatch(null)}>
+            <DialogContent className="sm:max-w-[600px] rounded-3xl">
+              <DialogHeader>
+                <DialogTitle>Edit Hatchery Batch</DialogTitle>
+              </DialogHeader>
+              {editingHatcheryBatch && (
+                <form onSubmit={handleUpdateHatcheryBatch} className="space-y-4 py-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-batchName">Batch Name</Label>
+                      <Input id="edit-batchName" value={editingHatcheryBatch.batchName} onChange={e => setEditingHatcheryBatch({...editingHatcheryBatch, batchName: e.target.value})} className="rounded-xl" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-hatcheryStatus">Status</Label>
+                      <Select value={editingHatcheryBatch.status} onValueChange={v => setEditingHatcheryBatch({...editingHatcheryBatch, status: v})}>
+                        <SelectTrigger className="rounded-xl">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Incubating">Incubating</SelectItem>
+                          <SelectItem value="Hatched">Hatched</SelectItem>
+                          <SelectItem value="Cancelled">Cancelled</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-eggsSet">Eggs Set</Label>
+                      <Input id="edit-eggsSet" type="number" value={editingHatcheryBatch.eggsSet} onChange={e => setEditingHatcheryBatch({...editingHatcheryBatch, eggsSet: e.target.value})} className="rounded-xl" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-hBatchCost">Batch Cost (₹)</Label>
+                      <Input id="edit-hBatchCost" type="number" value={editingHatcheryBatch.cost} onChange={e => setEditingHatcheryBatch({...editingHatcheryBatch, cost: e.target.value})} className="rounded-xl" />
+                    </div>
+                    {editingHatcheryBatch.status === 'Hatched' && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-chicks">Chicks Hatched</Label>
+                          <Input id="edit-chicks" type="number" value={editingHatcheryBatch.chicksHatched} onChange={e => setEditingHatcheryBatch({...editingHatcheryBatch, chicksHatched: e.target.value})} className="rounded-xl" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-gradeA">Grade A</Label>
+                          <Input id="edit-gradeA" type="number" value={editingHatcheryBatch.gradeA} onChange={e => setEditingHatcheryBatch({...editingHatcheryBatch, gradeA: e.target.value})} className="rounded-xl" />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-notes">Notes</Label>
+                    <Input id="edit-notes" value={editingHatcheryBatch.notes} onChange={e => setEditingHatcheryBatch({...editingHatcheryBatch, notes: e.target.value})} className="rounded-xl" />
+                  </div>
+                  <DialogFooter className="gap-2 sm:gap-0 mt-4">
+                    <Button type="button" variant="outline" onClick={() => setEditingHatcheryBatch(null)} className="rounded-xl">Cancel</Button>
+                    <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 rounded-xl" disabled={loading}>Save Changes</Button>
+                  </DialogFooter>
+                </form>
+              )}
+            </DialogContent>
+          </Dialog>
+
           {/* Tab: Medicine Stock */}
           {activeTab === 'medicine_stock' && (
             <Card className="border-none shadow-sm rounded-3xl">
@@ -2361,6 +3578,11 @@ const AddData: React.FC = () => {
                     <div className="space-y-2">
                       <Label htmlFor="medCost">Purchase Cost (Optional)</Label>
                       <Input id="medCost" type="number" value={newMedicine.purchaseCost} onChange={e => setNewMedicine({...newMedicine, purchaseCost: e.target.value})} placeholder="0" className="rounded-xl" />
+                      {Number(newMedicine.purchaseCost) > 0 && Number(newMedicine.quantity) > 0 && (
+                        <p className="text-[10px] font-bold text-emerald-600 ml-1">
+                          Auto-calculated: ₹{(Number(newMedicine.purchaseCost) / Number(newMedicine.quantity)).toFixed(2)} per {newMedicine.unit}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 rounded-xl py-6" disabled={loading}>
@@ -2380,13 +3602,25 @@ const AddData: React.FC = () => {
                             <div className="flex items-center gap-2">
                               <p className="text-xs text-slate-500">{item.type}</p>
                               <span className="text-[10px] text-slate-400">•</span>
-                              <p className="text-[10px] text-slate-400">{item.createdAt ? format(new Date(item.createdAt), 'dd MMM yyyy') : 'N/A'}</p>
+                              <p className="text-[10px] text-slate-400">
+                                {(() => {
+                                  try {
+                                    return item.createdAt ? format(new Date(item.createdAt), 'dd MMM yyyy') : 'N/A';
+                                  } catch (e) {
+                                    return 'N/A';
+                                  }
+                                })()}
+                              </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
                             <div className="text-right">
                               <p className="font-bold text-indigo-600">{item.quantity} {item.unit}</p>
-                              {item.purchaseCost > 0 && <p className="text-[10px] text-slate-500">₹{item.purchaseCost}</p>}
+                              {item.purchaseCost > 0 && (
+                                <p className="text-[10px] text-slate-500">
+                                  ₹{item.purchaseCost} (₹{item.unitPrice ? item.unitPrice.toFixed(2) : (item.initialQuantity ? (item.purchaseCost / item.initialQuantity).toFixed(2) : 0)}/{item.unit})
+                                </p>
+                              )}
                               {item.expiryDate && <p className="text-[10px] text-red-500">Exp: {item.expiryDate}</p>}
                             </div>
                             <Button variant="ghost" size="icon" onClick={() => handleDeleteMedicineStock(item.id)} className="h-8 w-8 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50">
@@ -2424,7 +3658,13 @@ const AddData: React.FC = () => {
                                     )}
                                   </p>
                                   <p className="text-xs text-slate-500">
-                                    {format(new Date(log.date), 'dd MMM yyyy')} • {flock?.name || 'Unknown Batch'}
+                                    {(() => {
+                                      try {
+                                        return format(new Date(log.date), 'dd MMM yyyy');
+                                      } catch (e) {
+                                        return 'N/A';
+                                      }
+                                    })()} • {flock?.name || 'Unknown Batch'}
                                   </p>
                                 </div>
                               </div>
@@ -2484,6 +3724,11 @@ const AddData: React.FC = () => {
                     <div className="space-y-2">
                       <Label htmlFor="purchaseCost">Purchase Cost (Optional)</Label>
                       <Input id="purchaseCost" type="number" value={newFeed.purchaseCost} onChange={e => setNewFeed({...newFeed, purchaseCost: e.target.value})} placeholder="0" className="rounded-xl" />
+                      {Number(newFeed.purchaseCost) > 0 && Number(newFeed.quantity) > 0 && (
+                        <p className="text-[10px] font-bold text-emerald-600 ml-1">
+                          Auto-calculated: ₹{(Number(newFeed.purchaseCost) / Number(newFeed.quantity)).toFixed(2)} per kg
+                        </p>
+                      )}
                     </div>
                   </div>
                   <Button type="submit" className="w-full bg-amber-600 hover:bg-amber-700 rounded-xl py-6" disabled={loading}>
@@ -2516,7 +3761,15 @@ const AddData: React.FC = () => {
                               {item.lastEntry && (
                                 <>
                                   <span className="text-[10px] text-slate-400">•</span>
-                                  <p className="text-[10px] text-slate-400">Last: {format(new Date(item.lastEntry), 'dd MMM')}</p>
+                                  <p className="text-[10px] text-slate-400">
+                                    Last: {(() => {
+                                      try {
+                                        return format(new Date(item.lastEntry), 'dd MMM');
+                                      } catch (e) {
+                                        return 'N/A';
+                                      }
+                                    })()}
+                                  </p>
                                 </>
                               )}
                             </div>
@@ -2524,6 +3777,11 @@ const AddData: React.FC = () => {
                           <div className="flex items-center gap-3">
                             <div className="text-right">
                               <p className="font-bold text-amber-600">{item.quantity} kg</p>
+                              {item.purchaseCost > 0 && (
+                                <p className="text-[10px] text-slate-500">
+                                  ₹{item.purchaseCost} (₹{item.unitPrice ? item.unitPrice.toFixed(2) : (item.initialQuantity ? (item.purchaseCost / item.initialQuantity).toFixed(2) : 0)}/kg)
+                                </p>
+                              )}
                               <p className="text-[10px] text-slate-400">Total Available</p>
                             </div>
                             <div className="flex gap-1">

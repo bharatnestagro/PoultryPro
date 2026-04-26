@@ -8,12 +8,33 @@
         "uid": { "type": "string", "description": "Firebase Auth UID" },
         "name": { "type": "string", "description": "Full name" },
         "email": { "type": "string", "format": "email" },
-        "role": { "type": "string", "enum": ["farmer", "admin"] },
+        "role": { "type": "string", "enum": ["farmer", "admin", "manager", "sub-admin"] },
+        "assignedManagerId": { "type": "string", "description": "UID of the manager assigned to this farmer" },
         "farmName": { "type": "string" },
         "address": { "type": "string" },
         "farmArea": { "type": "number", "description": "In acres" },
         "birdCapacity": { "type": "number" },
         "farmType": { "type": "string", "enum": ["Gavthi Farm", "Sonali Farm", "Broiler Farm", "Layer Farm"] },
+        "savedAddresses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "farmName": { "type": "string" },
+              "line1": { "type": "string" },
+              "area": { "type": "string" },
+              "locality": { "type": "string" },
+              "district": { "type": "string" },
+              "state": { "type": "string" },
+              "pincode": { "type": "string" },
+              "name": { "type": "string" },
+              "mobile": { "type": "string" },
+              "altMobile": { "type": "string" },
+              "type": { "type": "string", "enum": ["Home", "Main Farm", "Secondary Farm", "Godown"] }
+            }
+          }
+        },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "name", "email", "role"]
@@ -34,6 +55,7 @@
         "daysCount": { "type": "number" },
         "currentFCR": { "type": "number" },
         "productionRate": { "type": "number" },
+        "costPerBird": { "type": "number", "description": "Calculated production cost per bird" },
         "source": { "type": "string", "description": "Hatchery name" },
         "farmType": { "type": "string" },
         "status": { "type": "string", "enum": ["Active", "Sold", "Archived"] },
@@ -76,6 +98,7 @@
             "weightGain": { "type": "number" },
             "eggCount": { "type": "number" },
             "eggWeight": { "type": "number" },
+            "badEggs": { "type": "number" },
             "eggQuality": { "type": "string" }
           }
         },
@@ -162,6 +185,7 @@
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
+        "assignedManagerId": { "type": "string" },
         "items": {
           "type": "array",
           "items": {
@@ -171,16 +195,16 @@
               "name": { "type": "string" },
               "quantity": { "type": "number" },
               "price": { "type": "number" },
-              "unit": { "type": "string" }
+              "unit": { "type": "string" },
+              "variant": { "type": "string" }
             }
           }
         },
-        "status": { "type": "string", "enum": ["Pending", "Processing", "Delivered", "Cancelled"] },
-        "statusUpdate": { "type": "string", "description": "Message from admin about order status" },
-        "totalAmount": { "type": "number" },
-        "deliveryAddress": { "type": "string" },
-        "paymentMethod": { "type": "string", "enum": ["Cash on Delivery", "Online Payment"] },
+        "status": { "type": "string", "enum": ["Pending", "Received", "Processing", "Delivered", "Cancelled"] },
         "paymentStatus": { "type": "string", "enum": ["Pending", "Paid", "Failed"] },
+        "totalAmount": { "type": "number" },
+        "deliveryAddress": { "type": "object" },
+        "paymentMethod": { "type": "string" },
         "date": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "items", "status", "deliveryAddress", "paymentMethod"]
@@ -191,15 +215,40 @@
       "type": "object",
       "properties": {
         "name": { "type": "string" },
-        "category": { "type": "string", "enum": ["Feed", "Medicine", "Chicks", "Equipment"] },
-        "price": { "type": "number" },
+        "category": { "type": "string" },
+        "price": { "type": "number", "description": "Sale price" },
+        "mrp": { "type": "number", "description": "Maximum Retail Price" },
+        "discountPercentage": { "type": "number" },
         "unit": { "type": "string" },
+        "variants": { 
+          "type": "array", 
+          "items": { 
+            "type": "object", 
+            "properties": {
+              "name": { "type": "string" },
+              "price": { "type": "number" },
+              "unit": { "type": "string" }
+            }
+          }
+        },
         "description": { "type": "string" },
-        "imageUrl": { "type": "string", "description": "Primary image URL (legacy)" },
-        "imageUrls": { "type": "array", "items": { "type": "string" }, "description": "List of product image URLs" },
+        "imageUrl": { "type": "string" },
+        "imageUrls": { "type": "array", "items": { "type": "string" } },
+        "rating": { "type": "number" },
+        "reviews": { 
+          "type": "array", 
+          "items": { 
+            "type": "object", 
+            "properties": {
+              "userName": { "type": "string" },
+              "rating": { "type": "number" },
+              "comment": { "type": "string" },
+              "date": { "type": "string", "format": "date" }
+            }
+          }
+        },
         "inStock": { "type": "boolean" },
-        "stockQuantity": { "type": "number", "description": "Current available stock" },
-        "lowStockLimit": { "type": "number", "description": "Threshold for low stock alert" },
+        "stockQuantity": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "category", "price", "unit"]
@@ -225,9 +274,97 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "items", "updatedAt"]
+    },
+    "HatcheryBatch": {
+      "title": "Hatchery Batch",
+      "description": "Details of a batch of eggs being hatched",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "batchName": { "type": "string" },
+        "eggsSet": { "type": "number" },
+        "setDate": { "type": "string", "format": "date" },
+        "expectedHatchDate": { "type": "string", "format": "date" },
+        "actualHatchDate": { "type": "string", "format": "date" },
+        "chicksHatched": { "type": "number" },
+        "gradeA": { "type": "number" },
+        "gradeB": { "type": "number" },
+        "mortality": { "type": "number" },
+        "hatchability": { "type": "number", "description": "Percentage of eggs that hatched" },
+        "status": { "type": "string", "enum": ["Incubating", "Hatched", "Cancelled"] },
+        "notes": { "type": "string" },
+        "cost": { "type": "number", "description": "Total cost of setting this batch" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "batchName", "eggsSet", "setDate"]
+    },
+    "ManagerPayment": {
+      "title": "Manager Payment",
+      "description": "Financial record of payments made to field managers",
+      "type": "object",
+      "properties": {
+        "managerId": { "type": "string" },
+        "managerName": { "type": "string" },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["Paid", "Processing", "Pending"] },
+        "date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["managerId", "amount", "status", "date"]
+    },
+    "ManagerCommission": {
+      "title": "Manager Product Commission",
+      "description": "Per-product commission settings for a specific manager",
+      "type": "object",
+      "properties": {
+        "managerId": { "type": "string" },
+        "managerName": { "type": "string" },
+        "productCommissions": { 
+          "type": "object", 
+          "description": "Map of productId to commission amount in ₹" 
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["managerId", "productCommissions"]
+    },
+    "SystemAlert": {
+      "title": "System Alert",
+      "description": "Smart alerts and broadcast messages for farmers",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "target": { "type": "string", "enum": ["All", "Gavthi Farm", "Sonali Farm", "Broiler Farm", "Layer Farm"] },
+        "condition": { "type": "string" },
+        "treatment": { "type": "string" },
+        "priority": { "type": "string", "enum": ["Low", "Medium", "High"] },
+        "type": { "type": "string" },
+        "active": { "type": "boolean" },
+        "isAuto": { "type": "boolean" },
+        "sourceLogId": { "type": "string" },
+        "viewedBy": { "type": "array", "items": { "type": "string" }, "description": "UIDs of farmers who have seen this" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "description", "target", "priority"]
+    },
+    "AlertRule": {
+      "title": "Alert Rule",
+      "description": "Natural language logic for auto-alerts",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "logic": { "type": "string" },
+        "priority": { "type": "string" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      }
     }
   },
   "firestore": {
+    "/alertRules/{ruleId}": {
+      "schema": "AlertRule",
+      "description": "Dynamic logic rules for AI evaluation"
+    },
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "User profile documents"
@@ -263,6 +400,22 @@
     "/carts/{userId}": {
       "schema": "Cart",
       "description": "Active shopping carts"
+    },
+    "/hatcheryBatches/{batchId}": {
+      "schema": "HatcheryBatch",
+      "description": "Hatchery operation records"
+    },
+    "/managerPayments/{paymentId}": {
+      "schema": "ManagerPayment",
+      "description": "Records of commission payments to managers"
+    },
+    "/managerCommissions/{managerId}": {
+      "schema": "ManagerCommission",
+      "description": "Specific product commission rules for each manager"
+    },
+    "/systemAlerts/{alertId}": {
+      "schema": "SystemAlert",
+      "description": "Smart alerts for farmers"
     }
   }
 }

@@ -24,9 +24,22 @@ import AdminSettings from './pages/AdminSettings';
 import AdminLogistics from './pages/AdminLogistics';
 import AdminOperations from './pages/AdminOperations';
 import AdminDeletedOrders from './pages/AdminDeletedOrders';
+import AdminManagers from './pages/AdminManagers';
+import AdminManagerAnalytics from './pages/AdminManagerAnalytics';
+import AdminPayments from './pages/AdminPayments';
+import AdminKeyPricing from './pages/AdminKeyPricing';
+import AdminAlerts from './pages/AdminAlerts';
+import AdminAutoAlerts from './pages/AdminAutoAlerts';
+import ManagerLayout from './components/ManagerLayout';
+import ManagerDashboard from './pages/ManagerDashboard';
+import ManagerEarnings from './pages/ManagerEarnings';
+import ManagerInventory from './pages/ManagerInventory';
+import ManagerFlocks from './pages/ManagerFlocks';
 import FlockManagement from './pages/FlockManagement';
 import Transactions from './pages/Transactions';
 import AddData from './pages/AddData';
+import KeyManagement from './pages/KeyManagement';
+import Notifications from './pages/Notifications';
 import { Toaster } from 'sonner';
 
 export default function App() {
@@ -42,6 +55,7 @@ export default function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/add" element={<AddData />} />
             <Route path="/shop" element={<Shop />} />
+            <Route path="/notifications" element={<Notifications />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/flocks" element={<FlockManagement />} />
             <Route path="/transactions" element={<Transactions />} />
@@ -65,6 +79,26 @@ export default function App() {
             <Route path="settings" element={<AdminSettings />} />
             <Route path="logistics" element={<AdminLogistics />} />
             <Route path="operations" element={<AdminOperations />} />
+            <Route path="manager-analytics" element={<AdminManagerAnalytics />} />
+            <Route path="managers" element={<AdminManagers />} />
+            <Route path="payments" element={<AdminPayments />} />
+            <Route path="alerts" element={<AdminAlerts />} />
+            <Route path="auto-alerts" element={<AdminAutoAlerts />} />
+            <Route path="keys" element={<KeyManagement />} />
+            <Route path="keys/pricing" element={<AdminKeyPricing />} />
+          </Route>
+
+          {/* Manager Suite Routes */}
+          <Route path="/manager" element={<ManagerLayout />}>
+            <Route index element={<ManagerDashboard />} />
+            <Route path="farmers" element={<AdminFarmers />} />
+            <Route path="logs" element={<AdminLogs />} />
+            <Route path="operations" element={<AdminOperations />} />
+            <Route path="orders" element={<AdminOrders />} />
+            <Route path="inventory" element={<ManagerInventory />} />
+            <Route path="flocks" element={<ManagerFlocks />} />
+            <Route path="earnings" element={<ManagerEarnings />} />
+            <Route path="keys" element={<KeyManagement />} />
           </Route>
           
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

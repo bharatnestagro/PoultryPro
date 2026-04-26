@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { collection, onSnapshot, query, orderBy, doc, deleteDoc, where } from 'firebase/firestore';
 import { db } from '@/src/lib/firebase';
+import { useAuth } from '@/src/lib/AuthContext';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -27,15 +28,25 @@ import {
   DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { 
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { format, subDays, isSameDay, parseISO } from 'date-fns';
 
 const AdminLogs: React.FC = () => {
+  const { user: currentUser, isAdmin, isManager } = useAuth();
   const [logs, setLogs] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [flocks, setFlocks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [detailsTitle, setDetailsTitle] = useState('');
+  const [detailsFarmers, setDetailsFarmers] = useState<any[]>([]);
 
   useEffect(() => {
     const q = query(collection(db, 'dailyLogs'), orderBy('date', 'desc'));
@@ -47,7 +58,14 @@ const AdminLogs: React.FC = () => {
 
     const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setUsers(list.filter((u: any) => u.role !== 'admin'));
+      const filteredUsers = list.filter((u: any) => {
+        if (u.role === 'admin') return false;
+        if (isManager && !isAdmin) {
+          return u.managerId === currentUser?.uid || u.assignedManagerId === currentUser?.uid;
+        }
+        return true;
+      });
+      setUsers(filteredUsers);
     });
 
     const unsubFlocks = onSnapshot(collection(db, 'flocks'), (snapshot) => {
@@ -92,14 +110,39 @@ const AdminLogs: React.FC = () => {
     return {
       farmersNoLogsToday,
       percentNoLogsToday,
+      farmersWithLogsToday,
       farmersNoLogsYesterday,
       percentNoLogsYesterday,
+      farmersWithLogsYesterday,
       percentLogsToday,
       mortalityPercent
     };
   };
 
   const stats = getStats();
+
+  const handleShowLogDetails = (type: 'today' | 'yesterday', status: 'missing' | 'submitted') => {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const yesterday = format(subDays(new Date(), 1), 'yyyy-MM-dd');
+    const targetDate = type === 'today' ? today : yesterday;
+    
+    const logsOnDate = logs.filter(l => l.date === targetDate);
+    const farmersWithLogsIds = new Set(logsOnDate.map(l => l.userId));
+    
+    if (status === 'missing') {
+      const missingFarmers = users.filter(u => !farmersWithLogsIds.has(u.id));
+      setDetailsTitle(type === 'today' ? "Farmers with No Log Today" : "Farmers with No Log Yesterday");
+      setDetailsFarmers(missingFarmers.map(f => ({ ...f, hasLogged: false })));
+    } else {
+      const submittedFarmers = users.filter(u => farmersWithLogsIds.has(u.id));
+      setDetailsTitle(type === 'today' ? "Logs Submitted Today" : "Logs Submitted Yesterday");
+      setDetailsFarmers(submittedFarmers.map(f => {
+        const userLog = logsOnDate.find(l => l.userId === f.id);
+        return { ...f, hasLogged: true, logDetails: userLog };
+      }));
+    }
+    setIsDetailsOpen(true);
+  };
 
   const usersMap = users.reduce((acc, u) => ({ ...acc, [u.id]: u }), {} as any);
   const flocksMap = flocks.reduce((acc, f) => ({ ...acc, [f.id]: f }), {} as any);
@@ -139,6 +182,8 @@ const AdminLogs: React.FC = () => {
 
   const filteredLogs = logs.filter(l => {
     const user = usersMap[l.userId];
+    if (!user && isManager) return false; // Hide logs if user not in manager's list
+    
     const flock = flocksMap[l.flockId];
     const farmName = user?.farmName || user?.name || l.farmName || '';
     const flockName = flock?.name || l.flockName || '';
@@ -162,21 +207,33 @@ const AdminLogs: React.FC = () => {
 
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 flex items-center gap-4">
+        <div 
+          className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 flex items-center gap-4 cursor-pointer hover:border-red-200 transition-all hover:bg-red-50/10 group"
+          onClick={() => handleShowLogDetails('today', 'missing')}
+        >
           <div className="bg-red-50 p-3 rounded-2xl text-red-600">
             <AlertTriangle size={24} />
           </div>
           <div>
-            <p className="text-2xl font-bold text-slate-900">{stats.farmersNoLogsToday}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-2xl font-bold text-slate-900">{stats.farmersNoLogsToday}</p>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-[8px] font-bold uppercase rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); handleShowLogDetails('today', 'submitted'); }}>View Logged</Button>
+            </div>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">NO LOG TODAY ({stats.percentNoLogsToday.toFixed(1)}%)</p>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 flex items-center gap-4">
+        <div 
+          className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 flex items-center gap-4 cursor-pointer hover:border-amber-200 transition-all hover:bg-amber-50/10 group"
+          onClick={() => handleShowLogDetails('yesterday', 'missing')}
+        >
           <div className="bg-amber-50 p-3 rounded-2xl text-amber-600">
             <Calendar size={24} />
           </div>
           <div>
-            <p className="text-2xl font-bold text-slate-900">{stats.farmersNoLogsYesterday}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-2xl font-bold text-slate-900">{stats.farmersNoLogsYesterday}</p>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-[8px] font-bold uppercase rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); handleShowLogDetails('yesterday', 'submitted'); }}>View Logged</Button>
+            </div>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">NO LOG YESTERDAY ({stats.percentNoLogsYesterday.toFixed(1)}%)</p>
           </div>
         </div>
@@ -292,8 +349,8 @@ const AdminLogs: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <div>
-                        <p className="text-xs font-bold text-slate-900">{farmName}</p>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">{flockName}</p>
+                        <p className="text-xs font-bold text-slate-900">{user?.name || farmName}</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">{farmName !== (user?.name || farmName) ? farmName : ''} • {flockName}</p>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -344,6 +401,61 @@ const AdminLogs: React.FC = () => {
         </TableBody>
         </Table>
       </Card>
+
+      <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+        <DialogContent className="rounded-[2rem] max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold">{detailsTitle}</DialogTitle>
+          </DialogHeader>
+          <div className="mt-4 space-y-3 max-h-[60vh] overflow-y-auto pr-2 no-scrollbar">
+            {detailsFarmers.map(farmer => (
+              <div key={farmer.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center font-bold text-slate-400 border border-slate-100">
+                      {farmer.name?.[0] || 'U'}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">{farmer.name || farmer.farmName || 'Unnamed'}</p>
+                      <p className="text-[10px] text-slate-400 font-medium">{farmer.farmName} • {farmer.district || 'Location N/A'}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <Badge variant={farmer.hasLogged ? "default" : "outline"} className={`text-[10px] font-bold ${farmer.hasLogged ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200 border-none' : 'border-slate-200'}`}>
+                      {farmer.hasLogged ? 'Logged' : 'Missing'}
+                    </Badge>
+                  </div>
+                </div>
+                
+                {farmer.hasLogged && farmer.logDetails && (
+                  <div className="grid grid-cols-2 gap-2 mt-2 pt-3 border-t border-slate-200/50">
+                    <div className="bg-white p-2 rounded-xl border border-slate-100">
+                      <p className="text-[8px] font-bold text-slate-400 uppercase">Mortality</p>
+                      <p className="text-xs font-bold text-red-600">{farmer.logDetails.health?.mortality || 0}</p>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-slate-100">
+                      <p className="text-[8px] font-bold text-slate-400 uppercase">Feed (kg)</p>
+                      <p className="text-xs font-bold text-emerald-600">{farmer.logDetails.consumption?.feedIntake || 0}</p>
+                    </div>
+                  </div>
+                )}
+                
+                {!farmer.hasLogged && (
+                  <div className="flex justify-between items-center mt-2 pt-3 border-t border-slate-200/50">
+                    <span className="text-[10px] text-slate-400 font-medium">Contact: {farmer.phone || 'N/A'}</span>
+                    <Button size="sm" variant="ghost" className="h-7 text-[10px] font-bold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50">Call Farmer</Button>
+                  </div>
+                )}
+              </div>
+            ))}
+            {detailsFarmers.length === 0 && (
+              <div className="py-10 text-center text-slate-400 italic">
+                No records found for this selection.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '@/src/lib/firebase';
+import { useAuth } from '@/src/lib/AuthContext';
 import { handleFirestoreError, OperationType } from '@/src/lib/errorHandlers';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,7 @@ import { Tag, AlertTriangle, TrendingUp, ShoppingBag, Eye, Phone, User, Mail, Ca
 import { format, subDays, isAfter } from 'date-fns';
 
 const AdminShop: React.FC = () => {
+  const { profile } = useAuth();
   const [items, setItems] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [carts, setCarts] = useState<any[]>([]);
@@ -50,14 +52,31 @@ const AdminShop: React.FC = () => {
     };
   }, []);
 
+  // Filter based on role
+  const isManager = profile?.role === 'manager';
+  
+  const filteredUsers = isManager 
+    ? users.filter(u => u.assignedManagerId === profile.uid) 
+    : users;
+
+  const accessibleUserIds = new Set(filteredUsers.map(u => u.id));
+
+  const filteredOrders = isManager
+    ? orders.filter(o => accessibleUserIds.has(o.userId))
+    : orders;
+
+  const filteredCarts = isManager
+    ? carts.filter(c => accessibleUserIds.has(c.userId))
+    : carts;
+
   const stats = {
     totalItems: items.length,
     lowStock: items.filter(i => (i.stockQuantity || 0) <= (i.lowStockLimit || 10)).length,
-    recentOrders: orders.filter(o => isAfter(new Date(o.date), subDays(new Date(), 7))).length,
-    abandonedCarts: carts.length
+    recentOrders: filteredOrders.filter(o => isAfter(new Date(o.date), subDays(new Date(), 7))).length,
+    abandonedCarts: filteredCarts.length
   };
 
-  const recentOrdersList = orders.filter(o => isAfter(new Date(o.date), subDays(new Date(), 7)));
+  const recentOrdersList = filteredOrders.filter(o => isAfter(new Date(o.date), subDays(new Date(), 7)));
 
   const getUserDetails = (userId: string) => {
     const user = users.find(u => u.id === userId || u.uid === userId);

@@ -10,6 +10,7 @@ import {
   CreditCard, 
   FileText, 
   ShieldAlert, 
+  Shield,
   Settings, 
   Bell, 
   Search,
@@ -19,7 +20,9 @@ import {
   Plus,
   X,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Menu,
+  Key
 } from 'lucide-react';
 import { useAuth } from '@/src/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -35,11 +38,25 @@ const AdminLayout: React.FC = () => {
   const { user, profile, loading, signOut, isAdmin } = useAuth();
   const [notifications, setNotifications] = useState<any[]>([]);
   const [settings, setSettings] = useState<any>(null);
-  const [expandedMenus, setExpandedMenus] = useState<string[]>(['Farmers', 'Shop Management']);
+  const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 1024) {
+        setIsSidebarOpen(false);
+      } else {
+        setIsSidebarOpen(true);
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const toggleMenu = (label: string) => {
     setExpandedMenus(prev => 
-      prev.includes(label) ? prev.filter(l => l !== label) : [...prev, label]
+      prev.includes(label) ? [] : [label]
     );
   };
 
@@ -97,6 +114,25 @@ const AdminLayout: React.FC = () => {
         { label: 'Farmer Transactions', path: '/admin/transactions?source=farmer' },
       ]
     },
+    {
+      icon: Shield,
+      label: 'Team Management',
+      path: '/admin/managers',
+      children: [
+        { label: 'Manager Analytics', path: '/admin/manager-analytics' },
+        { label: 'Managers & Roles', path: '/admin/managers' },
+        { label: 'Commission & Payment', path: '/admin/payments' },
+      ]
+    },
+    {
+      icon: Bell,
+      label: 'Notifications',
+      path: '/admin/alerts',
+      children: [
+        { label: 'Make Alerts', path: '/admin/alerts' },
+        { label: 'Auto Alert', path: '/admin/auto-alerts' },
+      ]
+    },
     { 
       icon: ShoppingCart, 
       label: 'Shop Management', 
@@ -113,21 +149,38 @@ const AdminLayout: React.FC = () => {
         { label: 'Shop setting', path: '/admin/settings' },
       ]
     },
+    {
+      icon: Key,
+      label: 'License Key',
+      path: '/admin/keys',
+      children: [
+        { label: 'Key management', path: '/admin/keys' },
+        { label: 'Key Pricing', path: '/admin/keys/pricing' }
+      ]
+    },
     { icon: Settings, label: 'Settings', path: '/admin/settings' },
   ];
 
   return (
-    <div className="min-h-screen bg-[#F9F9F4] flex">
+    <div className="min-h-screen bg-[#F9F9F4] flex overflow-x-hidden">
+      {/* Sidebar Overlay for Mobile */}
+      {isSidebarOpen && window.innerWidth < 1024 && (
+        <div className="fixed inset-0 bg-black/40 z-[45] backdrop-blur-sm transition-opacity" onClick={() => setIsSidebarOpen(false)} />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-slate-100 flex flex-col fixed inset-y-0 z-50">
-        <div className="p-6">
-          <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-bold text-slate-900">Agrarian Modernist</h1>
+      <aside className={`fixed inset-y-0 left-0 bg-white border-r border-slate-100 flex flex-col z-50 transition-all duration-300 overflow-hidden ${isSidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full lg:w-0 lg:opacity-0'}`}>
+        <div className="p-6 shrink-0">
+          <div className="flex items-center justify-between mb-1">
+            <h1 className="text-xl font-bold text-slate-900 truncate">Agrarian Modernist</h1>
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setIsSidebarOpen(false)}>
+              <X size={20} />
+            </Button>
           </div>
-          <p className="text-xs text-slate-400 font-medium">Admin Suite • Poultry Management</p>
+          <p className="text-xs text-slate-400 font-medium truncate">Admin Suite • Poultry Management</p>
         </div>
 
-        <nav className="flex-1 px-4 space-y-1 mt-4 overflow-y-auto max-h-[calc(100vh-250px)] no-scrollbar">
+        <nav className="flex-1 px-4 space-y-1 mt-4 overflow-y-auto no-scrollbar">
           {navItems.map((item) => {
             const hasChildren = item.children && item.children.length > 0;
             const isExpanded = expandedMenus.includes(item.label);
@@ -154,6 +207,9 @@ const AdminLayout: React.FC = () => {
                 ) : (
                   <Link
                     to={item.path}
+                    onClick={() => {
+                      if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                    }}
                     className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
                       isActive
                         ? 'bg-[#122B21] text-white shadow-lg shadow-emerald-900/10'
@@ -173,6 +229,9 @@ const AdminLayout: React.FC = () => {
                         <Link
                           key={child.label}
                           to={child.path}
+                          onClick={() => {
+                            if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                          }}
                           className={`flex items-center gap-3 px-4 py-2 rounded-lg text-sm transition-all duration-200 ${
                             isChildActive
                               ? 'text-emerald-600 font-bold bg-emerald-50'
@@ -210,11 +269,14 @@ const AdminLayout: React.FC = () => {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 ml-64 flex flex-col min-w-0">
+      <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${isSidebarOpen ? 'lg:ml-64' : 'lg:ml-0'}`}>
         {/* Top Header */}
-        <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-100 flex items-center justify-between px-8 sticky top-0 z-10">
-          <div className="flex items-center gap-8 flex-1">
-            <div className="relative w-full max-w-md">
+        <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-100 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-10">
+          <div className="flex items-center gap-4 flex-1">
+            <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+              <Menu size={22} className="text-slate-600" />
+            </Button>
+            <div className="relative w-full max-w-md hidden sm:block">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <Input 
                 placeholder="Search data, farmers, flocks..." 

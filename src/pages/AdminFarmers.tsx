@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, setDoc } from 'firebase/firestore';
+import { useSearchParams } from 'react-router-dom';
+import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, setDoc, addDoc } from 'firebase/firestore';
 import { db } from '@/src/lib/firebase';
 import { handleFirestoreError, OperationType } from '@/src/lib/errorHandlers';
 import { initializeApp, getApps, getApp, deleteApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { useAuth } from '@/src/lib/AuthContext';
 import { Card, CardContent } from '@/components/ui/card';
@@ -43,7 +44,8 @@ import {
   Phone,
   Mail,
   Lock,
-  MapPin
+  MapPin,
+  ClipboardList
 } from 'lucide-react';
 import { 
   DropdownMenu, 
@@ -56,6 +58,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 
 const AdminFarmers: React.FC = () => {
+  const [searchParams] = useSearchParams();
   const { user, isAdmin, isManager } = useAuth();
   const [farmers, setFarmers] = useState<any[]>([]);
   const [managers, setManagers] = useState<any[]>([]);
@@ -63,6 +66,17 @@ const AdminFarmers: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('All Types');
   const [selectedFarmerId, setSelectedFarmerId] = useState<string | null>(null);
+
+  // Auto-open task if UID is provided in URL
+  useEffect(() => {
+    const uid = searchParams.get('uid');
+    if (uid && farmers.length > 0) {
+      if (farmers.some(f => f.id === uid)) {
+        setSelectedFarmerId(uid);
+        setIsSchedulingTask(true);
+      }
+    }
+  }, [searchParams, farmers]);
   const [selectedFarmerFlocks, setSelectedFarmerFlocks] = useState<any[]>([]);
   const [selectedFarmerLogs, setSelectedFarmerLogs] = useState<any[]>([]);
   const [selectedFarmerStock, setSelectedFarmerStock] = useState<{ feed: any[], medicine: any[] }>({ feed: [], medicine: [] });
@@ -70,6 +84,7 @@ const AdminFarmers: React.FC = () => {
   const [expandedFlockId, setExpandedFlockId] = useState<string | null>(null);
   const [logFilter, setLogFilter] = useState<string | null>(null);
   const [isAddingFarmer, setIsAddingFarmer] = useState(false);
+  const [isEditingDetails, setIsEditingDetails] = useState(false);
   const [newFarmer, setNewFarmer] = useState({
     name: '',
     email: '',
@@ -78,9 +93,46 @@ const AdminFarmers: React.FC = () => {
     farmName: '',
     farmType: 'Broiler',
     birdCapacity: '',
-    address: ''
+    address: '',
+    liftingDays: '0'
   });
+  const [editingDetails, setEditingDetails] = useState<any>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [isSchedulingTask, setIsSchedulingTask] = useState(false);
+  const [taskData, setTaskData] = useState({
+    title: '',
+    description: '',
+    category: 'Vaccination',
+    scheduledDate: format(new Date(), 'yyyy-MM-dd')
+  });
+
+  const handleScheduleTask = async () => {
+    if (!selectedFarmerId || !taskData.title) {
+      toast.error('Task title is required');
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'tasks'), {
+        ...taskData,
+        userId: selectedFarmerId,
+        creatorId: user?.uid,
+        creatorType: isAdmin ? 'Admin' : 'Manager',
+        status: 'Pending',
+        createdAt: new Date().toISOString()
+      });
+      toast.success('Task scheduled for farmer');
+      setIsSchedulingTask(false);
+      setTaskData({
+        title: '',
+        description: '',
+        category: 'Vaccination',
+        scheduledDate: format(new Date(), 'yyyy-MM-dd')
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'tasks');
+      toast.error('Failed to schedule task');
+    }
+  };
 
   useEffect(() => {
     const q = query(collection(db, 'users'));
@@ -206,6 +258,21 @@ const AdminFarmers: React.FC = () => {
     }
   };
 
+  const handleSendResetLink = async (farmer: any) => {
+    if (!farmer.email) {
+      toast.error('This farmer does not have a registered email address');
+      return;
+    }
+    try {
+      const auth = getAuth();
+      await sendPasswordResetEmail(auth, farmer.email);
+      toast.success(`Password reset link sent to ${farmer.email}`);
+    } catch (error: any) {
+      console.error('Reset link error:', error);
+      toast.error('Failed to send reset link: ' + (error.message || 'Unknown error'));
+    }
+  };
+
   const handleDeleteFarmer = async (id: string) => {
     if (!window.confirm('Are you sure you want to remove this farmer account? This action cannot be undone.')) return;
     try {
@@ -242,6 +309,7 @@ const AdminFarmers: React.FC = () => {
         farmType: newFarmer.farmType,
         birdCapacity: Number(newFarmer.birdCapacity) || 0,
         address: newFarmer.address,
+        liftingDays: Number(newFarmer.liftingDays) || 0,
         role: 'farmer',
         status: 'Active',
         createdAt: new Date().toISOString()
@@ -261,7 +329,8 @@ const AdminFarmers: React.FC = () => {
         farmName: '',
         farmType: 'Broiler',
         birdCapacity: '',
-        address: ''
+        address: '',
+        liftingDays: '0'
       });
     } catch (error: any) {
       console.error('Add farmer error:', error);
@@ -424,14 +493,14 @@ const AdminFarmers: React.FC = () => {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white p-8 rounded-[2rem] shadow-sm flex items-center gap-6">
           <div className="bg-emerald-50 p-4 rounded-2xl text-emerald-600">
             <Users size={24} />
           </div>
           <div>
             <p className="text-3xl font-bold text-slate-900">{stats.total}</p>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">TOTAL FARMERS REGISTERED</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">TOTAL FARMERS</p>
           </div>
         </div>
         <div className="bg-white p-8 rounded-[2rem] shadow-sm flex items-center gap-6">
@@ -440,7 +509,7 @@ const AdminFarmers: React.FC = () => {
           </div>
           <div>
             <p className="text-3xl font-bold text-slate-900">{(stats.totalBirds / 1000).toFixed(1)}k</p>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">TOTAL BIRDS CAPACITY</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">TOTAL CAPACITY</p>
           </div>
         </div>
         <div className="bg-white p-8 rounded-[2rem] shadow-sm flex items-center gap-6">
@@ -449,7 +518,16 @@ const AdminFarmers: React.FC = () => {
           </div>
           <div>
             <p className="text-3xl font-bold text-slate-900">{stats.activeEngagement}%</p>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ACTIVE FARM ENGAGEMENT</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ACTIVE ENGAGEMENT</p>
+          </div>
+        </div>
+        <div className="bg-white p-8 rounded-[2rem] shadow-sm flex items-center gap-6">
+          <div className="bg-rose-50 p-4 rounded-2xl text-rose-600">
+            <Activity size={24} />
+          </div>
+          <div>
+            <p className="text-3xl font-bold text-slate-900">{farmers.filter(f => f.status === 'Inactive').length}</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">INACTIVE ACCOUNTS</p>
           </div>
         </div>
       </div>
@@ -592,10 +670,27 @@ const AdminFarmers: React.FC = () => {
                         </DropdownMenuItem>
                         <DropdownMenuItem 
                           className="rounded-lg gap-2 font-medium cursor-pointer"
+                          onClick={() => {
+                            setSelectedFarmerId(farmer.id);
+                            setIsSchedulingTask(true);
+                          }}
+                        >
+                          <ClipboardList size={16} />
+                          Farmer Task
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          className="rounded-lg gap-2 font-medium cursor-pointer"
                           onClick={() => handleToggleStatus(farmer)}
                         >
                           <Power size={16} />
                           {farmer.status === 'Inactive' ? 'Activate Account' : 'Deactivate Account'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          className="rounded-lg gap-2 font-medium cursor-pointer"
+                          onClick={() => handleSendResetLink(farmer)}
+                        >
+                          <Mail size={16} />
+                          Send Reset Link
                         </DropdownMenuItem>
                         <DropdownMenuSeparator className="bg-slate-50" />
                         <DropdownMenuItem 
@@ -646,10 +741,10 @@ const AdminFarmers: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-            {/* Sidebar: Profile & Quick Stats */}
-            <div className="lg:col-span-1 space-y-8">
-              <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8">
-                <div className="flex flex-col items-center text-center mb-8">
+            {/* Redesigned Profile Header */}
+            <div className="lg:col-span-4 lg:grid lg:grid-cols-3 gap-8">
+              <Card className="lg:col-span-1 border-none shadow-sm bg-white rounded-[2rem] p-8">
+                <div className="flex flex-col items-center text-center">
                   <div className="w-24 h-24 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-3xl mb-4 border-4 border-white shadow-sm">
                     {selectedFarmer.name.split(' ').map((n: any) => n[0]).join('')}
                   </div>
@@ -658,60 +753,95 @@ const AdminFarmers: React.FC = () => {
                   <Badge className="mt-4 bg-emerald-100 text-emerald-600 border-none px-4 py-1 rounded-full text-xs font-bold">
                     {selectedFarmer.status || 'Active'}
                   </Badge>
+                  <div className="w-full space-y-2 mt-6">
+                    <Button 
+                      variant="outline" 
+                      className="rounded-xl gap-2 w-full border-slate-100 hover:bg-slate-50 transition-all font-bold text-slate-700"
+                      onClick={() => {
+                        setEditingDetails(selectedFarmer);
+                        setIsEditingDetails(true);
+                      }}
+                    >
+                      <Edit2 size={16} className="text-emerald-600" />
+                      Manage Details
+                    </Button>
+                    <Button 
+                      variant="default" 
+                      className="rounded-xl gap-2 w-full bg-[#122B21] hover:bg-[#1a3d2e] shadow-lg transition-all font-bold text-white"
+                      onClick={() => setIsSchedulingTask(true)}
+                    >
+                      <ClipboardList size={16} className="text-emerald-400" />
+                      Farmer Task
+                    </Button>
+                  </div>
                 </div>
+              </Card>
 
-                <div className="space-y-6">
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Contact Details</p>
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-3 text-sm text-slate-600">
-                        <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
-                          <Users size={16} />
-                        </div>
-                        <span className="font-medium">{selectedFarmer.phone || 'No phone'}</span>
+              <Card className="lg:col-span-2 border-none shadow-sm bg-white rounded-[2rem] p-8">
+                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-50 pb-4">Contact Details</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-4 text-sm text-slate-600 group">
+                      <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-emerald-50 group-hover:text-emerald-500 transition-colors">
+                        <Phone size={18} />
                       </div>
-                      <div className="flex items-center gap-3 text-sm text-slate-600">
-                        <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
-                          <Activity size={16} />
-                        </div>
-                        <span className="truncate font-medium">{selectedFarmer.email}</span>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Phone Number</p>
+                        <p className="font-bold text-slate-900">{selectedFarmer.phone || 'Not provided'}</p>
                       </div>
-                      <div className="flex items-center gap-3 text-sm text-slate-600">
-                        <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
-                          <Package size={16} />
-                        </div>
-                        <span className="leading-relaxed font-medium">{selectedFarmer.address || 'No address provided'}</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-sm text-slate-600 group">
+                      <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-500 transition-colors">
+                        <Mail size={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Email Address</p>
+                        <p className="font-bold text-slate-900 truncate">{selectedFarmer.email}</p>
                       </div>
                     </div>
                   </div>
-
-                  <div className="pt-6 border-t border-slate-50">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Farm Specs</p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 bg-slate-50 rounded-2xl">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Type</p>
-                        <p className="text-sm font-bold text-slate-900">{selectedFarmer.farmType || 'N/A'}</p>
+                  <div className="space-y-6">
+                    <div className="flex items-start gap-4 text-sm text-slate-600 group">
+                      <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-amber-50 group-hover:text-amber-500 transition-colors mt-1">
+                        <MapPin size={18} />
                       </div>
-                      <div className="p-4 bg-slate-50 rounded-2xl">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Capacity</p>
-                        <p className="text-sm font-bold text-slate-900">{selectedFarmer.birdCapacity || 0}</p>
-                      </div>
-                      <div className="p-4 bg-slate-50 rounded-2xl">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Chicks Placed</p>
-                        <p className="text-sm font-bold text-slate-900">{chicksPlaced.toLocaleString()}</p>
-                      </div>
-                      <div className="p-4 bg-slate-50 rounded-2xl">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Open Flocks</p>
-                        <p className="text-sm font-bold text-slate-900">{activeFlocks.length}</p>
-                      </div>
-                      <div className="p-4 bg-slate-50 rounded-2xl col-span-2">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Days Count</p>
-                        <p className="text-sm font-bold text-slate-900">{getDaysCount()} Days from placement</p>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Farm Address</p>
+                        <p className="font-bold text-slate-900 leading-relaxed uppercase">{selectedFarmer.address || 'No address provided'}</p>
                       </div>
                     </div>
                   </div>
                 </div>
               </Card>
+            </div>
+
+            {/* Farm Specs & Performance Row */}
+            <div className="lg:col-span-4 space-y-8">
+              <div>
+                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Farm Specs</h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                  <div className="p-6 bg-white shadow-sm border border-slate-50 rounded-2xl">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Type</p>
+                    <p className="text-lg font-bold text-slate-900">{selectedFarmer.farmType || 'N/A'}</p>
+                  </div>
+                  <div className="p-6 bg-white shadow-sm border border-slate-50 rounded-2xl">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Capacity</p>
+                    <p className="text-lg font-bold text-slate-900">{selectedFarmer.birdCapacity || 0}</p>
+                  </div>
+                  <div className="p-6 bg-white shadow-sm border border-slate-50 rounded-2xl">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Chicks Placed</p>
+                    <p className="text-lg font-bold text-slate-900">{chicksPlaced.toLocaleString()}</p>
+                  </div>
+                  <div className="p-6 bg-white shadow-sm border border-slate-50 rounded-2xl">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Days Count</p>
+                    <p className="text-lg font-bold text-indigo-600">{getDaysCount()} <span className="text-xs">Days</span></p>
+                  </div>
+                  <div className="p-6 bg-[#122B21] shadow-lg shadow-emerald-900/10 rounded-2xl">
+                    <p className="text-[10px] font-bold text-emerald-400 uppercase">Lifting Remaining</p>
+                    <p className="text-lg font-bold text-white">{(selectedFarmer.liftingDays || 0)} <span className="text-xs opacity-70">Days</span></p>
+                  </div>
+                </div>
+              </div>
 
               {/* Inventory Summary */}
               <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8">
@@ -1208,17 +1338,32 @@ const AdminFarmers: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-3">
-              <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Bird Capacity</Label>
-              <div className="relative">
-                <Activity className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <Input 
-                  type="number"
-                  placeholder="e.g. 5000" 
-                  className="pl-12 h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
-                  value={newFarmer.birdCapacity}
-                  onChange={(e) => setNewFarmer({...newFarmer, birdCapacity: e.target.value})}
-                />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-3">
+                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Lifting Days Plan</Label>
+                <div className="relative">
+                  <Activity className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input 
+                    type="number"
+                    placeholder="e.g. 40" 
+                    className="pl-12 h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
+                    value={newFarmer.liftingDays}
+                    onChange={(e) => setNewFarmer({...newFarmer, liftingDays: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="space-y-3">
+                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Bird Capacity</Label>
+                <div className="relative">
+                  <Activity className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input 
+                    type="number"
+                    placeholder="e.g. 5000" 
+                    className="pl-12 h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
+                    value={newFarmer.birdCapacity}
+                    onChange={(e) => setNewFarmer({...newFarmer, birdCapacity: e.target.value})}
+                  />
+                </div>
               </div>
             </div>
 
@@ -1252,6 +1397,182 @@ const AdminFarmers: React.FC = () => {
               </Button>
             </DialogFooter>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Details Dialog */}
+      <Dialog open={isEditingDetails} onOpenChange={setIsEditingDetails}>
+        <DialogContent className="rounded-[2.5rem] sm:max-w-2xl max-h-[90vh] overflow-y-auto p-0 border-none shadow-2xl">
+          <div className="bg-slate-900 p-10 text-white relative overflow-hidden">
+            <div className="relative z-10">
+              <DialogHeader>
+                <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center mb-4 backdrop-blur-sm">
+                  <Edit2 size={32} className="text-white" />
+                </div>
+                <DialogTitle className="text-3xl font-black italic tracking-tight">Manage Details</DialogTitle>
+                <DialogDescription className="text-slate-400 text-lg font-medium opacity-90">
+                  Update farmer profile and operational parameters.
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+          </div>
+
+          <div className="p-10 space-y-8 bg-white">
+            {editingDetails && (
+              <div className="space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-3">
+                    <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Full Name</Label>
+                    <Input 
+                      className="h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
+                      value={editingDetails.name}
+                      onChange={(e) => setEditingDetails({...editingDetails, name: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Phone Number</Label>
+                    <Input 
+                      className="h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
+                      value={editingDetails.phone}
+                      onChange={(e) => setEditingDetails({...editingDetails, phone: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-3">
+                    <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Lifting Days Plan</Label>
+                    <Input 
+                      type="number"
+                      className="h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
+                      value={editingDetails.liftingDays || '0'}
+                      onChange={(e) => setEditingDetails({...editingDetails, liftingDays: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Bird Capacity</Label>
+                    <Input 
+                      type="number"
+                      className="h-14 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold"
+                      value={editingDetails.birdCapacity}
+                      onChange={(e) => setEditingDetails({...editingDetails, birdCapacity: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <Label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Farm Address</Label>
+                  <textarea 
+                    className="w-full min-h-[100px] p-4 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold text-sm resize-none"
+                    value={editingDetails.address}
+                    onChange={(e) => setEditingDetails({...editingDetails, address: e.target.value})}
+                  />
+                </div>
+
+                <DialogFooter className="pt-6">
+                  <Button 
+                    variant="outline" 
+                    className="rounded-2xl h-14 px-8 border-slate-200 font-bold"
+                    onClick={() => setIsEditingDetails(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    className="rounded-2xl h-14 px-12 bg-[#122B21] hover:bg-slate-900 font-bold shadow-lg shadow-slate-200"
+                    onClick={async () => {
+                      try {
+                        await updateDoc(doc(db, 'users', editingDetails.id), {
+                          name: editingDetails.name,
+                          phone: editingDetails.phone,
+                          liftingDays: Number(editingDetails.liftingDays) || 0,
+                          birdCapacity: Number(editingDetails.birdCapacity) || 0,
+                          address: editingDetails.address
+                        });
+                        toast.success('Farmer details updated successfully');
+                        setIsEditingDetails(false);
+                      } catch (error) {
+                        toast.error('Failed to update details');
+                      }
+                    }}
+                  >
+                    Update Details
+                  </Button>
+                </DialogFooter>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* Task Scheduling Dialog */}
+      <Dialog open={isSchedulingTask} onOpenChange={setIsSchedulingTask}>
+        <DialogContent className="rounded-[2.5rem] max-w-lg bg-white p-8">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black text-slate-900 flex items-center gap-2">
+              <ClipboardList className="text-emerald-500" />
+              Schedule Farmer Task
+            </DialogTitle>
+            <DialogDescription className="font-bold text-slate-400">
+              Assign a new task, vaccination, or medicine plan to {selectedFarmer?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-6">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Task Title</Label>
+              <Input 
+                placeholder="e.g. ND Lasota Vaccination" 
+                className="h-14 rounded-2xl bg-slate-50 border-slate-100 focus:ring-emerald-500 font-bold"
+                value={taskData.title}
+                onChange={e => setTaskData({...taskData, title: e.target.value})}
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Category</Label>
+                <Select value={taskData.category} onValueChange={v => setTaskData({...taskData, category: v})}>
+                  <SelectTrigger className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-2xl border-slate-100 shadow-xl">
+                    <SelectItem value="Vaccination">Vaccination</SelectItem>
+                    <SelectItem value="Medicine Plan">Medicine Plan</SelectItem>
+                    <SelectItem value="Cleaning">Cleaning</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Scheduled Date</Label>
+                <Input 
+                  type="date" 
+                  className="h-14 rounded-2xl bg-slate-50 border-slate-100 focus:ring-emerald-500 font-bold"
+                  value={taskData.scheduledDate}
+                  onChange={e => setTaskData({...taskData, scheduledDate: e.target.value})}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Description / Instructions</Label>
+              <textarea 
+                placeholder="Any specific instructions for the farmer..." 
+                className="w-full min-h-[100px] p-4 rounded-2xl bg-slate-50 border-slate-100 border-2 focus:ring-emerald-500 transition-all font-bold text-sm resize-none"
+                value={taskData.description}
+                onChange={e => setTaskData({...taskData, description: e.target.value})}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-2xl h-14 px-8 border-slate-200 font-bold" onClick={() => setIsSchedulingTask(false)}>
+              Cancel
+            </Button>
+            <Button 
+              className="rounded-2xl h-14 px-12 bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-lg shadow-emerald-200"
+              onClick={handleScheduleTask}
+            >
+              Schedule Task
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

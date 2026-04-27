@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, limit, updateDoc, doc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import { useAuth } from '@/src/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { TrendingUp, Users, Package, CreditCard, ArrowUpRight, ArrowDownRight, Pill, ClipboardCheck, Info, Trash2, Bird, Scale, FileText, IndianRupee, Download, ClipboardList, Plus, Bell, AlertTriangle } from 'lucide-react';
+import { TrendingUp, Users, Package, CreditCard, ArrowUpRight, ArrowDownRight, Pill, ClipboardCheck, Info, Trash2, Bird, Scale, FileText, IndianRupee, Download, ClipboardList, Plus, Bell, AlertTriangle, Egg, Calendar, CheckSquare, ShieldCheck } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { jsPDF } from 'jspdf';
 import { Link } from 'react-router-dom';
@@ -76,6 +76,10 @@ const Dashboard: React.FC = () => {
   const [missingLogsByDate, setMissingLogsByDate] = useState<Record<string, any[]>>({});
   const [expandedFeedFlock, setExpandedFeedFlock] = useState<string | null>(null);
   const [expandedMedFlock, setExpandedMedFlock] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [eggLogs, setEggLogs] = useState<any[]>([]);
+  const [showTasksModal, setShowTasksModal] = useState(false);
+  const [showEggLogsModal, setShowEggLogsModal] = useState(false);
 
   const calculateBatchTotalCost = (flock: any) => {
     const flockLogs = dailyLogs.filter(log => log.flockId === flock.id);
@@ -95,24 +99,52 @@ const Dashboard: React.FC = () => {
         feedCost += intake * unitPrice;
       }
 
-      const mName = log.health?.medicines;
-      const mDoses = Number(log.health?.medicineDoses) || 0;
-      if (mDoses > 0 && mName && mName !== 'none') {
-        const medItem = medicineStockList.find(m => m.name === mName);
-        const unitPrice = medItem?.unitPrice || 
-                         (medItem?.initialQuantity ? (medItem.purchaseCost / medItem.initialQuantity) : 
-                         (medItem?.quantity ? (medItem.purchaseCost / medItem.quantity) : 0));
-        medCost += mDoses * unitPrice;
+      // Multiple Medicines
+      if (Array.isArray(log.health?.medicines)) {
+        log.health.medicines.forEach((m: any) => {
+          const medDoses = Number(m.doses) || 0;
+          if (medDoses > 0 && m.name) {
+            const medItem = medicineStockList.find(item => item.name === m.name);
+            const unitPrice = medItem?.unitPrice || 
+                             (medItem?.initialQuantity ? (medItem.purchaseCost / medItem.initialQuantity) : 
+                             (medItem?.quantity ? (medItem.purchaseCost / medItem.quantity) : 0));
+            medCost += medDoses * unitPrice;
+          }
+        });
+      } else {
+        const mName = log.health?.medicines;
+        const mDoses = Number(log.health?.medicineDoses) || 0;
+        if (mDoses > 0 && mName && mName !== 'none') {
+          const medItem = medicineStockList.find(m => m.name === mName);
+          const unitPrice = medItem?.unitPrice || 
+                           (medItem?.initialQuantity ? (medItem.purchaseCost / medItem.initialQuantity) : 
+                           (medItem?.quantity ? (medItem.purchaseCost / medItem.quantity) : 0));
+          medCost += mDoses * unitPrice;
+        }
       }
 
-      const vName = log.health?.vaccines;
-      const vDoses = Number(log.health?.vaccineDoses) || 0;
-      if (vDoses > 0 && vName && vName !== 'none') {
-        const vacItem = medicineStockList.find(m => m.name === vName);
-        const unitPrice = vacItem?.unitPrice || 
-                         (vacItem?.initialQuantity ? (vacItem.purchaseCost / vacItem.initialQuantity) : 
-                         (vacItem?.quantity ? (vacItem.purchaseCost / vacItem.quantity) : 0));
-        medCost += vDoses * unitPrice;
+      // Multiple Vaccines
+      if (Array.isArray(log.health?.vaccines)) {
+        log.health.vaccines.forEach((v: any) => {
+          const vacDoses = Number(v.doses) || 0;
+          if (vacDoses > 0 && v.name) {
+            const vacItem = medicineStockList.find(item => item.name === v.name);
+            const unitPrice = vacItem?.unitPrice || 
+                             (vacItem?.initialQuantity ? (vacItem.purchaseCost / vacItem.initialQuantity) : 
+                             (vacItem?.quantity ? (vacItem.purchaseCost / vacItem.quantity) : 0));
+            medCost += vacDoses * unitPrice;
+          }
+        });
+      } else {
+        const vName = log.health?.vaccines;
+        const vDoses = Number(log.health?.vaccineDoses) || 0;
+        if (vDoses > 0 && vName && vName !== 'none') {
+          const vacItem = medicineStockList.find(m => m.name === vName);
+          const unitPrice = vacItem?.unitPrice || 
+                           (vacItem?.initialQuantity ? (vacItem.purchaseCost / vacItem.initialQuantity) : 
+                           (vacItem?.quantity ? (vacItem.purchaseCost / vacItem.quantity) : 0));
+          medCost += vDoses * unitPrice;
+        }
       }
     });
 
@@ -423,6 +455,12 @@ const Dashboard: React.FC = () => {
       setSystemAlerts(allAlerts);
     }, (error) => handleFirestoreError(error, OperationType.GET, 'systemAlerts'));
 
+    // 7. Listen to tasks
+    const qTasks = query(collection(db, 'tasks'), where('userId', '==', user.uid));
+    const unsubTasks = onSnapshot(qTasks, (snap) => {
+      setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (a.scheduledDate || '').localeCompare(b.scheduledDate || '')));
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'tasks'));
+
     return () => {
       unsubscribeFlocks();
       unsubscribeRecent();
@@ -431,6 +469,7 @@ const Dashboard: React.FC = () => {
       unsubMed();
       unsubLogs();
       unsubAlerts();
+      unsubTasks();
     };
   }, [user]);
 
@@ -721,6 +760,221 @@ const Dashboard: React.FC = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Upcoming Schedule / Tasks Modal */}
+      <Dialog open={showTasksModal} onOpenChange={setShowTasksModal}>
+        <DialogContent className="max-w-2xl rounded-[2rem] max-h-[80vh] overflow-y-auto p-0 border-none overflow-hidden">
+          <div className="bg-sky-600 p-8 text-white relative">
+            <h2 className="text-2xl font-black mb-1 flex items-center gap-2">
+              <Calendar />
+              Upcoming Schedule
+            </h2>
+            <p className="text-sky-100 font-bold text-xs uppercase tracking-widest">Tasks, Vaccinations & Plans</p>
+            <div className="absolute top-8 right-8 bg-sky-500/30 p-4 rounded-3xl backdrop-blur-md border border-sky-400/30">
+              <ClipboardCheck size={40} className="text-sky-200 opacity-50" />
+            </div>
+          </div>
+          <div className="p-8 space-y-6 bg-slate-50">
+            {tasks.length === 0 ? (
+              <div className="text-center py-20 text-slate-400">
+                <CheckSquare size={50} className="mx-auto mb-4 opacity-20" />
+                <p className="font-bold">No tasks scheduled</p>
+                <p className="text-xs">Your schedule is currently clear</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {tasks.map(task => (
+                  <Card key={task.id} className="border-none shadow-sm rounded-2xl overflow-hidden group hover:shadow-md transition-all">
+                    <CardContent className="p-6">
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="flex gap-4">
+                          <div className={`p-3 rounded-2xl ${
+                            task.status === 'Completed' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
+                          }`}>
+                            {task.category === 'Vaccination' ? <ShieldCheck size={20} /> : <ClipboardList size={20} />}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                                <h4 className={`font-black text-slate-900 ${task.status === 'Completed' ? 'line-through opacity-50' : ''}`}>
+                                  {task.title}
+                                </h4>
+                                <Badge className={`text-[8px] uppercase font-bold border-none ${
+                                    task.category === 'Vaccination' ? 'bg-rose-100 text-rose-600' : 'bg-blue-100 text-blue-600'
+                                }`}>
+                                    {task.category}
+                                </Badge>
+                            </div>
+                            <p className="text-xs text-slate-500 font-medium mt-1">{task.description}</p>
+                            <div className="flex items-center gap-3 mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                <span className="flex items-center gap-1"><Calendar size={12}/> {task.scheduledDate}</span>
+                                {task.creatorType && <span className="flex items-center gap-1">• From {task.creatorType}</span>}
+                            </div>
+                          </div>
+                        </div>
+                        {task.status !== 'Completed' && (
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="rounded-xl border-emerald-100 text-emerald-600 hover:bg-emerald-50 font-bold text-[10px]"
+                            onClick={async () => {
+                                try {
+                                    await updateDoc(doc(db, 'tasks', task.id), { status: 'Completed', updatedAt: new Date().toISOString() });
+                                    toast.success('Task marked as completed');
+                                } catch (err) {
+                                    toast.error('Failed to update task');
+                                }
+                            }}
+                          >
+                            COMPLETE
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Egg Production & Cost Modal */}
+      <Dialog open={showEggLogsModal} onOpenChange={setShowEggLogsModal}>
+        <DialogContent className="max-w-3xl rounded-[2.5rem] max-h-[90vh] overflow-y-auto p-0 border-none shadow-2xl">
+           <div className="bg-amber-500 p-6 sm:p-8 text-white relative">
+             <h2 className="text-xl sm:text-2xl font-black mb-1 flex items-center gap-2">
+               <Egg />
+               Egg Production & Cost Analysis
+             </h2>
+             <p className="text-amber-100 font-bold text-[10px] sm:text-xs uppercase tracking-widest">7-Day Performance Overview</p>
+           </div>
+           
+           <div className="p-4 sm:p-8 bg-slate-50 space-y-6 sm:space-y-8">
+              {(() => {
+                const layerLogs = dailyLogs
+                  .filter(l => Number(l.production?.eggCount) > 0)
+                  .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+                  .slice(0, 7)
+                  .map(log => {
+                    const intake = Number(log.consumption?.feedIntake) || 0;
+                    const fType = log.consumption?.feedType;
+                    let feedCost = 0;
+                    if (intake > 0 && fType) {
+                      const stock = feedStockList.find(s => s.type === fType);
+                      const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
+                      feedCost = intake * unitPrice;
+                    }
+
+                    let medCost = 0;
+                    if (Array.isArray(log.health?.medicines)) {
+                      log.health.medicines.forEach((m: any) => {
+                        const doses = Number(m.doses) || 0;
+                        if (doses > 0 && m.name) {
+                          const stock = medicineStockList.find(s => s.name === m.name);
+                          const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
+                          medCost += doses * unitPrice;
+                        }
+                      });
+                    }
+                    if (Array.isArray(log.health?.vaccines)) {
+                      log.health.vaccines.forEach((v: any) => {
+                        const doses = Number(v.doses) || 0;
+                        if (doses > 0 && v.name) {
+                          const stock = medicineStockList.find(s => s.name === v.name);
+                          const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
+                          medCost += doses * unitPrice;
+                        }
+                      });
+                    }
+
+                    const labour = Number(log.production?.labourCost) || 0;
+                    const totalCost = feedCost + medCost + labour;
+                    const goodEggs = Number(log.production?.goodEggs) || 0;
+                    
+                    return {
+                      ...log,
+                      dailyCost: totalCost,
+                      costPerEgg: goodEggs > 0 ? totalCost / goodEggs : 0,
+                      totalEggs: Number(log.production?.eggCount) || 0,
+                      goodEggs,
+                      badEggs: Number(log.production?.badEggs) || 0
+                    };
+                  });
+
+                if (layerLogs.length === 0) {
+                  return (
+                    <div className="text-center py-20 text-slate-400">
+                      <Egg size={50} className="mx-auto mb-4 opacity-20" />
+                      <p className="font-bold">No egg logs found</p>
+                      <p className="text-xs">Start logging daily egg collection to see analytics</p>
+                    </div>
+                  );
+                }
+
+                const avg7DayEggs = Math.round(layerLogs.reduce((sum, l) => sum + l.totalEggs, 0) / layerLogs.length);
+                const avg7DayCostPerEgg = layerLogs.reduce((sum, l) => sum + l.costPerEgg, 0) / layerLogs.length;
+
+                return (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
+                      <Card className="border-none shadow-sm rounded-2xl sm:rounded-3xl p-4 sm:p-6 bg-white overflow-hidden relative group">
+                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Avg 7-Day Eggs</p>
+                         <h3 className="text-xl sm:text-2xl font-black text-slate-900 leading-none">{avg7DayEggs}</h3>
+                         <TrendingUp size={40} className="absolute -right-2 -bottom-2 text-emerald-50 opacity-10 group-hover:scale-110 transition-transform" />
+                      </Card>
+                      <Card className="border-none shadow-sm rounded-2xl sm:rounded-3xl p-4 sm:p-6 bg-white overflow-hidden relative group">
+                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Cost Per Egg (Avg)</p>
+                         <h3 className="text-xl sm:text-2xl font-black text-amber-600 leading-none">₹{avg7DayCostPerEgg.toFixed(2)}</h3>
+                      </Card>
+                      <Card className="border-none shadow-sm rounded-2xl sm:rounded-3xl p-4 sm:p-6 bg-white overflow-hidden relative group">
+                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Laying Rate</p>
+                         <h3 className="text-xl sm:text-2xl font-black text-indigo-600 leading-none">
+                           {(() => {
+                              const latest = layerLogs[0];
+                              const birds = Number(latest?.production?.birdCount) || stats.totalBirds || 1;
+                              return Math.round((latest.totalEggs / birds) * 100);
+                           })()}%
+                         </h3>
+                      </Card>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="text-[10px] sm:text-xs font-black text-slate-400 uppercase tracking-widest px-2">Daily Collection Records</h4>
+                      <div className="bg-white rounded-[1.5rem] sm:rounded-[2rem] shadow-sm border border-slate-100 overflow-x-auto">
+                         <Table>
+                           <TableHeader className="bg-slate-50/50">
+                             <TableRow className="border-slate-100">
+                               <TableHead className="text-[9px] font-black uppercase tracking-widest min-w-[80px]">Date</TableHead>
+                               <TableHead className="text-[9px] font-black uppercase tracking-widest text-center min-w-[100px]">Eggs (G/B)</TableHead>
+                               <TableHead className="text-[9px] font-black uppercase tracking-widest text-right min-w-[80px]">Daily Cost</TableHead>
+                               <TableHead className="text-[9px] font-black uppercase tracking-widest text-right min-w-[80px]">Cost/Egg</TableHead>
+                             </TableRow>
+                           </TableHeader>
+                           <TableBody>
+                             {layerLogs.map(log => (
+                               <TableRow key={log.id} className="border-slate-50">
+                                 <TableCell className="font-bold text-slate-700 text-[11px] sm:text-xs">{log.date}</TableCell>
+                                 <TableCell className="text-center font-bold text-slate-900 text-[11px] sm:text-xs">
+                                   {log.totalEggs} <span className="text-[9px] sm:text-[10px] text-slate-400 font-medium">({log.goodEggs}/{log.badEggs})</span>
+                                 </TableCell>
+                                 <TableCell className="text-right font-bold text-slate-600 text-[11px] sm:text-xs">₹{log.dailyCost.toFixed(0)}</TableCell>
+                                 <TableCell className="text-right px-4 sm:px-6">
+                                   <Badge className={`${log.costPerEgg < 5 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'} border-none font-bold text-[10px]`}>
+                                     ₹{log.costPerEgg.toFixed(2)}
+                                   </Badge>
+                                 </TableCell>
+                               </TableRow>
+                             ))}
+                           </TableBody>
+                         </Table>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+           </div>
+        </DialogContent>
+      </Dialog>
+
       <header className="flex justify-between items-start mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Farm Overview</h1>
@@ -861,6 +1115,29 @@ const Dashboard: React.FC = () => {
             color="bg-indigo-600"
             subtitle={`Cost: ₹${stats.medicineStockValue.toLocaleString()}`}
             onClick={() => setShowMedModal(true)}
+          />
+        </LicenseGuard>
+        <LicenseGuard mode="interaction">
+          <StatCard 
+            title="Upcoming Schedule" 
+            value={tasks.filter(t => t.status !== 'Completed').length} 
+            icon={Calendar} 
+            color="bg-sky-600"
+            subtitle="Tasks & Plans"
+            onClick={() => setShowTasksModal(true)}
+          />
+        </LicenseGuard>
+        <LicenseGuard mode="interaction">
+          <StatCard 
+            title="Eggs" 
+            value={(() => {
+              const layerLogs = dailyLogs.filter(l => Number(l.production?.eggCount) > 0);
+              return layerLogs[0]?.production?.eggCount || 0;
+            })()} 
+            icon={Egg} 
+            color="bg-amber-500"
+            subtitle="Daily Collection"
+            onClick={() => setShowEggLogsModal(true)}
           />
         </LicenseGuard>
       </div>

@@ -358,12 +358,56 @@
         "active": { "type": "boolean" },
         "createdAt": { "type": "string" }
       }
+    },
+    "Task": {
+      "title": "Task / Schedule",
+      "description": "Scheduled activities like vaccination or medicine for a farmer",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Farmer UID" },
+        "creatorId": { "type": "string", "description": "UID of the person who created the task" },
+        "creatorType": { "type": "string", "enum": ["Farmer", "Manager", "Admin"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string", "enum": ["Vaccination", "Medicine", "Feed", "Maintenance", "Other"] },
+        "scheduledDate": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["Pending", "Completed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "creatorId", "creatorType", "title", "scheduledDate", "status"]
+    },
+    "EggLog": {
+      "title": "Egg Production Log",
+      "description": "Daily egg collection and cost analysis",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "totalEggs": { "type": "number" },
+        "goodEggs": { "type": "number" },
+        "badEggs": { "type": "number" },
+        "feedConsumptionKg": { "type": "number" },
+        "feedCostPerKg": { "type": "number" },
+        "medicineCost": { "type": "number" },
+        "labourCost": { "type": "number" },
+        "birdCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "date", "totalEggs", "birdCount"]
     }
   },
   "firestore": {
     "/alertRules/{ruleId}": {
       "schema": "AlertRule",
       "description": "Dynamic logic rules for AI evaluation"
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Farmer tasks and schedules"
+    },
+    "/eggLogs/{logId}": {
+      "schema": "EggLog",
+      "description": "Daily egg production and costing records"
     },
     "/users/{userId}": {
       "schema": "UserProfile",

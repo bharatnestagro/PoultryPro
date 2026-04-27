@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '@/src/lib/firebase';
 import { handleFirestoreError, OperationType } from '@/src/lib/errorHandlers';
 import { Button } from '@/components/ui/button';
@@ -8,13 +8,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { LayoutDashboard, LogIn } from 'lucide-react';
+import { LayoutDashboard, LogIn, KeyRound } from 'lucide-react';
 import { useAuth } from '@/src/lib/AuthContext';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [isResetOpen, setIsResetOpen] = useState(false);
   const navigate = useNavigate();
   const { signInWithGoogle, user, profile } = useAuth();
 
@@ -35,6 +39,25 @@ const Login: React.FC = () => {
       toast.error(error.message || 'Failed to login');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail) {
+      toast.error('Please enter your email address');
+      return;
+    }
+    setResetLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, resetEmail);
+      toast.success('Password reset email sent. Please check your inbox.');
+      setIsResetOpen(false);
+    } catch (error: any) {
+      console.error("Reset error:", error);
+      toast.error(error.message || 'Failed to send reset email');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -87,6 +110,47 @@ const Login: React.FC = () => {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
+                <Dialog open={isResetOpen} onOpenChange={setIsResetOpen}>
+                  <DialogTrigger render={
+                    <Button variant="link" className="px-0 font-semibold text-emerald-600 hover:text-emerald-700 h-auto py-0">
+                      Forgot password?
+                    </Button>
+                  } />
+                  <DialogContent className="rounded-2xl max-w-sm">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <KeyRound className="text-emerald-600" size={20} />
+                        Reset Password
+                      </DialogTitle>
+                      <DialogDescription>
+                        Enter your email address and we'll send you a link to reset your password.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={handleForgotPassword} className="space-y-4 pt-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="reset-email">Email Address</Label>
+                        <Input 
+                          id="reset-email"
+                          type="email"
+                          placeholder="name@example.com"
+                          required
+                          value={resetEmail}
+                          onChange={(e) => setResetEmail(e.target.value)}
+                          className="rounded-xl"
+                        />
+                      </div>
+                      <DialogFooter>
+                        <Button 
+                          type="submit" 
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 rounded-xl"
+                          disabled={resetLoading}
+                        >
+                          {resetLoading ? 'Sending...' : 'Send Reset Link'}
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </DialogContent>
+                </Dialog>
               </div>
               <Input 
                 id="password" 

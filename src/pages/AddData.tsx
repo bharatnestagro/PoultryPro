@@ -14,7 +14,7 @@ import {
   Bird, Thermometer, Utensils, Scale, Pill, 
   ShieldCheck, IndianRupee, AlertTriangle, Plus, Save,
   Package, Droplets, Edit2, Trash2, ArrowDownRight, FileText, ShoppingBag,
-  ClipboardList, Egg, TrendingUp, Download, ChevronDown, ChevronUp
+  ClipboardList, Egg, TrendingUp, Download, ChevronDown, ChevronUp, ClipboardCheck
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
@@ -308,6 +308,7 @@ const AddData: React.FC = () => {
 
   const categories = [
     { id: 'daily_data', title: 'Add Daily Data', icon: FileText, color: 'bg-emerald-600', desc: 'Daily feed, growth, health & production' },
+    { id: 'task', title: 'Farmer Task', icon: ClipboardCheck, color: 'bg-blue-500', desc: 'Schedule vaccination or medicine' },
     { id: 'incubator', title: 'Incubator Log', icon: Thermometer, color: 'bg-indigo-400', desc: 'Daily temp/humidity checks' },
     { id: 'flock', title: 'Flock Details', icon: Bird, color: 'bg-blue-600', desc: 'Register new batches' },
     { id: 'hatchery', title: 'Hatchery Management', icon: Egg, color: 'bg-emerald-700', desc: 'Batches & Incubation' },
@@ -337,8 +338,12 @@ const AddData: React.FC = () => {
     date: format(new Date(), 'yyyy-MM-dd'),
     environment: { temperature: '', humidity: '', ventilation: 'Good', lightDuration: '', ammoniaLevel: 'Low' },
     consumption: { feedIntake: '', feedType: 'Starter', waterIntake: '', fcr: '' },
-    production: { avgWeight: '', weightGain: '', eggCount: '', eggWeight: '', eggQuality: 'Good', badEggs: '' },
-    health: { vaccines: '', vaccineDoses: '', medicines: '', medicineDoses: '', symptoms: '', mortality: '', culling: '' },
+    production: { avgWeight: '', weightGain: '', eggCount: '', goodEggs: '', eggWeight: '', eggQuality: 'Good', badEggs: '', labourCost: '', birdCount: '' },
+    health: { 
+      vaccines: [] as { name: string, doses: string }[], 
+      medicines: [] as { name: string, doses: string }[], 
+      symptoms: '', mortality: '', culling: '' 
+    },
     biosecurity: { cleaning: false, disinfection: false, visitors: '0', footbath: false },
     alerts: { feedDrop: false, mortalityIncrease: false, eggDrop: false, abnormalBehavior: '' }
   });
@@ -349,6 +354,26 @@ const AddData: React.FC = () => {
     amount: '',
     description: '',
     date: format(new Date(), 'yyyy-MM-dd'),
+  });
+
+  const [taskData, setTaskData] = useState({
+    title: '',
+    description: '',
+    category: 'Vaccination',
+    scheduledDate: format(new Date(), 'yyyy-MM-dd'),
+    status: 'Pending' as 'Pending' | 'Completed'
+  });
+
+  const [eggLogData, setEggLogData] = useState({
+    date: format(new Date(), 'yyyy-MM-dd'),
+    totalEggs: '',
+    goodEggs: '',
+    badEggs: '',
+    feedConsumptionKg: '',
+    feedCostPerKg: '',
+    medicineCost: '',
+    labourCost: '',
+    birdCount: ''
   });
 
   const [newMedicine, setNewMedicine] = useState({
@@ -429,6 +454,66 @@ const AddData: React.FC = () => {
     status: 'Incubating',
     notes: ''
   });
+
+  const calculateDailyCosts = () => {
+    // Feed Cost
+    const currentFeedType = dailyLog.consumption.feedType;
+    const currentFeedIntake = Number(dailyLog.consumption.feedIntake) || 0;
+    const feed = feedStock.find(s => s.type === currentFeedType);
+    
+    // Calculate unit price if not explicitly stored
+    const getUnitPrice = (item: any) => {
+        if (item?.unitPrice) return item.unitPrice;
+        if (item?.purchaseCost && item?.initialQuantity) return Number(item.purchaseCost) / Number(item.initialQuantity);
+        if (item?.purchaseCost && Number(item?.quantity) > 0) return Number(item.purchaseCost) / Number(item.quantity);
+        return 0;
+    };
+
+    const feedUnitPrice = getUnitPrice(feed);
+    const feedCost = currentFeedIntake * feedUnitPrice;
+
+    // Medicine Cost
+    let medicineCost = 0;
+    dailyLog.health.medicines.forEach(m => {
+        const stockItem = medicineStock.find(item => item.name === m.name && item.type === 'Medicine');
+        const unitPrice = getUnitPrice(stockItem);
+        medicineCost += (Number(m.doses) || 0) * unitPrice;
+    });
+
+    // Vaccine Cost
+    let vaccineCost = 0;
+    dailyLog.health.vaccines.forEach(v => {
+        const stockItem = medicineStock.find(item => item.name === v.name && item.type === 'Vaccine');
+        const unitPrice = getUnitPrice(stockItem);
+        vaccineCost += (Number(v.doses) || 0) * unitPrice;
+    });
+
+    const labourCost = Number(dailyLog.production.labourCost) || 0;
+
+    return {
+      feedCost,
+      medicineCost: medicineCost + vaccineCost,
+      labourCost,
+      totalCost: feedCost + medicineCost + vaccineCost + labourCost
+    };
+  };
+
+  useEffect(() => {
+    if (!selectedFlockId) return;
+    const currentFlock = flocks.find(f => f.id === selectedFlockId);
+    if (currentFlock) {
+      const mortality = Number(dailyLog.health.mortality) || 0;
+      const culling = Number(dailyLog.health.culling) || 0;
+      const aliveBirds = (Number(currentFlock.currentCount) || 0) - (mortality + culling);
+      setDailyLog(prev => ({
+        ...prev,
+        production: {
+          ...prev.production,
+          birdCount: aliveBirds > 0 ? aliveBirds.toString() : '0'
+        }
+      }));
+    }
+  }, [selectedFlockId, dailyLog.health.mortality, dailyLog.health.culling, flocks]);
 
   useEffect(() => {
     if (!user) return;
@@ -676,8 +761,11 @@ const AddData: React.FC = () => {
           ...editingLog.production,
           avgWeight: Number(editingLog.production?.avgWeight) || 0,
           eggCount: Number(editingLog.production?.eggCount) || 0,
+          goodEggs: Number(editingLog.production?.goodEggs) || 0,
           eggWeight: Number(editingLog.production?.eggWeight) || 0,
           badEggs: Number(editingLog.production?.badEggs) || 0,
+          labourCost: Number(editingLog.production?.labourCost) || 0,
+          birdCount: Number(editingLog.production?.birdCount) || 0,
         },
         health: {
           ...editingLog.health,
@@ -962,10 +1050,6 @@ const AddData: React.FC = () => {
 
       const todayFeed = Number(dailyLog.consumption.feedIntake) || 0;
       const feedType = dailyLog.consumption.feedType;
-      const vaccineName = dailyLog.health.vaccines;
-      const vaccineDoses = Number(dailyLog.health.vaccineDoses) || 0;
-      const medicineName = dailyLog.health.medicines;
-      const medicineDoses = Number(dailyLog.health.medicineDoses) || 0;
 
       // --- Stock Validation ---
       if (todayFeed > 0) {
@@ -978,23 +1062,29 @@ const AddData: React.FC = () => {
         }
       }
 
-      if (vaccineName && vaccineName !== 'none' && vaccineDoses > 0) {
-        const medItem = medicineStock.find(m => m.name === vaccineName && m.type === 'Vaccine');
-        const available = Number(medItem?.quantity) || 0;
-        if (!medItem || available < vaccineDoses) {
-          toast.error(`Insufficient ${vaccineName} vaccine in stock. Available: ${available} doses`);
-          setLoading(false);
-          return;
+      // Validate Medicines
+      for (const med of dailyLog.health.medicines) {
+        if (med.name && med.name !== 'none' && Number(med.doses) > 0) {
+          const medItem = medicineStock.find(m => m.name === med.name && m.type === 'Medicine');
+          const available = Number(medItem?.quantity) || 0;
+          if (!medItem || available < Number(med.doses)) {
+            toast.error(`Insufficient ${med.name} medicine in stock. Available: ${available} units`);
+            setLoading(false);
+            return;
+          }
         }
       }
 
-      if (medicineName && medicineName !== 'none' && medicineDoses > 0) {
-        const medItem = medicineStock.find(m => m.name === medicineName && m.type === 'Medicine');
-        const available = Number(medItem?.quantity) || 0;
-        if (!medItem || available < medicineDoses) {
-          toast.error(`Insufficient ${medicineName} medicine in stock. Available: ${available} units`);
-          setLoading(false);
-          return;
+      // Validate Vaccines
+      for (const vac of dailyLog.health.vaccines) {
+        if (vac.name && vac.name !== 'none' && Number(vac.doses) > 0) {
+          const vacItem = medicineStock.find(m => m.name === vac.name && m.type === 'Vaccine');
+          const available = Number(vacItem?.quantity) || 0;
+          if (!vacItem || available < Number(vac.doses)) {
+            toast.error(`Insufficient ${vac.name} vaccine in stock. Available: ${available} doses`);
+            setLoading(false);
+            return;
+          }
         }
       }
       // --- End Stock Validation ---
@@ -1019,6 +1109,7 @@ const AddData: React.FC = () => {
 
       // Convert strings to numbers where necessary
       const mortalityValue = Number(dailyLog.health.mortality) || 0;
+      const cullingValue = Number(dailyLog.health.culling) || 0;
       
       const formattedLog = {
         ...dailyLog,
@@ -1043,13 +1134,16 @@ const AddData: React.FC = () => {
           avgWeight: avgWeightG,
           weightGain: Number(dailyLog.production.weightGain) || 0,
           eggCount: Number(dailyLog.production.eggCount) || 0,
+          goodEggs: Number(dailyLog.production.goodEggs) || 0,
           eggWeight: Number(dailyLog.production.eggWeight) || 0,
           badEggs: Number(dailyLog.production.badEggs) || 0,
+          labourCost: Number(dailyLog.production.labourCost) || 0,
+          birdCount: Number(dailyLog.production.birdCount) || 0,
         },
         health: {
           ...dailyLog.health,
-          mortality: Number(dailyLog.health.mortality) || 0,
-          culling: Number(dailyLog.health.culling) || 0,
+          mortality: mortalityValue,
+          culling: cullingValue,
         },
         biosecurity: {
           ...dailyLog.biosecurity,
@@ -1060,6 +1154,57 @@ const AddData: React.FC = () => {
 
       try {
         const addedLog = await addDoc(collection(db, 'dailyLogs'), formattedLog);
+        
+        // 3. Subtract Stock
+        if (todayFeed > 0) {
+          const stockItem = feedStock.find(s => s.type === feedType);
+          if (stockItem) {
+            await updateDoc(doc(db, 'feedStock', stockItem.id), {
+              quantity: (Number(stockItem.quantity) || 0) - todayFeed
+            });
+          }
+        }
+
+        for (const med of dailyLog.health.medicines) {
+          const doses = Number(med.doses) || 0;
+          if (med.name && med.name !== 'none' && doses > 0) {
+            const stockItem = medicineStock.find(m => m.name === med.name && m.type === 'Medicine');
+            if (stockItem) {
+              await updateDoc(doc(db, 'medicineStock', stockItem.id), {
+                quantity: (Number(stockItem.quantity) || 0) - doses
+              });
+            }
+          }
+        }
+
+        for (const vac of dailyLog.health.vaccines) {
+          const doses = Number(vac.doses) || 0;
+          if (vac.name && vac.name !== 'none' && doses > 0) {
+            const stockItem = medicineStock.find(m => m.name === vac.name && m.type === 'Vaccine');
+            if (stockItem) {
+              await updateDoc(doc(db, 'medicineStock', stockItem.id), {
+                quantity: (Number(stockItem.quantity) || 0) - doses
+              });
+            }
+          }
+        }
+
+        // 4. Update Flock Totals
+        const flockRef = doc(db, 'flocks', selectedFlockId);
+        await updateDoc(flockRef, {
+          totalMortality: (Number(currentFlock.totalMortality) || 0) + mortalityValue + cullingValue,
+          totalEggs: (Number(currentFlock.totalEggs) || 0) + (Number(dailyLog.production.eggCount) || 0),
+          currentCount: Math.max(0, (Number(currentFlock.currentCount) || 0) - (mortalityValue + cullingValue)),
+          daysCount: (Number(currentFlock.daysCount) || 0) + 1
+        });
+
+        toast.success(`Daily log saved successfully for Batch: ${currentFlock.name}`);
+        setDailyLog({
+          ...dailyLog,
+          production: { ...dailyLog.production, eggCount: '', eggWeight: '', goodEggs: '', badEggs: '' },
+          health: { ...dailyLog.health, mortality: '', culling: '', medicines: [], vaccines: [] },
+          consumption: { ...dailyLog.consumption, feedIntake: '', waterIntake: '' }
+        });
         
         // 2.5 Run Auto Alert Engine (Async)
         const triggerAlerts = async () => {
@@ -1100,175 +1245,21 @@ const AddData: React.FC = () => {
                 });
             }
           } catch (e) {
-            console.error("Auto Alert Engine failed", e);
+            console.error("Alert engine failed", e);
           }
         };
         triggerAlerts();
 
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, 'dailyLogs');
-        throw error;
+        toast.error('Failed to save log');
       }
-      
-      // 3. Update Feed Stock
-      if (todayFeed > 0) {
-        const feedType = dailyLog.consumption.feedType;
-        const stockItem = feedStock.find(s => s.type === feedType);
-        if (stockItem) {
-          try {
-            const stockRef = doc(db, 'feedStock', stockItem.id);
-            const currentStockQty = Number(stockItem.quantity) || 0;
-            await updateDoc(stockRef, {
-              quantity: Math.max(0, currentStockQty - todayFeed)
-            });
-          } catch (error) {
-            handleFirestoreError(error, OperationType.UPDATE, 'feedStock');
-            // We log but don't throw to allow the rest of the process to continue
-            console.error('Failed to update feed stock:', error);
-          }
-        }
-      }
-
-      // 3.1 Update Medicine/Vaccine Stock
-      if (dailyLog.health.vaccines && dailyLog.health.vaccines !== 'none') {
-        const medItem = medicineStock.find(m => m.name === dailyLog.health.vaccines && m.type === 'Vaccine');
-        if (medItem) {
-          try {
-            const medRef = doc(db, 'medicineStock', medItem.id);
-            const doses = Number(dailyLog.health.vaccineDoses) || 1;
-            const currentMedQty = Number(medItem.quantity) || 0;
-            await updateDoc(medRef, {
-              quantity: Math.max(0, currentMedQty - doses)
-            });
-          } catch (error) {
-            handleFirestoreError(error, OperationType.UPDATE, 'medicineStock');
-            console.error('Failed to update vaccine stock:', error);
-          }
-        }
-      }
-
-      if (dailyLog.health.medicines && dailyLog.health.medicines !== 'none') {
-        const medItem = medicineStock.find(m => m.name === dailyLog.health.medicines && m.type === 'Medicine');
-        if (medItem) {
-          try {
-            const medRef = doc(db, 'medicineStock', medItem.id);
-            const doses = Number(dailyLog.health.medicineDoses) || 1;
-            const currentMedQty = Number(medItem.quantity) || 0;
-            await updateDoc(medRef, {
-              quantity: Math.max(0, currentMedQty - doses)
-            });
-          } catch (error) {
-            handleFirestoreError(error, OperationType.UPDATE, 'medicineStock');
-            console.error('Failed to update medicine stock:', error);
-          }
-        }
-      }
-
-      // 4. Update Flock Data (Current Count, FCR, Mortality, Production Rate)
-      try {
-        const flockRef = doc(db, 'flocks', selectedFlockId);
-        const updateData: any = {};
-        
-        const newMortality = (Number(currentFlock.totalMortality) || 0) + formattedLog.health.mortality + formattedLog.health.culling;
-        const newEggs = (Number(currentFlock.totalEggs) || 0) + (formattedLog.production.eggCount || 0);
-        const newDays = (Number(currentFlock.daysCount) || 0) + 1;
-        
-        updateData.totalMortality = newMortality;
-        updateData.totalEggs = newEggs;
-        updateData.daysCount = newDays;
-        updateData.currentCount = currentCount - formattedLog.health.mortality - formattedLog.health.culling;
-        
-        if (calculatedFCR > 0) {
-          updateData.currentFCR = Number(calculatedFCR.toFixed(2));
-        }
-
-        // Calculate production rate for layers
-        if (currentFlock.breed === 'Layer' && updateData.currentCount > 0) {
-          // Daily average production rate
-          updateData.productionRate = (newEggs / (updateData.currentCount * newDays)) * 100;
-        }
-
-        if (formattedLog.production.avgWeight > 0) {
-          updateData.currentWeight = formattedLog.production.avgWeight;
-        }
-
-        // --- Recalculate Per-Bird Cost (New Methodology) ---
-        const chicksCost = Number(currentFlock.chicksCost) || 0;
-        let consumedFeedCost = 0;
-        let consumedMedCost = 0;
-
-        // Fetch all logs again including the new one (locally)
-        const allLogsIncludingNew = [...logsSnapshot.docs.map(d => d.data()), formattedLog];
-        
-        allLogsIncludingNew.forEach(log => {
-          const intake = Number(log.consumption?.feedIntake) || 0;
-          const fType = log.consumption?.feedType;
-          if (intake > 0 && fType) {
-            const stock = feedStock.find(s => s.type === fType);
-            if (stock && stock.purchaseCost && stock.quantity) {
-              consumedFeedCost += intake * (stock.purchaseCost / stock.quantity);
-            }
-          }
-          const mName = log.health?.medicines;
-          const mDoses = Number(log.health?.medicineDoses) || 0;
-          if (mDoses > 0 && mName && mName !== 'none') {
-            const stock = medicineStock.find(s => s.name === mName);
-            if (stock && stock.purchaseCost && stock.quantity) {
-              consumedMedCost += mDoses * (stock.purchaseCost / stock.quantity);
-            }
-          }
-          const vName = log.health?.vaccines;
-          const vDoses = Number(log.health?.vaccineDoses) || 0;
-          if (vDoses > 0 && vName && vName !== 'none') {
-            const stock = medicineStock.find(s => s.name === vName);
-            if (stock && stock.purchaseCost && stock.quantity) {
-              consumedMedCost += vDoses * (stock.purchaseCost / stock.quantity);
-            }
-          }
-        });
-
-        const totalOperationalCost = chicksCost + consumedFeedCost + consumedMedCost;
-        if (updateData.currentCount > 0) {
-          updateData.costPerBird = totalOperationalCost / updateData.currentCount;
-        } else {
-          updateData.costPerBird = 0;
-        }
-        // --- End Recalculation ---
-
-        await updateDoc(flockRef, updateData);
-      } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, 'flocks');
-        console.error('Failed to update flock data:', error);
-      }
-
-      // Reset form
-      setDailyLog({
-        date: format(new Date(), 'yyyy-MM-dd'),
-        environment: { temperature: '', humidity: '', ventilation: 'Good', lightDuration: '', ammoniaLevel: 'Low' },
-        consumption: { feedIntake: '', feedType: 'Starter', waterIntake: '', fcr: '' },
-        production: { avgWeight: '', weightGain: '', eggCount: '', eggWeight: '', eggQuality: 'Good', badEggs: '' },
-        health: { vaccines: '', vaccineDoses: '', medicines: '', medicineDoses: '', symptoms: '', mortality: '', culling: '' },
-        biosecurity: { cleaning: false, disinfection: false, visitors: '0', footbath: false },
-        alerts: { feedDrop: false, mortalityIncrease: false, eggDrop: false, abnormalBehavior: '' }
-      });
-
-      if (redirectToAlerts) {
-        setActiveTab('alerts');
-        setRedirectToAlerts(false);
-        toast.info('Record saved. Please complete the Health Alert details below.');
-      } else {
-        toast.success('Daily log saved successfully');
-      }
-    } catch (error) {
-      if (!(error instanceof Error && error.message.includes('authInfo'))) {
-        handleFirestoreError(error, OperationType.WRITE, 'dailyLogs');
-      }
-      toast.error('Failed to save log');
+    } catch (error: any) {
+      toast.error(error.message);
     } finally {
       setLoading(false);
     }
   };
-
   const handleCreateHatcheryBatch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -1361,6 +1352,98 @@ const AddData: React.FC = () => {
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'hatcheryBatches');
       toast.error('Failed to update hatchery batch');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+    try {
+      await addDoc(collection(db, 'tasks'), {
+        ...taskData,
+        userId: user.uid,
+        creatorId: user.uid,
+        creatorType: 'Farmer',
+        createdAt: new Date().toISOString()
+      });
+      toast.success('Schedule/Task saved successfully');
+      setTaskData({
+        title: '',
+        description: '',
+        category: 'Vaccination',
+        scheduledDate: format(new Date(), 'yyyy-MM-dd'),
+        status: 'Pending'
+      });
+      setActiveTab(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'tasks');
+      toast.error('Failed to save schedule');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveEggLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+    try {
+      const totalEggs = Number(eggLogData.totalEggs) || 0;
+      const goodEggs = Number(eggLogData.goodEggs) || 0;
+      const badEggs = Number(eggLogData.badEggs) || 0;
+      const feedKg = Number(eggLogData.feedConsumptionKg) || 0;
+      const feedPrice = Number(eggLogData.feedCostPerKg) || 0;
+      const medCost = Number(eggLogData.medicineCost) || 0;
+      const labourCost = Number(eggLogData.labourCost) || 0;
+      const birdCount = Number(eggLogData.birdCount) || 0;
+
+      await addDoc(collection(db, 'eggLogs'), {
+        userId: user.uid,
+        date: eggLogData.date,
+        totalEggs,
+        goodEggs,
+        badEggs,
+        feedConsumptionKg: feedKg,
+        feedCostPerKg: feedPrice,
+        medicineCost: medCost,
+        labourCost: labourCost,
+        birdCount,
+        createdAt: new Date().toISOString()
+      });
+
+      // Also record as a transaction (optional, but good for finance)
+      const dailyTotalCost = (feedKg * feedPrice) + medCost + labourCost;
+      if (dailyTotalCost > 0) {
+        await addDoc(collection(db, 'transactions'), {
+          userId: user.uid,
+          type: 'Expense',
+          category: 'Operations',
+          amount: dailyTotalCost,
+          description: `Total operational cost for egg production on ${eggLogData.date}`,
+          date: eggLogData.date,
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      toast.success('Egg collection recorded successfully');
+      setEggLogData({
+        date: format(new Date(), 'yyyy-MM-dd'),
+        totalEggs: '',
+        goodEggs: '',
+        badEggs: '',
+        feedConsumptionKg: '',
+        feedCostPerKg: '',
+        medicineCost: '',
+        labourCost: '',
+        birdCount: ''
+      });
+      setActiveTab(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'eggLogs');
+      toast.error('Failed to save egg log');
     } finally {
       setLoading(false);
     }
@@ -1466,6 +1549,72 @@ const AddData: React.FC = () => {
         </div>
       ) : (
         <div className="w-full">
+          {/* Tab: Farmer Task */}
+          {activeTab === 'task' && (
+            <Card className="border-none shadow-sm rounded-3xl">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ClipboardCheck className="text-blue-600" />
+                  Farmer Task / Schedule
+                </CardTitle>
+                <CardDescription>Schedule vaccinations, medicine plans, or tasks</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleSaveTask} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Task Title</Label>
+                      <Input 
+                        required 
+                        value={taskData.title} 
+                        onChange={e => setTaskData({...taskData, title: e.target.value})} 
+                        placeholder="e.g. Vaccination - ND Lasota" 
+                        className="rounded-xl" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Category</Label>
+                      <Select value={taskData.category} onValueChange={v => setTaskData({...taskData, category: v})}>
+                        <SelectTrigger className="rounded-xl">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Vaccination">Vaccination</SelectItem>
+                          <SelectItem value="Medicine Plan">Medicine Plan</SelectItem>
+                          <SelectItem value="Cleaning">Cleaning</SelectItem>
+                          <SelectItem value="Other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Scheduled Date</Label>
+                      <Input 
+                        type="date" 
+                        required 
+                        value={taskData.scheduledDate} 
+                        onChange={e => setTaskData({...taskData, scheduledDate: e.target.value})} 
+                        className="rounded-xl" 
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Description / Instructions</Label>
+                      <Input 
+                        value={taskData.description} 
+                        onChange={e => setTaskData({...taskData, description: e.target.value})} 
+                        placeholder="Enter details about the task..." 
+                        className="rounded-xl" 
+                      />
+                    </div>
+                  </div>
+                  <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 rounded-xl py-6" disabled={loading}>
+                    <Save className="mr-2" size={20} />
+                    Save Schedule
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Tab: Incubator Log */}
           {activeTab === 'incubator' && (
             <Card className="border-none shadow-sm rounded-3xl">
@@ -1725,90 +1874,182 @@ const AddData: React.FC = () => {
                           {expandedSections.health ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
                         </button>
                         {expandedSections.health && (
-                          <div className="p-5 border-t border-slate-50 animate-in slide-in-from-top-2 duration-200">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                <Label htmlFor="vaccines">Vaccination Given</Label>
-                                <div className="flex gap-2">
-                                  <div className="flex-1">
-                                    <Select 
-                                      value={dailyLog.health.vaccines} 
-                                      onValueChange={v => setDailyLog({...dailyLog, health: {...dailyLog.health, vaccines: v}})}
-                                    >
-                                      <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="Select vaccine" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="none">None</SelectItem>
-                                        {medicineStock.filter(m => m.type === 'Vaccine' && m.quantity > 0).map(m => (
-                                          <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  <div className="w-32 flex flex-col justify-center px-3 bg-slate-50 rounded-xl border border-slate-100">
-                                    <span className="text-[10px] text-slate-500 uppercase font-bold">Available</span>
-                                    <span className="text-sm font-bold text-emerald-600">
-                                      {(() => {
-                                        const med = medicineStock.find(m => m.name === dailyLog.health.vaccines && m.type === 'Vaccine');
-                                        return med ? `${med.quantity} ${med.unit || 'doses'}` : '0 doses';
-                                      })()}
-                                    </span>
-                                  </div>
+                          <div className="p-5 border-t border-slate-50 animate-in slide-in-from-top-2 duration-200 space-y-6">
+                            {/* Vaccines */}
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between">
+                                <Label className="text-base font-bold">Vaccinations Given Today</Label>
+                                <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => setDailyLog({...dailyLog, health: {...dailyLog.health, vaccines: [...dailyLog.health.vaccines, {name: '', doses: ''}]}})}
+                                  className="rounded-xl border-dashed h-8"
+                                >
+                                  <Plus size={14} className="mr-1" /> Add Vaccine
+                                </Button>
+                              </div>
+                              {dailyLog.health.vaccines.length === 0 && (
+                                <div className="text-center py-4 border-2 border-dashed border-slate-100 rounded-2xl text-slate-400 text-sm">
+                                  No vaccines recorded for today
                                 </div>
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="vaccineDoses">Vaccine Doses</Label>
-                                <Input 
-                                  id="vaccineDoses" 
-                                  type="number"
-                                  value={dailyLog.health.vaccineDoses} 
-                                  onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, vaccineDoses: e.target.value}})}
-                                  placeholder="0"
-                                  className="rounded-xl"
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="medicines">Medicines Given</Label>
-                                <div className="flex gap-2">
-                                  <div className="flex-1">
-                                    <Select 
-                                      value={dailyLog.health.medicines} 
-                                      onValueChange={v => setDailyLog({...dailyLog, health: {...dailyLog.health, medicines: v}})}
-                                    >
-                                      <SelectTrigger className="rounded-xl">
-                                        <SelectValue placeholder="Select medicine" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="none">None</SelectItem>
-                                        {medicineStock.filter(m => m.type === 'Medicine' && m.quantity > 0).map(m => (
-                                          <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
+                              )}
+                              <div className="grid grid-cols-1 gap-3">
+                                {dailyLog.health.vaccines.map((v, idx) => (
+                                  <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-slate-50/50 rounded-2xl border border-slate-100 relative items-end">
+                                    <div className="space-y-1.5 flex-1">
+                                      <Label className="text-[10px] uppercase text-slate-500 font-bold">Select Vaccine</Label>
+                                      <Select 
+                                        value={v.name} 
+                                        onValueChange={val => {
+                                          const newList = [...dailyLog.health.vaccines];
+                                          newList[idx].name = val;
+                                          setDailyLog({...dailyLog, health: {...dailyLog.health, vaccines: newList}});
+                                        }}
+                                      >
+                                        <SelectTrigger className="rounded-xl bg-white h-10">
+                                          <SelectValue placeholder="Select" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {medicineStock.filter(item => item.type === 'Vaccine' && Number(item.quantity) > 0).map(item => (
+                                            <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-1.5 w-full">
+                                      <Label className="text-[10px] uppercase text-slate-500 font-bold">Doses Given</Label>
+                                      <div className="flex gap-2">
+                                        <Input 
+                                          type="number" 
+                                          value={v.doses} 
+                                          onChange={e => {
+                                            const newList = [...dailyLog.health.vaccines];
+                                            newList[idx].doses = e.target.value;
+                                            setDailyLog({...dailyLog, health: {...dailyLog.health, vaccines: newList}});
+                                          }}
+                                          placeholder="0"
+                                          className="rounded-xl bg-white h-10"
+                                        />
+                                        <div className="px-3 h-10 flex items-center bg-white rounded-xl border border-slate-200 text-[10px] text-slate-400 font-bold whitespace-nowrap">
+                                          {(() => {
+                                            const stock = medicineStock.find(m => m.name === v.name && m.type === 'Vaccine');
+                                            return stock ? `${stock.quantity} left` : '0 left';
+                                          })()}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="flex justify-end">
+                                      <Button 
+                                        type="button" 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        onClick={() => {
+                                          const newList = dailyLog.health.vaccines.filter((_, i) => i !== idx);
+                                          setDailyLog({...dailyLog, health: {...dailyLog.health, vaccines: newList}});
+                                        }}
+                                        className="text-red-500 hover:text-red-700 hover:bg-red-50 h-10 w-10 p-0 rounded-xl"
+                                      >
+                                        <Trash2 size={16} />
+                                      </Button>
+                                    </div>
                                   </div>
-                                  <div className="w-32 flex flex-col justify-center px-3 bg-slate-50 rounded-xl border border-slate-100">
-                                    <span className="text-[10px] text-slate-500 uppercase font-bold">Available</span>
-                                    <span className="text-sm font-bold text-emerald-600">
-                                      {(() => {
-                                        const med = medicineStock.find(m => m.name === dailyLog.health.medicines && m.type === 'Medicine');
-                                        return med ? `${med.quantity} ${med.unit || 'ml'}` : '0 ml';
-                                      })()}
-                                    </span>
-                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Medicines */}
+                            <div className="space-y-4 pt-4 border-t border-slate-50">
+                              <div className="flex items-center justify-between">
+                                <Label className="text-base font-bold">Medicines Used Today</Label>
+                                <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => setDailyLog({...dailyLog, health: {...dailyLog.health, medicines: [...dailyLog.health.medicines, {name: '', doses: ''}]}})}
+                                  className="rounded-xl border-dashed h-8"
+                                >
+                                  <Plus size={14} className="mr-1" /> Add Medicine
+                                </Button>
+                              </div>
+                              {dailyLog.health.medicines.length === 0 && (
+                                <div className="text-center py-4 border-2 border-dashed border-slate-100 rounded-2xl text-slate-400 text-sm">
+                                  No medicines recorded for today
                                 </div>
+                              )}
+                              <div className="grid grid-cols-1 gap-3">
+                                {dailyLog.health.medicines.map((m, idx) => (
+                                  <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-slate-50/50 rounded-2xl border border-slate-100 relative items-end">
+                                    <div className="space-y-1.5 flex-1">
+                                      <Label className="text-[10px] uppercase text-slate-500 font-bold">Select Medicine</Label>
+                                      <Select 
+                                        value={m.name} 
+                                        onValueChange={val => {
+                                          const newList = [...dailyLog.health.medicines];
+                                          newList[idx].name = val;
+                                          setDailyLog({...dailyLog, health: {...dailyLog.health, medicines: newList}});
+                                        }}
+                                      >
+                                        <SelectTrigger className="rounded-xl bg-white h-10">
+                                          <SelectValue placeholder="Select" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {medicineStock.filter(item => item.type === 'Medicine' && Number(item.quantity) > 0).map(item => (
+                                            <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-1.5 w-full">
+                                      <Label className="text-[10px] uppercase text-slate-500 font-bold">Quantity Given</Label>
+                                      <div className="flex gap-2">
+                                        <Input 
+                                          type="number" 
+                                          value={m.doses} 
+                                          onChange={e => {
+                                            const newList = [...dailyLog.health.medicines];
+                                            newList[idx].doses = e.target.value;
+                                            setDailyLog({...dailyLog, health: {...dailyLog.health, medicines: newList}});
+                                          }}
+                                          placeholder="0"
+                                          className="rounded-xl bg-white h-10"
+                                        />
+                                        <div className="px-3 h-10 flex items-center bg-white rounded-xl border border-slate-200 text-[10px] text-slate-400 font-bold whitespace-nowrap">
+                                          {(() => {
+                                            const stock = medicineStock.find(item => item.name === m.name && item.type === 'Medicine');
+                                            return stock ? `${stock.quantity} left` : '0 left';
+                                          })()}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="flex justify-end">
+                                      <Button 
+                                        type="button" 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        onClick={() => {
+                                          const newList = dailyLog.health.medicines.filter((_, i) => i !== idx);
+                                          setDailyLog({...dailyLog, health: {...dailyLog.health, medicines: newList}});
+                                        }}
+                                        className="text-red-500 hover:text-red-700 hover:bg-red-50 h-10 w-10 p-0 rounded-xl"
+                                      >
+                                        <Trash2 size={16} />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="medicineDoses">Medicine Doses</Label>
-                                <Input 
-                                  id="medicineDoses" 
-                                  type="number"
-                                  value={dailyLog.health.medicineDoses} 
-                                  onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, medicineDoses: e.target.value}})}
-                                  placeholder="0"
-                                  className="rounded-xl"
-                                />
-                              </div>
+                            </div>
+                            
+                            <div className="pt-4 border-t border-slate-50">
+                              <Label htmlFor="symptoms">Symptoms / Observations</Label>
+                              <Input 
+                                id="symptoms" 
+                                value={dailyLog.health.symptoms} 
+                                onChange={e => setDailyLog({...dailyLog, health: {...dailyLog.health, symptoms: e.target.value}})}
+                                placeholder="Describe any bird health issues..." 
+                                className="rounded-xl mt-2" 
+                              />
                             </div>
                           </div>
                         )}
@@ -1876,16 +2117,64 @@ const AddData: React.FC = () => {
                         </button>
                         {expandedSections.eggs && (
                           <div className="p-5 border-t border-slate-50 animate-in slide-in-from-top-2 duration-200">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                               <div className="space-y-2">
-                                <Label htmlFor="eggCount">Daily Egg Count</Label>
+                                <Label htmlFor="eggCount">Total Eggs Collected</Label>
                                 <Input 
                                   id="eggCount" 
                                   type="number" 
                                   value={dailyLog.production.eggCount} 
-                                  onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, eggCount: e.target.value}})}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    const good = Number(dailyLog.production.goodEggs) || 0;
+                                    const bad = Number(val) - good;
+                                    setDailyLog({
+                                      ...dailyLog, 
+                                      production: {
+                                        ...dailyLog.production, 
+                                        eggCount: val,
+                                        badEggs: bad > 0 ? bad.toString() : '0'
+                                      }
+                                    });
+                                  }}
                                   placeholder="0"
-                                  className="rounded-xl"
+                                  className="rounded-xl h-12 bg-slate-50 border-slate-200 font-bold"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="goodEggs">Good Condition Eggs</Label>
+                                <Input 
+                                  id="goodEggs" 
+                                  type="number" 
+                                  value={dailyLog.production.goodEggs} 
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    const total = Number(dailyLog.production.eggCount) || 0;
+                                    const bad = total - Number(val);
+                                    setDailyLog({
+                                      ...dailyLog, 
+                                      production: {
+                                        ...dailyLog.production, 
+                                        goodEggs: val,
+                                        badEggs: bad > 0 ? bad.toString() : '0'
+                                      }
+                                    });
+                                  }}
+                                  placeholder="0"
+                                  className="rounded-xl h-12 bg-emerald-50/30 border-emerald-100 font-bold"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <div className="flex justify-between items-center pr-1">
+                                  <Label htmlFor="badEggs">Bad/Damage Eggs</Label>
+                                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Auto Calculated</span>
+                                </div>
+                                <Input 
+                                  id="badEggs" 
+                                  type="number" 
+                                  readOnly
+                                  value={dailyLog.production.badEggs} 
+                                  className="rounded-xl h-12 bg-red-50/30 border-red-100 font-black text-red-600 cursor-not-allowed"
                                 />
                               </div>
                               <div className="space-y-2">
@@ -1896,33 +2185,90 @@ const AddData: React.FC = () => {
                                   value={dailyLog.production.eggWeight} 
                                   onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, eggWeight: e.target.value}})}
                                   placeholder="0"
-                                  className="rounded-xl"
+                                  className="rounded-xl h-12 bg-slate-50 border-slate-200"
                                 />
                               </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="badEggs">Bad Eggs</Label>
-                                <Input 
-                                  id="badEggs" 
-                                  type="number" 
-                                  value={dailyLog.production.badEggs} 
-                                  onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, badEggs: e.target.value}})}
-                                  placeholder="0"
-                                  className="rounded-xl"
-                                />
+                            </div>
+
+                            <div className="mt-8 p-6 bg-slate-900 rounded-[2rem] border-4 border-emerald-500/20 shadow-2xl relative overflow-hidden group">
+                              <div className="absolute top-0 right-0 p-8 opacity-5 -rotate-12 transform group-hover:scale-110 transition-transform">
+                                <IndianRupee size={120} className="text-white" />
                               </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="eggQuality">Egg Quality</Label>
-                                <Select value={dailyLog.production.eggQuality} onValueChange={v => setDailyLog({...dailyLog, production: {...dailyLog.production, eggQuality: v}})}>
-                                  <SelectTrigger className="rounded-xl">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="Excellent">Excellent</SelectItem>
-                                    <SelectItem value="Good">Good</SelectItem>
-                                    <SelectItem value="Fair">Fair</SelectItem>
-                                    <SelectItem value="Poor">Poor</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                              <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                                Operational Cost Calculation (Today)
+                              </h4>
+                              
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10 mb-6">
+                                <div className="space-y-2">
+                                  <Label className="text-white/70 text-[10px] font-bold uppercase tracking-widest">Labour Cost (₹)</Label>
+                                  <Input 
+                                    type="number" 
+                                    value={dailyLog.production.labourCost} 
+                                    onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, labourCost: e.target.value}})}
+                                    className="bg-white/5 border-white/10 text-white rounded-xl h-10 focus:ring-emerald-500"
+                                    placeholder="0"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-white/70 text-[10px] font-bold uppercase tracking-widest">Bird Count</Label>
+                                  <Input 
+                                    type="number" 
+                                    value={dailyLog.production.birdCount} 
+                                    onChange={e => setDailyLog({...dailyLog, production: {...dailyLog.production, birdCount: e.target.value}})}
+                                    className="bg-white/5 border-white/10 text-white rounded-xl h-10 focus:ring-emerald-500"
+                                    placeholder="0"
+                                  />
+                                </div>
+                              </div>
+                              
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+                                {(() => {
+                                  const costs = calculateDailyCosts();
+                                  const birdCount = Number(dailyLog.production.birdCount) || 0;
+                                  return (
+                                    <>
+                                      <div className="space-y-1">
+                                        <div className="flex justify-between items-center">
+                                          <p className="text-xs font-bold text-slate-400">Total Feed Cost</p>
+                                          <Badge className="bg-orange-500/20 text-orange-400 border-none text-[8px] font-black">FEED</Badge>
+                                        </div>
+                                        <p className="text-2xl font-black text-white">₹{costs.feedCost.toLocaleString(undefined, { maximumFractionDigits: 1 })}</p>
+                                        <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{dailyLog.consumption.feedIntake || 0}kg x {dailyLog.consumption.feedType}</p>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <div className="flex justify-between items-center">
+                                          <p className="text-xs font-bold text-slate-400">Med & Labour</p>
+                                          <Badge className="bg-blue-500/20 text-blue-400 border-none text-[8px] font-black">OTHER</Badge>
+                                        </div>
+                                        <p className="text-2xl font-black text-white">₹{(costs.medicineCost + costs.labourCost).toLocaleString(undefined, { maximumFractionDigits: 1 })}</p>
+                                        <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Med: ₹{costs.medicineCost.toFixed(0)} | Lab: ₹{costs.labourCost.toFixed(0)}</p>
+                                      </div>
+                                      <div className="md:col-span-2 pt-4 border-t border-slate-800 flex justify-between items-center">
+                                        <div>
+                                          <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Total Daily Operational Cost</p>
+                                          <p className="text-3xl font-black text-white">₹{costs.totalCost.toLocaleString(undefined, { maximumFractionDigits: 1 })}</p>
+                                        </div>
+                                        <div className="text-right flex flex-col items-end gap-1">
+                                          <div>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cost Per Egg (Est.)</p>
+                                            <p className="text-xl font-black text-emerald-400 leading-none">
+                                              ₹{Number(dailyLog.production.goodEggs) > 0 ? (costs.totalCost / Number(dailyLog.production.goodEggs)).toFixed(2) : '0.00'}
+                                            </p>
+                                          </div>
+                                          {birdCount > 0 && (
+                                            <div>
+                                              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Cost Per Bird</p>
+                                              <p className="text-lg font-black text-emerald-400/70 leading-none">
+                                                ₹{(costs.totalCost / birdCount).toFixed(2)}
+                                              </p>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </div>
@@ -4315,16 +4661,62 @@ const AddData: React.FC = () => {
                       </h4>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label>Egg Count</Label>
-                          <Input type="number" value={editingLog.production.eggCount} onChange={e => setEditingLog({...editingLog, production: {...editingLog.production, eggCount: e.target.value}})} className="rounded-xl" />
+                          <Label>Total Eggs Collected</Label>
+                          <Input 
+                            type="number" 
+                            value={editingLog.production.eggCount} 
+                            onChange={e => {
+                              const val = e.target.value;
+                              const good = Number(editingLog.production.goodEggs) || 0;
+                              const bad = Number(val) - good;
+                              setEditingLog({
+                                ...editingLog, 
+                                production: {
+                                  ...editingLog.production, 
+                                  eggCount: val,
+                                  badEggs: bad > 0 ? bad.toString() : '0'
+                                }
+                              });
+                            }} 
+                            className="rounded-xl" 
+                          />
                         </div>
                         <div className="space-y-2">
-                          <Label>Bad Eggs</Label>
-                          <Input type="number" value={editingLog.production.badEggs} onChange={e => setEditingLog({...editingLog, production: {...editingLog.production, badEggs: e.target.value}})} className="rounded-xl" />
+                          <Label>Good Condition Eggs</Label>
+                          <Input 
+                            type="number" 
+                            value={editingLog.production.goodEggs} 
+                            onChange={e => {
+                              const val = e.target.value;
+                              const total = Number(editingLog.production.eggCount) || 0;
+                              const bad = total - Number(val);
+                              setEditingLog({
+                                ...editingLog, 
+                                production: {
+                                  ...editingLog.production, 
+                                  goodEggs: val,
+                                  badEggs: bad > 0 ? bad.toString() : '0'
+                                }
+                              });
+                            }} 
+                            className="rounded-xl" 
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Bad/Damage Eggs (Auto)</Label>
+                          <Input type="number" readOnly value={editingLog.production.badEggs} className="rounded-xl bg-slate-50 text-slate-500" />
                         </div>
                         <div className="space-y-2">
                           <Label>Egg Weight (g)</Label>
                           <Input type="number" value={editingLog.production.eggWeight} onChange={e => setEditingLog({...editingLog, production: {...editingLog.production, eggWeight: e.target.value}})} className="rounded-xl" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Labour Cost (₹)</Label>
+                          <Input type="number" value={editingLog.production.labourCost} onChange={e => setEditingLog({...editingLog, production: {...editingLog.production, labourCost: e.target.value}})} className="rounded-xl" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Bird Count</Label>
+                          <Input type="number" value={editingLog.production.birdCount} onChange={e => setEditingLog({...editingLog, production: {...editingLog.production, birdCount: e.target.value}})} className="rounded-xl" />
                         </div>
                         <div className="space-y-2">
                           <Label>Egg Quality</Label>

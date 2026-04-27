@@ -25,11 +25,13 @@ import {
   ShieldCheck,
   CheckCircle2,
   IndianRupee,
-  Thermometer
+  Thermometer,
+  Mail
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { updateDoc, doc, getDoc, limit, orderBy } from 'firebase/firestore';
+import { getAuth, sendPasswordResetEmail } from 'firebase/auth';
 
 const ManagerDashboard: React.FC = () => {
   const { profile } = useAuth();
@@ -168,6 +170,20 @@ const ManagerDashboard: React.FC = () => {
       toast.success('Mortality entry approved');
     } catch (error) {
       toast.error('Failed to approve');
+    }
+  };
+
+  const handleSendResetLink = async (farmer: any) => {
+    if (!farmer.email) {
+      toast.error('Email not found for this farmer');
+      return;
+    }
+    try {
+      const auth = getAuth();
+      await sendPasswordResetEmail(auth, farmer.email);
+      toast.success(`Reset link sent to ${farmer.name}'s email`);
+    } catch (error: any) {
+      toast.error('Failed to send reset link: ' + error.message);
     }
   };
 
@@ -385,8 +401,30 @@ const ManagerDashboard: React.FC = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <Button variant="ghost" size="icon" className="rounded-full text-indigo-600 hover:bg-white hover:shadow-sm" onClick={() => window.location.href = `tel:${farmer.phone}`}>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="rounded-full text-indigo-600 hover:bg-white hover:shadow-sm" 
+                        onClick={() => window.location.href = `tel:${farmer.phone}`}>
                         <Phone size={18} />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="rounded-full text-emerald-600 hover:bg-white hover:shadow-sm" 
+                        onClick={() => window.location.href = `/manager/farmers?uid=${farmer.id}`}
+                        title="Farmer Task"
+                      >
+                        <ClipboardList size={18} />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="rounded-full text-amber-600 hover:bg-white hover:shadow-sm" 
+                        onClick={() => handleSendResetLink(farmer)}
+                        title="Send Password Reset Link"
+                      >
+                        <Mail size={18} />
                       </Button>
                       <Button 
                         nativeButton={false}

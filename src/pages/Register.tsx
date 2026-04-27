@@ -19,6 +19,9 @@ const Register: React.FC = () => {
     password: '',
     farmName: '',
     address: '',
+    city: '',
+    district: '',
+    state: '',
     farmArea: '',
     birdCapacity: '',
     farmType: '',
@@ -47,6 +50,9 @@ const Register: React.FC = () => {
           email: formData.email,
           farmName: formData.farmName,
           address: formData.address,
+          city: formData.city,
+          district: formData.district,
+          state: formData.state,
           farmArea: Number(formData.farmArea),
           birdCapacity: Number(formData.birdCapacity),
           farmType: formData.farmType,
@@ -156,7 +162,7 @@ const Register: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="address">Address</Label>
+              <Label htmlFor="address">Address / Village</Label>
               <Input 
                 id="address" 
                 required 
@@ -164,6 +170,39 @@ const Register: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 className="rounded-xl"
               />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="city">City</Label>
+                <Input 
+                  id="city" 
+                  required 
+                  value={formData.city}
+                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                  className="rounded-xl"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="district">District</Label>
+                <Input 
+                  id="district" 
+                  required 
+                  value={formData.district}
+                  onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+                  className="rounded-xl"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="state">State</Label>
+                <Input 
+                  id="state" 
+                  required 
+                  value={formData.state}
+                  onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                  className="rounded-xl"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

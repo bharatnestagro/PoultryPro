@@ -17,7 +17,8 @@ import {
   Package,
   CreditCard,
   Bird,
-  Key
+  Key,
+  Home
 } from 'lucide-react';
 import { useAuth } from '@/src/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -41,6 +42,7 @@ const ManagerLayout: React.FC = () => {
   if (!user || !isManager) return <Navigate to="/dashboard" replace />;
 
   const navItems = [
+    { icon: Home, label: 'Farmer View', path: '/dashboard' },
     { icon: LayoutDashboard, label: 'Manager Dashboard', path: '/manager' },
     { 
       icon: Users, 

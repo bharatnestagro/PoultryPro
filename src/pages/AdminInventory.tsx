@@ -378,6 +378,48 @@ const AdminInventory: React.FC = () => {
         </Dialog>
       </div>
 
+      {/* Overview Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <Package size={20} />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-slate-900">{items.length}</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Products</p>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+            <AlertTriangle size={20} />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-slate-900">{items.filter(i => i.stockQuantity <= i.lowStockLimit && i.inStock).length}</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Low Stock</p>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center">
+            <ShoppingCart size={20} />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-slate-900">{items.filter(i => !i.inStock || i.stockQuantity <= 0).length}</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Out of Stock</p>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+            <IndianRupee size={20} />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-slate-900">
+              ₹{(items.reduce((sum, i) => sum + (Number(i.price) * (Number(i.stockQuantity) || 0)), 0) / 1000).toFixed(1)}k
+            </p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Stock Value</p>
+          </div>
+        </div>
+      </div>
+
       {loading ? (
         <div className="flex justify-center p-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#122B21]"></div>

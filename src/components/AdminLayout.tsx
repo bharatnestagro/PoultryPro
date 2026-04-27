@@ -22,7 +22,8 @@ import {
   ChevronDown,
   ChevronRight,
   Menu,
-  Key
+  Key,
+  Home
 } from 'lucide-react';
 import { useAuth } from '@/src/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -100,7 +101,8 @@ const AdminLayout: React.FC = () => {
   }
 
   const navItems = [
-    { icon: LayoutDashboard, label: 'Analytics', path: '/admin' },
+    { icon: Home, label: 'Farmer View', path: '/dashboard' },
+    { icon: LayoutDashboard, label: 'Analytics Dashboard', path: '/admin' },
     { 
       icon: Users, 
       label: 'Farmers', 
@@ -288,7 +290,7 @@ const AdminLayout: React.FC = () => {
                 to="/admin" 
                 className={`text-sm font-semibold transition-colors ${location.pathname === '/admin' ? 'text-slate-900 border-b-2 border-emerald-600 pb-1' : 'text-slate-500 hover:text-slate-900'}`}
               >
-                Analytics
+                Analytics Dashboard
               </Link>
               <Link 
                 to="/admin/operations" 

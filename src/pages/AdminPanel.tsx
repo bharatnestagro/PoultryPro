@@ -392,7 +392,7 @@ const AdminPanel: React.FC = () => {
     <div className="space-y-8">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-4xl font-bold text-slate-900 tracking-tight">Harvest Ledger</h1>
+          <h1 className="text-4xl font-bold text-slate-900 tracking-tight">Analytics Dashboard</h1>
           <p className="text-slate-500 font-medium">Global Poultry Performance Dashboard</p>
         </div>
         <div className="flex gap-2 bg-white p-1 rounded-2xl shadow-sm border border-slate-100">

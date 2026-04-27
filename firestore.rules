@@ -221,5 +221,23 @@ service cloud.firestore {
     match /deletedKeys/{keyId} {
       allow read, write: if isAdmin() || isManager();
     }
+
+    // 12. Tasks & Schedules
+    match /tasks/{taskId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn());
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // 13. Egg Production Logs
+    match /eggLogs/{logId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn());
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
   }
 }

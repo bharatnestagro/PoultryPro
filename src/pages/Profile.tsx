@@ -10,12 +10,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { User, LogOut, Save, Building2, MapPin, Maximize2, Users, Trash2, Phone, Edit2, Plus, ShieldCheck, Key, CreditCard, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ShoppingCart, Bell, MapPinned, Database, Cloud, RefreshCw, FileText } from 'lucide-react';
+import { User, LogOut, Save, Building2, MapPin, Maximize2, Users, Trash2, Phone, Edit2, Plus, ShieldCheck, Key, CreditCard, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ShoppingCart, Bell, MapPinned, Database, Cloud, RefreshCw, FileText, Lock } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, addDays } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import { runBackup, checkAndRunAutoBackup } from '@/src/lib/backupManager';
+import { updatePassword, sendPasswordResetEmail } from 'firebase/auth';
+import { auth as firebaseAuth } from '@/src/lib/firebase';
 
 const Profile: React.FC = () => {
   const { user, profile, signOut } = useAuth();
@@ -527,6 +529,60 @@ const Profile: React.FC = () => {
   }, [user, profile?.lastBackupAt]);
 
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword) {
+      toast.error('Please enter a new password');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    try {
+      const currentUser = firebaseAuth.currentUser;
+      if (currentUser) {
+        await updatePassword(currentUser, newPassword);
+        toast.success('Password updated successfully');
+        setIsPasswordModalOpen(false);
+        setNewPassword('');
+        setConfirmPassword('');
+      } else {
+        toast.error('No authenticated user found');
+      }
+    } catch (error: any) {
+      console.error('Password update error:', error);
+      if (error.code === 'auth/requires-recent-login') {
+        toast.error('This action requires a recent login. Please logout and login again to change your password.');
+      } else {
+        toast.error(error.message || 'Failed to update password');
+      }
+    } finally {
+      setIsUpdatingPassword(false);
+    }
+  };
+
+  const handleSendResetEmail = async () => {
+    if (!user?.email) return;
+    try {
+      await sendPasswordResetEmail(firebaseAuth, user.email);
+      toast.success('Password reset email sent to your registered email address.');
+    } catch (error: any) {
+      toast.error('Failed to send reset email: ' + error.message);
+    }
+  };
+
   const handleManualBackup = async () => {
     if (!user) return;
     setIsBackingUp(true);
@@ -636,6 +692,79 @@ const Profile: React.FC = () => {
           <p className="text-slate-500">Manage your account & farm</p>
         </div>
         <div className="flex items-center gap-2">
+          <Dialog open={isPasswordModalOpen} onOpenChange={setIsPasswordModalOpen}>
+            <DialogTrigger render={
+              <Button 
+                variant="outline" 
+                className="border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl gap-2 shadow-sm h-10"
+              >
+                <Lock size={16} />
+                <span className="hidden sm:inline">Password</span>
+              </Button>
+            } />
+            <DialogContent className="rounded-3xl max-w-sm">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Lock className="text-emerald-600" size={20} />
+                  Security Settings
+                </DialogTitle>
+                <DialogDescription>Update your account password</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-6 pt-4">
+                <div className="p-4 bg-emerald-50 rounded-2xl">
+                  <p className="text-xs text-emerald-700 font-medium mb-3">Option 1: Get a reset link in your email</p>
+                  <Button 
+                    variant="outline" 
+                    className="w-full bg-white border-emerald-200 text-emerald-600 hover:bg-emerald-50 rounded-xl font-bold h-11"
+                    onClick={handleSendResetEmail}
+                  >
+                    Send Reset Email
+                  </Button>
+                </div>
+
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-slate-100"></span>
+                  </div>
+                  <div className="relative flex justify-center text-[10px] uppercase">
+                    <span className="bg-white px-3 font-bold text-slate-400 tracking-widest">OR SET MANUALLY</span>
+                  </div>
+                </div>
+
+                <form onSubmit={handleUpdatePassword} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-pass" className="text-xs font-bold text-slate-500">New Password</Label>
+                    <Input 
+                      id="new-pass" 
+                      type="password"
+                      value={newPassword}
+                      placeholder="Minimum 6 characters"
+                      onChange={e => setNewPassword(e.target.value)}
+                      className="rounded-xl border-slate-200 h-11"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm-pass" className="text-xs font-bold text-slate-500">Confirm Password</Label>
+                    <Input 
+                      id="confirm-pass" 
+                      type="password"
+                      value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      className="rounded-xl border-slate-200 h-11"
+                    />
+                  </div>
+                  <Button 
+                    type="submit" 
+                    disabled={isUpdatingPassword} 
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white rounded-xl h-12 font-bold mt-2"
+                  >
+                    {isUpdatingPassword ? 'Updating...' : 'Update Password Manually'}
+                  </Button>
+                </form>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           <Dialog open={isEditProfileOpen} onOpenChange={setIsEditProfileOpen}>
             <DialogTrigger render={
               <Button 

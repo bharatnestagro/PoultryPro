@@ -8,6 +8,10 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { 
+  ChevronDown,
+  ChevronUp,
+  Cpu,
+  Box,
   Settings, 
   Shield, 
   Bell, 
@@ -51,8 +55,15 @@ const AdminSettings: React.FC = () => {
       razorpay: { enabled: false, apiKey: '', apiSecret: '' },
       cashfree: { enabled: false, appId: '', secretKey: '' },
       payu: { enabled: false, merchantKey: '', merchantSalt: '' }
+    },
+    googleApis: {
+      maps: { enabled: false, apiKey: '' },
+      gemini: { enabled: false, apiKey: '' },
+      vision: { enabled: false, apiKey: '' },
+      translate: { enabled: false, apiKey: '' }
     }
   });
+  const [activeSection, setActiveSection] = useState<string | null>('general');
   const [loading, setLoading] = useState(true);
   const [admins, setAdmins] = useState<any[]>([]);
   const [allUsers, setAllUsers] = useState<any[]>([]);
@@ -326,485 +337,624 @@ const AdminSettings: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-8">
+        <div className="lg:col-span-2 space-y-4">
           {/* General Settings */}
-          <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8">
-            <div className="flex items-center gap-4 mb-8">
-              <div className="bg-slate-100 p-3 rounded-2xl text-slate-600">
-                <Settings size={24} />
+          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'general' ? 'p-8' : 'p-0'}`}>
+            <div 
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveSection(activeSection === 'general' ? null : 'general')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveSection(activeSection === 'general' ? null : 'general'); }}
+              className={`w-full flex items-center justify-between transition-all duration-300 cursor-pointer ${activeSection === 'general' ? 'mb-8' : 'p-8 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="bg-slate-100 p-3 rounded-2xl text-slate-600">
+                  <Settings size={24} />
+                </div>
+                <div className="text-left">
+                  <h3 className="text-xl font-bold text-slate-900">General Configuration</h3>
+                  <p className="text-xs text-slate-400 font-medium">Basic system-wide operational settings.</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-xl font-bold text-slate-900">General Configuration</h3>
-                <p className="text-xs text-slate-400 font-medium">Basic system-wide operational settings.</p>
-              </div>
+              {activeSection === 'general' ? <ChevronUp className="text-slate-400" /> : <ChevronDown className="text-slate-400" />}
             </div>
 
-            <div className="space-y-6">
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                <div className="space-y-1">
-                  <Label className="text-sm font-bold text-slate-900">Maintenance Mode</Label>
-                  <p className="text-xs text-slate-500">Disable public access for scheduled maintenance.</p>
+            {activeSection === 'general' && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                  <div className="space-y-1">
+                    <Label className="text-sm font-bold text-slate-900">Maintenance Mode</Label>
+                    <p className="text-xs text-slate-500">Disable public access for scheduled maintenance.</p>
+                  </div>
+                  <Switch 
+                    checked={settings.maintenanceMode} 
+                    onCheckedChange={(checked) => setSettings(prev => ({ ...prev, maintenanceMode: checked }))}
+                  />
                 </div>
-                <Switch 
-                  checked={settings.maintenanceMode} 
-                  onCheckedChange={(checked) => setSettings(prev => ({ ...prev, maintenanceMode: checked }))}
-                />
-              </div>
 
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                <div className="space-y-1">
-                  <Label className="text-sm font-bold text-slate-900">Farmer Registration</Label>
-                  <p className="text-xs text-slate-500">Allow new farmers to sign up on the platform.</p>
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                  <div className="space-y-1">
+                    <Label className="text-sm font-bold text-slate-900">Farmer Registration</Label>
+                    <p className="text-xs text-slate-500">Allow new farmers to sign up on the platform.</p>
+                  </div>
+                  <Switch 
+                    checked={settings.registrationOpen} 
+                    onCheckedChange={(checked) => setSettings(prev => ({ ...prev, registrationOpen: checked }))}
+                  />
                 </div>
-                <Switch 
-                  checked={settings.registrationOpen} 
-                  onCheckedChange={(checked) => setSettings(prev => ({ ...prev, registrationOpen: checked }))}
-                />
-              </div>
 
-              <div className="space-y-2">
-                <Label className="text-xs font-bold text-slate-400 uppercase tracking-widest">SYSTEM TIMEZONE</Label>
-                <select 
-                  className="w-full h-12 bg-slate-50 border-slate-100 rounded-xl px-4 text-sm font-medium"
-                  value={settings.timezone}
-                  onChange={(e) => setSettings(prev => ({ ...prev, timezone: e.target.value }))}
-                >
-                  <option>Asia/Kolkata (IST)</option>
-                  <option>UTC</option>
-                </select>
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold text-slate-400 uppercase tracking-widest">SYSTEM TIMEZONE</Label>
+                  <select 
+                    className="w-full h-12 bg-slate-50 border-slate-100 rounded-xl px-4 text-sm font-medium"
+                    value={settings.timezone}
+                    onChange={(e) => setSettings(prev => ({ ...prev, timezone: e.target.value }))}
+                  >
+                    <option>Asia/Kolkata (IST)</option>
+                    <option>UTC</option>
+                  </select>
+                </div>
               </div>
+            )}
+          </Card>
+
+          {/* System Configuration (Google APIs) */}
+          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'system' ? 'p-8' : 'p-0'}`}>
+            <div 
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveSection(activeSection === 'system' ? null : 'system')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveSection(activeSection === 'system' ? null : 'system'); }}
+              className={`w-full flex items-center justify-between transition-all duration-300 cursor-pointer ${activeSection === 'system' ? 'mb-8' : 'p-8 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">
+                  <Cpu size={24} />
+                </div>
+                <div className="text-left">
+                  <h3 className="text-xl font-bold text-slate-900">System Configuration</h3>
+                  <p className="text-xs text-slate-400 font-medium">Manage Google Cloud & AI service integrations.</p>
+                </div>
+              </div>
+              {activeSection === 'system' ? <ChevronUp className="text-slate-400" /> : <ChevronDown className="text-slate-400" />}
             </div>
+
+            {activeSection === 'system' && (
+              <div className="space-y-8">
+                {Object.entries(settings.googleApis || {}).map(([key, config]: [string, any]) => (
+                  <div key={key} className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600">
+                          <Box size={16} />
+                        </div>
+                        <Label className="font-bold text-slate-900 capitalize">{key} API</Label>
+                      </div>
+                      <Switch 
+                        checked={config.enabled} 
+                        onCheckedChange={(checked) => setSettings(prev => ({ 
+                          ...prev, 
+                          googleApis: { 
+                            ...prev.googleApis, 
+                            [key]: { ...prev.googleApis[key as keyof typeof prev.googleApis], enabled: checked } 
+                          } 
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">API KEY / CREDENTIALS</Label>
+                      <Input 
+                        placeholder={`Enter ${key} API Key`}
+                        type="password"
+                        className="rounded-xl h-12 bg-white"
+                        value={config.apiKey}
+                        onChange={(e) => setSettings(prev => ({ 
+                          ...prev, 
+                          googleApis: { 
+                            ...prev.googleApis, 
+                            [key]: { ...prev.googleApis[key as keyof typeof prev.googleApis], apiKey: e.target.value } 
+                          } 
+                        }))}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
 
           {/* Manage Terms & Conditions */}
-          <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8 mt-8">
-            <div className="flex items-center justify-between mb-8">
+          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'terms' ? 'p-8' : 'p-0'}`}>
+            <div 
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveSection(activeSection === 'terms' ? null : 'terms')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveSection(activeSection === 'terms' ? null : 'terms'); }}
+              className={`w-full flex items-center justify-between transition-all duration-300 cursor-pointer ${activeSection === 'terms' ? 'mb-8' : 'p-8 hover:bg-slate-50'}`}
+            >
               <div className="flex items-center gap-4">
                 <div className="bg-amber-50 p-3 rounded-2xl text-amber-600">
                   <FileText size={24} />
                 </div>
-                <div>
+                <div className="text-left">
                   <h3 className="text-xl font-bold text-slate-900">Terms & Conditions</h3>
                   <p className="text-xs text-slate-400 font-medium">Manage legal agreements for farmers.</p>
                 </div>
               </div>
-              <Dialog>
-                <DialogTrigger render={
-                  <Button className="bg-[#122B21] hover:bg-[#1a3d2e] rounded-xl font-bold gap-2">
-                    <Plus size={18} />
-                    <span>Create New</span>
-                  </Button>
-                } />
-                <DialogContent className="rounded-[2rem] sm:max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden">
-                  <DialogHeader className="p-8 pb-4">
-                    <DialogTitle className="text-2xl font-black italic">New Agreement</DialogTitle>
-                    <DialogDescription>Create a new terms and conditions document for your farmers.</DialogDescription>
-                  </DialogHeader>
-                  <div className="flex-1 overflow-y-auto px-8 pb-8 space-y-6">
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">DOCUMENT TITLE</Label>
-                      <Input 
-                        placeholder="e.g. Data Privacy Policy v1.0" 
-                        className="rounded-2xl h-14 bg-slate-50 border-slate-100 border-2 focus:ring-slate-900"
-                        value={newTerm.title}
-                        onChange={(e) => setNewTerm({ ...newTerm, title: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2 flex-1 flex flex-col min-h-0">
-                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">CONTENT (MARKDOWN SUPPORTED)</Label>
-                      <div className="flex-1 min-h-[300px] border-2 border-slate-100 rounded-3xl bg-slate-50 overflow-hidden flex flex-col">
-                        <textarea 
-                          className="flex-1 p-6 bg-transparent border-none focus:ring-0 text-sm font-medium resize-none"
-                          placeholder="Enter terms content... Use markdown for headers, lists, and bold text."
-                          value={newTerm.content}
-                          onChange={(e) => setNewTerm({ ...newTerm, content: e.target.value })}
-                        />
-                        <div className="bg-white border-t border-slate-100 p-3 flex gap-4 text-[10px] font-black text-slate-400 uppercase tracking-tighter">
-                          <span># Header</span>
-                          <span>**Bold**</span>
-                          <span>- List</span>
+              <div className="flex items-center gap-4">
+                {activeSection === 'terms' && (
+                  <Dialog>
+                    <DialogTrigger nativeButton={false} render={
+                      <Button className="bg-[#122B21] hover:bg-[#1a3d2e] rounded-xl font-bold gap-2" onClick={(e) => e.stopPropagation()}>
+                        <Plus size={18} />
+                        <span>Create New</span>
+                      </Button>
+                    } />
+                    <DialogContent className="rounded-[2rem] sm:max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden">
+                      <DialogHeader className="p-8 pb-4">
+                        <DialogTitle className="text-2xl font-black italic">New Agreement</DialogTitle>
+                        <DialogDescription>Create a new terms and conditions document for your farmers.</DialogDescription>
+                      </DialogHeader>
+                      <div className="flex-1 overflow-y-auto px-8 pb-8 space-y-6">
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">DOCUMENT TITLE</Label>
+                          <Input 
+                            placeholder="e.g. Data Privacy Policy v1.0" 
+                            className="rounded-2xl h-14 bg-slate-50 border-slate-100 border-2 focus:ring-slate-900"
+                            value={newTerm.title}
+                            onChange={(e) => setNewTerm({ ...newTerm, title: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2 flex-1 flex flex-col min-h-0">
+                          <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">CONTENT (MARKDOWN SUPPORTED)</Label>
+                          <div className="flex-1 min-h-[300px] border-2 border-slate-100 rounded-3xl bg-slate-50 overflow-hidden flex flex-col">
+                            <textarea 
+                              className="flex-1 p-6 bg-transparent border-none focus:ring-0 text-sm font-medium resize-none"
+                              placeholder="Enter terms content... Use markdown for headers, lists, and bold text."
+                              value={newTerm.content}
+                              onChange={(e) => setNewTerm({ ...newTerm, content: e.target.value })}
+                            />
+                            <div className="bg-white border-t border-slate-100 p-3 flex gap-4 text-[10px] font-black text-slate-400 uppercase tracking-tighter">
+                              <span># Header</span>
+                              <span>**Bold**</span>
+                              <span>- List</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                  <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
-                    <Button 
-                      variant="outline" 
-                      className="rounded-xl px-6" 
-                      onClick={() => setNewTerm({ title: '', content: '' })}
-                    >
-                      Reset
-                    </Button>
-                    <Button 
-                      className="bg-[#122B21] hover:bg-[#1a3d2e] rounded-xl px-8 font-bold"
-                      onClick={handleAddTerm}
-                    >
-                      Save & Publish
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-
-            <div className="space-y-4">
-              {Array.isArray(settings.termsList) && settings.termsList.length > 0 ? (
-                <div className="grid gap-3">
-                  {settings.termsList.map((term: any) => (
-                    <div key={term.id} className="flex items-center justify-between p-5 bg-slate-50 border border-slate-100 rounded-3xl hover:border-slate-200 transition-all">
-                      <div className="flex items-center gap-4">
-                        <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-slate-400">
-                          <FileText size={18} />
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-900">{term.title}</p>
-                          <p className="text-[10px] text-slate-400 font-medium">
-                            Updated: {new Date(term.createdAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-500 rounded-xl" onClick={() => handleDeleteTerm(term.id)}>
-                          <Trash2 size={18} />
+                      <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                        <Button 
+                          variant="outline" 
+                          className="rounded-xl px-6" 
+                          onClick={() => setNewTerm({ title: '', content: '' })}
+                        >
+                          Reset
+                        </Button>
+                        <Button 
+                          className="bg-[#122B21] hover:bg-[#1a3d2e] rounded-xl px-8 font-bold"
+                          onClick={handleAddTerm}
+                        >
+                          Save & Publish
                         </Button>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 bg-slate-50 rounded-[2rem] border border-dashed border-slate-200">
-                  <FileText className="text-slate-200 mx-auto mb-4" size={48} />
-                  <p className="text-slate-400 font-bold">No agreements found</p>
-                  <p className="text-[10px] text-slate-300 uppercase tracking-widest mt-1">Create your first terms & conditions document</p>
-                </div>
-              )}
+                    </DialogContent>
+                  </Dialog>
+                )}
+                {activeSection === 'terms' ? <ChevronUp className="text-slate-400" /> : <ChevronDown className="text-slate-400" />}
+              </div>
             </div>
+
+            {activeSection === 'terms' && (
+              <div className="space-y-4">
+                {Array.isArray(settings.termsList) && settings.termsList.length > 0 ? (
+                  <div className="grid gap-3">
+                    {settings.termsList.map((term: any) => (
+                      <div key={term.id} className="flex items-center justify-between p-5 bg-slate-50 border border-slate-100 rounded-3xl hover:border-slate-200 transition-all">
+                        <div className="flex items-center gap-4">
+                          <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-slate-400">
+                            <FileText size={18} />
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-900">{term.title}</p>
+                            <p className="text-[10px] text-slate-400 font-medium">
+                              Updated: {new Date(term.createdAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-500 rounded-xl" onClick={() => handleDeleteTerm(term.id)}>
+                            <Trash2 size={18} />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12 bg-slate-50 rounded-[2rem] border border-dashed border-slate-200">
+                    <FileText className="text-slate-200 mx-auto mb-4" size={48} />
+                    <p className="text-slate-400 font-bold">No agreements found</p>
+                    <p className="text-[10px] text-slate-300 uppercase tracking-widest mt-1">Create your first terms & conditions document</p>
+                  </div>
+                )}
+              </div>
+            )}
           </Card>
 
           {/* Role Management */}
-          <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8">
-            <div className="flex items-center gap-4 mb-8">
-              <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">
-                <Shield size={24} />
+          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'roles' ? 'p-8' : 'p-0'}`}>
+            <div 
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveSection(activeSection === 'roles' ? null : 'roles')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveSection(activeSection === 'roles' ? null : 'roles'); }}
+              className={`w-full flex items-center justify-between transition-all duration-300 cursor-pointer ${activeSection === 'roles' ? 'mb-8' : 'p-8 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">
+                  <Shield size={24} />
+                </div>
+                <div className="text-left">
+                  <h3 className="text-xl font-bold text-slate-900">Role & Permissions</h3>
+                  <p className="text-xs text-slate-400 font-medium">Define access levels for different user types.</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-xl font-bold text-slate-900">Role & Permissions</h3>
-                <p className="text-xs text-slate-400 font-medium">Define access levels for different user types.</p>
-              </div>
+              {activeSection === 'roles' ? <ChevronUp className="text-slate-400" /> : <ChevronDown className="text-slate-400" />}
             </div>
 
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600">
-                    <Lock size={18} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-slate-900">Administrator</p>
-                    <p className="text-xs text-slate-500">Full system access and control.</p>
-                  </div>
-                </div>
-                <Badge className="bg-slate-100 text-slate-500 border-none">{admins.length} USERS</Badge>
-              </div>
-
-              <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-                    <UserCheck size={18} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-slate-900">Sub-Admin / Roles</p>
-                    <p className="text-xs text-slate-500">Manage user access levels.</p>
-                  </div>
-                </div>
-                <Dialog>
-                  <DialogTrigger render={
-                    <Button variant="ghost" size="sm" className="text-indigo-600 font-bold text-xs">MANAGE</Button>
-                  } />
-                  <DialogContent className="max-w-2xl rounded-[2rem]">
-                    <DialogHeader>
-                      <DialogTitle>User Role Management</DialogTitle>
-                    </DialogHeader>
-                    <div className="max-h-[400px] overflow-y-auto space-y-4 p-2">
-                      {allUsers.map(user => (
-                        <div key={user.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
-                          <div>
-                            <p className="font-bold text-slate-900">{user.name}</p>
-                            <p className="text-xs text-slate-500">{user.email}</p>
-                            <Badge variant="outline" className="mt-1 text-[10px] uppercase">{user.role}</Badge>
-                          </div>
-                            {user.id === ADMIN_UID ? (
-                              <Badge className="bg-emerald-100 text-emerald-600 border-none">SYSTEM ADMIN</Badge>
-                            ) : (
-                              <div className="flex gap-2">
-                                <Button 
-                                  size="sm" 
-                                  variant={user.role === 'admin' ? 'default' : 'outline'}
-                                  onClick={() => handleUpdateRole(user.id, 'admin')}
-                                  className="text-[10px] h-8"
-                                  disabled={true} // Strict mode: no other admins
-                                >
-                                  Admin
-                                </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant={user.role === 'farmer' ? 'default' : 'outline'}
-                                  onClick={() => handleUpdateRole(user.id, 'farmer')}
-                                  className="text-[10px] h-8"
-                                >
-                                  Farmer
-                                </Button>
-                              </div>
-                            )}
-                        </div>
-                      ))}
+            {activeSection === 'roles' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600">
+                      <Lock size={18} />
                     </div>
-                  </DialogContent>
-                </Dialog>
-              </div>
-
-              <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
-                    <Globe size={18} />
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">Administrator</p>
+                      <p className="text-xs text-slate-500">Full system access and control.</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-bold text-slate-900">Farmer</p>
-                    <p className="text-xs text-slate-500">Standard farm operational access.</p>
-                  </div>
+                  <Badge className="bg-slate-100 text-slate-500 border-none">{admins.length} USERS</Badge>
                 </div>
-                <Badge className="bg-slate-100 text-slate-500 border-none">ACTIVE</Badge>
+
+                <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                      <UserCheck size={18} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">Sub-Admin / Roles</p>
+                      <p className="text-xs text-slate-500">Manage user access levels.</p>
+                    </div>
+                  </div>
+                  <Dialog>
+                    <DialogTrigger render={
+                      <Button variant="ghost" size="sm" className="text-indigo-600 font-bold text-xs">MANAGE</Button>
+                    } />
+                    <DialogContent className="max-w-2xl rounded-[2rem]">
+                      <DialogHeader>
+                        <DialogTitle>User Role Management</DialogTitle>
+                      </DialogHeader>
+                      <div className="max-h-[400px] overflow-y-auto space-y-4 p-2">
+                        {allUsers.map(user => (
+                          <div key={user.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                            <div>
+                              <p className="font-bold text-slate-900">{user.name}</p>
+                              <p className="text-xs text-slate-500">{user.email}</p>
+                              <Badge variant="outline" className="mt-1 text-[10px] uppercase">{user.role}</Badge>
+                            </div>
+                              {user.id === ADMIN_UID ? (
+                                <Badge className="bg-emerald-100 text-emerald-600 border-none">SYSTEM ADMIN</Badge>
+                              ) : (
+                                <div className="flex gap-2">
+                                  <Button 
+                                    size="sm" 
+                                    variant={user.role === 'admin' ? 'default' : 'outline'}
+                                    onClick={() => handleUpdateRole(user.id, 'admin')}
+                                    className="text-[10px] h-8"
+                                    disabled={true} // Strict mode: no other admins
+                                  >
+                                    Admin
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant={user.role === 'farmer' ? 'default' : 'outline'}
+                                    onClick={() => handleUpdateRole(user.id, 'farmer')}
+                                    className="text-[10px] h-8"
+                                  >
+                                    Farmer
+                                  </Button>
+                                </div>
+                              )}
+                          </div>
+                        ))}
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+
+                <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
+                      <Globe size={18} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">Farmer</p>
+                      <p className="text-xs text-slate-500">Standard farm operational access.</p>
+                    </div>
+                  </div>
+                  <Badge className="bg-slate-100 text-slate-500 border-none">ACTIVE</Badge>
+                </div>
               </div>
-            </div>
+            )}
           </Card>
 
           {/* Payment Gateways */}
-          <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8 mt-8">
-            <div className="flex items-center gap-4 mb-8">
-              <div className="bg-emerald-50 p-3 rounded-2xl text-emerald-600">
-                <DollarSign size={24} />
+          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'payments' ? 'p-8' : 'p-0'}`}>
+            <div 
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveSection(activeSection === 'payments' ? null : 'payments')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveSection(activeSection === 'payments' ? null : 'payments'); }}
+              className={`w-full flex items-center justify-between transition-all duration-300 cursor-pointer ${activeSection === 'payments' ? 'mb-8' : 'p-8 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="bg-emerald-50 p-3 rounded-2xl text-emerald-600">
+                  <DollarSign size={24} />
+                </div>
+                <div className="text-left">
+                  <h3 className="text-xl font-bold text-slate-900">Payment Gateways</h3>
+                  <p className="text-xs text-slate-400 font-medium">Configure payment integration for shop transactions.</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-xl font-bold text-slate-900">Payment Gateways</h3>
-                <p className="text-xs text-slate-400 font-medium">Configure payment integration for shop transactions.</p>
-              </div>
+              {activeSection === 'payments' ? <ChevronUp className="text-slate-400" /> : <ChevronDown className="text-slate-400" />}
             </div>
 
-            <div className="space-y-8">
-              {/* Razorpay */}
-              <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">RZ</div>
-                    <Label className="font-bold text-slate-900">Razorpay</Label>
-                  </div>
-                  <Switch 
-                    checked={settings.paymentGateways?.razorpay?.enabled} 
-                    onCheckedChange={(checked) => setSettings(prev => ({ 
-                      ...prev, 
-                      paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, enabled: checked } } 
-                    }))}
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">API KEY</Label>
-                    <Input 
-                      placeholder="rzp_test_..." 
-                      className="rounded-xl"
-                      value={settings.paymentGateways?.razorpay?.apiKey}
-                      onChange={(e) => setSettings(prev => ({ 
+            {activeSection === 'payments' && (
+              <div className="space-y-8">
+                {/* Razorpay */}
+                <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">RZ</div>
+                      <Label className="font-bold text-slate-900">Razorpay</Label>
+                    </div>
+                    <Switch 
+                      checked={settings.paymentGateways?.razorpay?.enabled} 
+                      onCheckedChange={(checked) => setSettings(prev => ({ 
                         ...prev, 
-                        paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, apiKey: e.target.value } } 
+                        paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, enabled: checked } } 
                       }))}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">API SECRET</Label>
-                    <Input 
-                      type="password" 
-                      placeholder="••••••••" 
-                      className="rounded-xl"
-                      value={settings.paymentGateways?.razorpay?.apiSecret}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, apiSecret: e.target.value } } 
-                      }))}
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">API KEY</Label>
+                      <Input 
+                        placeholder="rzp_test_..." 
+                        className="rounded-xl"
+                        value={settings.paymentGateways?.razorpay?.apiKey}
+                        onChange={(e) => setSettings(prev => ({ 
+                          ...prev, 
+                          paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, apiKey: e.target.value } } 
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">API SECRET</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="••••••••" 
+                        className="rounded-xl"
+                        value={settings.paymentGateways?.razorpay?.apiSecret}
+                        onChange={(e) => setSettings(prev => ({ 
+                          ...prev, 
+                          paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, apiSecret: e.target.value } } 
+                        }))}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Cashfree */}
-              <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-sky-500 flex items-center justify-center text-white text-[10px] font-bold">CF</div>
-                    <Label className="font-bold text-slate-900">Cashfree</Label>
-                  </div>
-                  <Switch 
-                    checked={settings.paymentGateways?.cashfree?.enabled} 
-                    onCheckedChange={(checked) => setSettings(prev => ({ 
-                      ...prev, 
-                      paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, enabled: checked } } 
-                    }))}
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">APP ID</Label>
-                    <Input 
-                      placeholder="Enter App ID" 
-                      className="rounded-xl"
-                      value={settings.paymentGateways?.cashfree?.appId}
-                      onChange={(e) => setSettings(prev => ({ 
+                {/* Cashfree */}
+                <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-sky-500 flex items-center justify-center text-white text-[10px] font-bold">CF</div>
+                      <Label className="font-bold text-slate-900">Cashfree</Label>
+                    </div>
+                    <Switch 
+                      checked={settings.paymentGateways?.cashfree?.enabled} 
+                      onCheckedChange={(checked) => setSettings(prev => ({ 
                         ...prev, 
-                        paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, appId: e.target.value } } 
+                        paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, enabled: checked } } 
                       }))}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">SECRET KEY</Label>
-                    <Input 
-                      type="password" 
-                      placeholder="••••••••" 
-                      className="rounded-xl"
-                      value={settings.paymentGateways?.cashfree?.secretKey}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, secretKey: e.target.value } } 
-                      }))}
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">APP ID</Label>
+                      <Input 
+                        placeholder="Enter App ID" 
+                        className="rounded-xl"
+                        value={settings.paymentGateways?.cashfree?.appId}
+                        onChange={(e) => setSettings(prev => ({ 
+                          ...prev, 
+                          paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, appId: e.target.value } } 
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">SECRET KEY</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="••••••••" 
+                        className="rounded-xl"
+                        value={settings.paymentGateways?.cashfree?.secretKey}
+                        onChange={(e) => setSettings(prev => ({ 
+                          ...prev, 
+                          paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, secretKey: e.target.value } } 
+                        }))}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* PayU */}
-              <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-[10px] font-bold">PU</div>
-                    <Label className="font-bold text-slate-900">PayU</Label>
-                  </div>
-                  <Switch 
-                    checked={settings.paymentGateways?.payu?.enabled} 
-                    onCheckedChange={(checked) => setSettings(prev => ({ 
-                      ...prev, 
-                      paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, enabled: checked } } 
-                    }))}
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">MERCHANT KEY</Label>
-                    <Input 
-                      placeholder="Enter Key" 
-                      className="rounded-xl"
-                      value={settings.paymentGateways?.payu?.merchantKey}
-                      onChange={(e) => setSettings(prev => ({ 
+                {/* PayU */}
+                <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-[10px] font-bold">PU</div>
+                      <Label className="font-bold text-slate-900">PayU</Label>
+                    </div>
+                    <Switch 
+                      checked={settings.paymentGateways?.payu?.enabled} 
+                      onCheckedChange={(checked) => setSettings(prev => ({ 
                         ...prev, 
-                        paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, merchantKey: e.target.value } } 
+                        paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, enabled: checked } } 
                       }))}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">MERCHANT SALT</Label>
-                    <Input 
-                      type="password" 
-                      placeholder="••••••••" 
-                      className="rounded-xl"
-                      value={settings.paymentGateways?.payu?.merchantSalt}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, merchantSalt: e.target.value } } 
-                      }))}
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">MERCHANT KEY</Label>
+                      <Input 
+                        placeholder="Enter Key" 
+                        className="rounded-xl"
+                        value={settings.paymentGateways?.payu?.merchantKey}
+                        onChange={(e) => setSettings(prev => ({ 
+                          ...prev, 
+                          paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, merchantKey: e.target.value } } 
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">MERCHANT SALT</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="••••••••" 
+                        className="rounded-xl"
+                        value={settings.paymentGateways?.payu?.merchantSalt}
+                        onChange={(e) => setSettings(prev => ({ 
+                          ...prev, 
+                          paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, merchantSalt: e.target.value } } 
+                        }))}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </Card>
         </div>
 
-        <div className="space-y-8">
+        <div className="space-y-4">
           {/* Notifications */}
-          <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="bg-amber-50 p-3 rounded-2xl text-amber-600">
-                <Bell size={24} />
+          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'notifs' ? 'p-8' : 'p-0'}`}>
+            <button 
+              onClick={() => setActiveSection(activeSection === 'notifs' ? null : 'notifs')}
+              className={`w-full flex items-center justify-between transition-all duration-300 ${activeSection === 'notifs' ? 'mb-6' : 'p-8 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="bg-amber-50 p-3 rounded-2xl text-amber-600">
+                  <Bell size={24} />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">Alert Settings</h3>
               </div>
-              <h3 className="text-lg font-bold text-slate-900">Alert Settings</h3>
-            </div>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-600">Email Alerts</span>
-                <Switch 
-                  checked={settings.emailAlerts} 
-                  onCheckedChange={(checked) => setSettings(prev => ({ ...prev, emailAlerts: checked }))}
-                />
+              {activeSection === 'notifs' ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+            </button>
+            {activeSection === 'notifs' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-600">Email Alerts</span>
+                  <Switch 
+                    checked={settings.emailAlerts} 
+                    onCheckedChange={(checked) => setSettings(prev => ({ ...prev, emailAlerts: checked }))}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-600">SMS Notifications</span>
+                  <Switch 
+                    checked={settings.smsNotifications} 
+                    onCheckedChange={(checked) => setSettings(prev => ({ ...prev, smsNotifications: checked }))}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-600">In-App Alerts</span>
+                  <Switch 
+                    checked={settings.inAppAlerts} 
+                    onCheckedChange={(checked) => setSettings(prev => ({ ...prev, inAppAlerts: checked }))}
+                  />
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-600">SMS Notifications</span>
-                <Switch 
-                  checked={settings.smsNotifications} 
-                  onCheckedChange={(checked) => setSettings(prev => ({ ...prev, smsNotifications: checked }))}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-600">In-App Alerts</span>
-                <Switch 
-                  checked={settings.inAppAlerts} 
-                  onCheckedChange={(checked) => setSettings(prev => ({ ...prev, inAppAlerts: checked }))}
-                />
-              </div>
-            </div>
+            )}
           </Card>
 
           {/* Backup */}
-          <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">
-                <Database size={24} />
+          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'backup' ? 'p-8' : 'p-0'}`}>
+            <button 
+              onClick={() => setActiveSection(activeSection === 'backup' ? null : 'backup')}
+              className={`w-full flex items-center justify-between transition-all duration-300 ${activeSection === 'backup' ? 'mb-6' : 'p-8 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">
+                  <Database size={24} />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">Data Backup</h3>
               </div>
-              <h3 className="text-lg font-bold text-slate-900">Data Backup</h3>
-            </div>
-            <p className="text-xs text-slate-500 mb-6 leading-relaxed">
-              Last backup performed: <span className="font-bold">Just now</span>. Automatic backups are scheduled daily at 02:00 AM.
-            </p>
-            <div className="grid grid-cols-2 gap-4">
-              <Button variant="outline" className="rounded-xl flex items-center gap-2">
-                <RefreshCw size={16} />
-                <span>Sync</span>
-              </Button>
-              <Button 
-                className="bg-[#122B21] text-white rounded-xl"
-                onClick={handleBackup}
-                disabled={isBackupLoading}
-              >
-                {isBackupLoading ? 'Backing up...' : 'Backup Now'}
-              </Button>
-            </div>
+              {activeSection === 'backup' ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+            </button>
+            {activeSection === 'backup' && (
+              <div className="space-y-4">
+                <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                  Last backup performed: <span className="font-bold">Just now</span>. Automatic backups are scheduled daily at 02:00 AM.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <Button variant="outline" className="rounded-xl flex items-center gap-2">
+                    <RefreshCw size={16} />
+                    <span>Sync</span>
+                  </Button>
+                  <Button 
+                    className="bg-[#122B21] text-white rounded-xl"
+                    onClick={handleBackup}
+                    disabled={isBackupLoading}
+                  >
+                    {isBackupLoading ? 'Backing up...' : 'Backup Now'}
+                  </Button>
+                </div>
+              </div>
+            )}
           </Card>
 
           {/* System Maintenance */}
-          <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="bg-red-50 p-3 rounded-2xl text-red-600">
-                <Activity size={24} />
-              </div>
-              <h3 className="text-lg font-bold text-slate-900">System Maintenance</h3>
-            </div>
-            <p className="text-xs text-slate-500 mb-6 leading-relaxed">
-              Recalculate and update the <span className="font-bold italic">Cost per Bird</span> for all flocks across all users using the new formula.
-            </p>
-            <Button 
-              variant="destructive"
-              className="w-full rounded-xl flex items-center gap-2"
-              onClick={handleRecalculateAllCosts}
-              disabled={isRecalculating}
+          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'maintenance' ? 'p-8' : 'p-0'}`}>
+            <button 
+              onClick={() => setActiveSection(activeSection === 'maintenance' ? null : 'maintenance')}
+              className={`w-full flex items-center justify-between transition-all duration-300 ${activeSection === 'maintenance' ? 'mb-6' : 'p-8 hover:bg-slate-50'}`}
             >
-              <RefreshCw className={isRecalculating ? "animate-spin" : ""} size={16} />
-              {isRecalculating ? 'Recalculating...' : 'Recalculate All costs'}
-            </Button>
+              <div className="flex items-center gap-4">
+                <div className="bg-red-50 p-3 rounded-2xl text-red-600">
+                  <Activity size={24} />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">System Maintenance</h3>
+              </div>
+              {activeSection === 'maintenance' ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+            </button>
+            {activeSection === 'maintenance' && (
+              <div className="space-y-4 px-8 pb-8">
+                <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                  Recalculate and update the <span className="font-bold italic">Cost per Bird</span> for all flocks across all users using the new formula.
+                </p>
+                <Button 
+                  variant="destructive"
+                  className="w-full rounded-xl flex items-center justify-center gap-2"
+                  onClick={handleRecalculateAllCosts}
+                  disabled={isRecalculating}
+                >
+                  <RefreshCw className={isRecalculating ? "animate-spin" : ""} size={16} />
+                  {isRecalculating ? 'Recalculating...' : 'Recalculate All costs'}
+                </Button>
+              </div>
+            )}
           </Card>
 
           <Button 

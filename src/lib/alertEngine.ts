@@ -187,11 +187,22 @@ async function runGeminiDiagnosis(params: AutoAlertParams) {
 
     if (settingsSnap.exists()) {
       const settingsData = settingsSnap.data();
+      // Support legacy system/autoAlertSettings path (backward compatibility) or the new centralized system/settings
       if (settingsData.geminiApiKey && settingsData.geminiApiKey.length > 10) {
         apiKey = settingsData.geminiApiKey;
       }
+      
       if (settingsData.aiPrompt) {
         promptTemplate = settingsData.aiPrompt;
+      }
+    }
+
+    // Also check the new centralized system/settings
+    const centralSettingsSnap = await getDoc(doc(db, 'system', 'settings'));
+    if (centralSettingsSnap.exists()) {
+      const centralData = centralSettingsSnap.data();
+      if (centralData.googleApis?.gemini?.enabled && centralData.googleApis?.gemini?.apiKey) {
+        apiKey = centralData.googleApis.gemini.apiKey;
       }
     }
 

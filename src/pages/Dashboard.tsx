@@ -29,9 +29,36 @@ const Dashboard: React.FC = () => {
     medicineStock: 0,
     medicineStockValue: 0,
   });
+
   const [activeFlocks, setActiveFlocks] = useState<any[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
+
+  // Calculate final balance including "Healing" logic
+  const calculatedBalance = React.useMemo(() => {
+    let bal = 0;
+    const txDescriptions = new Set();
+    transactions.forEach(tx => {
+      if (tx.type === 'Income') bal += tx.amount;
+      else bal -= tx.amount;
+      if (tx.description) txDescriptions.add(tx.description);
+    });
+
+    let extraChicksCost = 0;
+    activeFlocks.forEach(f => {
+      const expectedDesc = `Purchase of ${f.initialCount} birds - ${f.name}`;
+      if (f.chicksCost > 0 && !txDescriptions.has(expectedDesc)) {
+        extraChicksCost += f.chicksCost;
+      }
+    });
+
+    return bal - extraChicksCost;
+  }, [transactions, activeFlocks]);
+
+  // Sync calculated balance with stats
+  useEffect(() => {
+    setStats(prev => ({ ...prev, balance: calculatedBalance }));
+  }, [calculatedBalance]);
   const [dailyLogs, setDailyLogs] = useState<any[]>([]);
   const [feedStockList, setFeedStockList] = useState<any[]>([]);
   const [medicineStockList, setMedicineStockList] = useState<any[]>([]);
@@ -297,7 +324,7 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    // Listen to flocks
+    // 1. Listen to flocks
     const flocksQuery = query(collection(db, 'flocks'), where('userId', '==', user.uid));
     const unsubscribeFlocks = onSnapshot(flocksQuery, (snapshot) => {
       let birds = 0;
@@ -311,58 +338,39 @@ const Dashboard: React.FC = () => {
       });
       setActiveFlocks(list.filter(f => f.status === 'Active'));
       setStats(prev => ({ ...prev, totalFlocks: activeCount, totalBirds: birds }));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'flocks');
-    });
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'flocks'));
 
-    // Listen to transactions
+    // 2. Listen to limited recent transactions
     const transactionsQuery = query(
       collection(db, 'transactions'), 
       where('userId', '==', user.uid),
       orderBy('date', 'desc'),
       limit(5)
     );
-    const unsubscribeTransactions = onSnapshot(transactionsQuery, (snapshot) => {
+    const unsubscribeRecent = onSnapshot(transactionsQuery, (snapshot) => {
       const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setRecentTransactions(txs);
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'transactions'));
+
+    // 3. Listen to all transactions for balance tracking
+    const allTxsQuery = query(collection(db, 'transactions'), where('userId', '==', user.uid));
+    const unsubscribeAllTxs = onSnapshot(allTxsQuery, (snapshot) => {
+      let bal = 0;
+      const txs: any[] = [];
+      const txDescriptions = new Set();
       
-      // Calculate balance and store all transactions
-      const allTxsQuery = query(collection(db, 'transactions'), where('userId', '==', user.uid));
-      onSnapshot(allTxsQuery, (allSnap) => {
-        let bal = 0;
-        const txs: any[] = [];
-        const txDescriptions = new Set();
-        allSnap.docs.forEach(doc => {
-          const data = doc.data() as any;
-          txs.push({ id: doc.id, ...data });
-          if (data.type === 'Income') bal += data.amount;
-          else bal -= data.amount;
-          if (data.description) txDescriptions.add(data.description);
-        });
-        setTransactions(txs);
-        setStats(prev => ({ ...prev, balance: bal }));
-
-        // Healing: Check for missing chick cost transactions
-        // If a flock exists with chicksCost > 0 but no transaction matches the description, sync it
-        const flocksSub = onSnapshot(query(collection(db, 'flocks'), where('userId', '==', user.uid)), (fSnap) => {
-          let extraChicksCost = 0;
-          fSnap.docs.forEach(fDoc => {
-            const f = fDoc.data() as any;
-            const expectedDesc = `Purchase of ${f.initialCount} birds - ${f.name}`;
-            if (f.chicksCost > 0 && !txDescriptions.has(expectedDesc)) {
-              extraChicksCost += f.chicksCost;
-            }
-          });
-          setStats(prev => ({ ...prev, balance: bal - extraChicksCost }));
-        });
-      }, (error) => {
-        handleFirestoreError(error, OperationType.GET, 'transactions');
+      snapshot.docs.forEach(doc => {
+        const data = doc.data() as any;
+        txs.push({ id: doc.id, ...data });
+        if (data.type === 'Income') bal += data.amount;
+        else bal -= data.amount;
+        if (data.description) txDescriptions.add(data.description);
       });
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'transactions');
-    });
+      
+      setTransactions(txs);
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'transactions'));
 
-    // Listen to stock
+    // 4. Listen to stock
     const qFeed = query(collection(db, 'feedStock'), where('userId', '==', user.uid));
     const unsubFeed = onSnapshot(qFeed, (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
@@ -401,24 +409,24 @@ const Dashboard: React.FC = () => {
       }));
     }, (error) => handleFirestoreError(error, OperationType.GET, 'medicineStock'));
 
-    // Listen to daily logs for cost calculations
+    // 5. Listen to daily logs
     const qLogs = query(collection(db, 'dailyLogs'), where('userId', '==', user.uid));
     const unsubLogs = onSnapshot(qLogs, (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setDailyLogs(list);
     }, (error) => handleFirestoreError(error, OperationType.GET, 'dailyLogs'));
 
-    // Listen to system alerts
+    // 6. Listen to system alerts
     const alertsQuery = query(collection(db, 'systemAlerts'), orderBy('createdAt', 'desc'), limit(10));
     const unsubAlerts = onSnapshot(alertsQuery, (snapshot) => {
       const allAlerts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-      // Store all for context if needed, but we'll filter for the banner
       setSystemAlerts(allAlerts);
     }, (error) => handleFirestoreError(error, OperationType.GET, 'systemAlerts'));
 
     return () => {
       unsubscribeFlocks();
-      unsubscribeTransactions();
+      unsubscribeRecent();
+      unsubscribeAllTxs();
       unsubFeed();
       unsubMed();
       unsubLogs();
@@ -1056,15 +1064,15 @@ const Dashboard: React.FC = () => {
 
                           {/* 8. Lifting Rate (Market Rate) */}
                           <Dialog>
-                            <DialogTrigger render={
-                              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md cursor-pointer hover:bg-slate-50 group">
+                            <DialogTrigger nativeButton={false} render={
+                              <button className="w-full text-left bg-white p-4 rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md cursor-pointer hover:bg-slate-50 group">
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Market Rate (Lifting)</p>
                                 <p className="text-lg font-black text-indigo-600">₹{selectedReportFlock.liftingStrategy?.liftingRate || '--'}</p>
                                 <div className="flex items-center justify-between mt-0.5">
                                   <p className="text-[10px] text-indigo-400 font-bold tracking-tight uppercase">View Rates</p>
                                   <Info size={10} className="text-indigo-300 group-hover:text-indigo-500 transition-colors" />
                                 </div>
-                              </div>
+                              </button>
                             } />
                             <DialogContent className="rounded-[2rem] sm:max-w-md">
                               <DialogHeader>

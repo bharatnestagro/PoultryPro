@@ -136,7 +136,7 @@ const AdminManagerAnalytics: React.FC = () => {
       </div>
 
       {/* High Level Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         <Dialog>
           <DialogTrigger nativeButton={false} render={
             <Card className="p-8 border-none shadow-sm bg-[#122B21] text-white rounded-[2rem] relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-all">
@@ -149,12 +149,13 @@ const AdminManagerAnalytics: React.FC = () => {
                   <Badge className="bg-emerald-400/20 text-emerald-400 border-none">+12%</Badge>
                 </div>
                 <div>
-                  <p className="text-emerald-100/60 text-sm font-bold uppercase tracking-widest mb-1">Assigned Farmers</p>
-                  <h3 className="text-4xl font-bold font-mono">{totals.farmers}</h3>
+                  <p className="text-emerald-100/60 text-[10px] font-bold uppercase tracking-widest mb-1">Assigned Farmers</p>
+                  <h3 className="text-3xl font-bold font-mono">{totals.farmers}</h3>
                 </div>
               </div>
             </Card>
           } />
+          {/* ... DialogContent remains much the same, just keeping the Trigger change ... */}
           <DialogContent className="max-w-3xl rounded-[2rem]">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold flex items-center gap-3">
@@ -197,7 +198,7 @@ const AdminManagerAnalytics: React.FC = () => {
                 <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
                   <TrendingUp size={24} />
                 </div>
-                <div className="flex items-center gap-1 text-indigo-600 font-bold text-sm">
+                <div className="flex items-center gap-1 text-indigo-600 font-bold text-xs">
                   <ArrowUpRight size={16} />
                   <span>Optimum</span>
                 </div>
@@ -205,8 +206,7 @@ const AdminManagerAnalytics: React.FC = () => {
               <div>
                 <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-1">Avg Force Compliance</p>
                 <div className="flex items-end gap-2">
-                  <h3 className="text-4xl font-bold text-slate-900 font-mono">{totals.avgCompliance}%</h3>
-                  <span className="text-xs text-slate-400 font-medium mb-1.5 px-2 py-0.5 bg-slate-50 rounded-full">Target 85%</span>
+                  <h3 className="text-3xl font-bold text-slate-900 font-mono">{totals.avgCompliance}%</h3>
                 </div>
               </div>
             </Card>
@@ -246,7 +246,7 @@ const AdminManagerAnalytics: React.FC = () => {
               </div>
               <div>
                 <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-1">Unresolved Alerts</p>
-                <h3 className="text-4xl font-bold text-slate-900 font-mono">{totals.alerts}</h3>
+                <h3 className="text-3xl font-bold text-slate-900 font-mono">{totals.alerts}</h3>
               </div>
             </Card>
           } />
@@ -318,6 +318,22 @@ const AdminManagerAnalytics: React.FC = () => {
             </div>
           </DialogContent>
         </Dialog>
+
+        <Card className="p-8 border-none shadow-sm bg-white rounded-[2rem] border border-slate-100 flex flex-col justify-between cursor-pointer hover:border-emerald-200 hover:shadow-md transition-all">
+          <div className="flex items-center justify-between mb-4">
+            <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-600">
+              <CheckCircle2 size={24} />
+            </div>
+            <div className="flex items-center gap-1 text-emerald-600 font-bold text-[10px]">
+              <Target size={14} />
+              <span>Active</span>
+            </div>
+          </div>
+          <div>
+            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-1">Total Unit Placements</p>
+            <h3 className="text-3xl font-bold text-slate-900 font-mono">{managerStats.reduce((sum, s) => sum + s.totalOrders, 0)}</h3>
+          </div>
+        </Card>
       </div>
 
       {/* Leaderboard / Table */}

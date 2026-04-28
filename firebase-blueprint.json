@@ -382,6 +382,7 @@
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
+        "flockId": { "type": "string", "description": "Linked flock for this egg log" },
         "date": { "type": "string", "format": "date" },
         "totalEggs": { "type": "number" },
         "goodEggs": { "type": "number" },
@@ -394,9 +395,52 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "date", "totalEggs", "birdCount"]
+    },
+    "EggSale": {
+      "title": "Egg Sale Record",
+      "description": "Retail or bulk egg sale entry",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "flockId": { "type": "string", "description": "Optional linked flock for this egg sale" },
+        "saleDate": { "type": "string", "format": "date" },
+        "eggCount": { "type": "number" },
+        "sellingRate": { "type": "number" },
+        "costPerEgg": { "type": "number" },
+        "totalPrice": { "type": "number" },
+        "totalCost": { "type": "number" },
+        "profit": { "type": "number" },
+        "buyerName": { "type": "string" },
+        "buyerContact": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "saleDate", "eggCount", "sellingRate"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "Information about a business contact",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["Buyer", "Supplier", "Labor", "Vet", "Other"] },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "phone", "role"]
     }
   },
   "firestore": {
+    "/eggSales/{saleId}": {
+      "schema": "EggSale",
+      "description": "Egg sales records"
+    },
+    "/contacts/{contactId}": {
+      "schema": "Contact",
+      "description": "Records of buyers, suppliers, and other farm contacts"
+    },
     "/alertRules/{ruleId}": {
       "schema": "AlertRule",
       "description": "Dynamic logic rules for AI evaluation"

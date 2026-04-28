@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { collection, query, where, onSnapshot, orderBy, limit, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, limit, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import { useAuth } from '@/src/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -78,8 +78,39 @@ const Dashboard: React.FC = () => {
   const [expandedMedFlock, setExpandedMedFlock] = useState<string | null>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [eggLogs, setEggLogs] = useState<any[]>([]);
+  const [eggSales, setEggSales] = useState<any[]>([]);
   const [showTasksModal, setShowTasksModal] = useState(false);
   const [showEggLogsModal, setShowEggLogsModal] = useState(false);
+
+  const handleDeleteEggLog = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this log?')) return;
+    try {
+      await deleteDoc(doc(db, 'eggLogs', id));
+      toast.success('Log deleted successfully');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'eggLogs');
+      toast.error('Failed to delete log');
+    }
+  };
+
+  const handleDeleteDailyLog = async (id: string, log: any) => {
+    if (!window.confirm('Are you sure you want to delete this production record? This will zero out the production in the daily log.')) return;
+    try {
+      await updateDoc(doc(db, 'dailyLogs', id), {
+        production: {
+          ...log.production,
+          eggCount: 0,
+          goodEggs: 0,
+          badEggs: 0,
+          labourCost: 0
+        }
+      });
+      toast.success('Production record removed');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'dailyLogs');
+      toast.error('Failed to remove record');
+    }
+  };
 
   const calculateBatchTotalCost = (flock: any) => {
     const flockLogs = dailyLogs.filter(log => log.flockId === flock.id);
@@ -461,6 +492,16 @@ const Dashboard: React.FC = () => {
       setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (a.scheduledDate || '').localeCompare(b.scheduledDate || '')));
     }, (err) => handleFirestoreError(err, OperationType.GET, 'tasks'));
 
+    const qEggLogs = query(collection(db, 'eggLogs'), where('userId', '==', user.uid));
+    const unsubEggLogs = onSnapshot(qEggLogs, (snapshot) => {
+      setEggLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'eggLogs'));
+
+    const qEggSales = query(collection(db, 'eggSales'), where('userId', '==', user.uid));
+    const unsubEggSales = onSnapshot(qEggSales, (snapshot) => {
+      setEggSales(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'eggSales'));
+
     return () => {
       unsubscribeFlocks();
       unsubscribeRecent();
@@ -468,6 +509,8 @@ const Dashboard: React.FC = () => {
       unsubFeed();
       unsubMed();
       unsubLogs();
+      unsubEggLogs();
+      unsubEggSales();
       unsubAlerts();
       unsubTasks();
     };
@@ -850,55 +893,86 @@ const Dashboard: React.FC = () => {
            
            <div className="p-4 sm:p-8 bg-slate-50 space-y-6 sm:space-y-8">
               {(() => {
-                const layerLogs = dailyLogs
-                  .filter(l => Number(l.production?.eggCount) > 0)
-                  .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-                  .slice(0, 7)
-                  .map(log => {
-                    const intake = Number(log.consumption?.feedIntake) || 0;
-                    const fType = log.consumption?.feedType;
-                    let feedCost = 0;
-                    if (intake > 0 && fType) {
-                      const stock = feedStockList.find(s => s.type === fType);
-                      const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
-                      feedCost = intake * unitPrice;
-                    }
+                // Create normalized logs from both collections
+                const normalizedLogs: any[] = [];
+                
+                // Process dailyLogs
+                dailyLogs.forEach(log => {
+                  if (Number(log.production?.eggCount) > 0) {
+                     const intake = Number(log.consumption?.feedIntake) || 0;
+                     const fType = log.consumption?.feedType;
+                     let feedCostVal = 0;
+                     if (intake > 0 && fType) {
+                       const stock = feedStockList.find(s => s.type === fType);
+                       const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
+                       feedCostVal = intake * unitPrice;
+                     }
 
-                    let medCost = 0;
-                    if (Array.isArray(log.health?.medicines)) {
-                      log.health.medicines.forEach((m: any) => {
-                        const doses = Number(m.doses) || 0;
-                        if (doses > 0 && m.name) {
-                          const stock = medicineStockList.find(s => s.name === m.name);
-                          const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
-                          medCost += doses * unitPrice;
-                        }
-                      });
-                    }
-                    if (Array.isArray(log.health?.vaccines)) {
-                      log.health.vaccines.forEach((v: any) => {
-                        const doses = Number(v.doses) || 0;
-                        if (doses > 0 && v.name) {
-                          const stock = medicineStockList.find(s => s.name === v.name);
-                          const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
-                          medCost += doses * unitPrice;
-                        }
-                      });
-                    }
+                     let medCostVal = 0;
+                     if (Array.isArray(log.health?.medicines)) {
+                       log.health.medicines.forEach((m: any) => {
+                         const doses = Number(m.doses) || 0;
+                         if (doses > 0 && m.name) {
+                           const stock = medicineStockList.find(s => s.name === m.name);
+                           const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
+                           medCostVal += doses * unitPrice;
+                         }
+                       });
+                     }
+                     if (Array.isArray(log.health?.vaccines)) {
+                       log.health.vaccines.forEach((v: any) => {
+                         const doses = Number(v.doses) || 0;
+                         if (doses > 0 && v.name) {
+                           const stock = medicineStockList.find(s => s.name === v.name);
+                           const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
+                           medCostVal += doses * unitPrice;
+                         }
+                       });
+                     }
 
-                    const labour = Number(log.production?.labourCost) || 0;
-                    const totalCost = feedCost + medCost + labour;
-                    const goodEggs = Number(log.production?.goodEggs) || 0;
+                     const labour = Number(log.production?.labourCost) || 0;
+                     const totalCost = feedCostVal + medCostVal + labour;
+                     const goodEggs = Number(log.production?.goodEggs) || 0;
+
+                     normalizedLogs.push({
+                       id: log.id,
+                       date: log.date,
+                       dailyCost: totalCost,
+                       totalEggs: Number(log.production?.eggCount) || 0,
+                       goodEggs,
+                       badEggs: Number(log.production?.badEggs) || 0,
+                       costPerEgg: goodEggs > 0 ? totalCost / goodEggs : 0,
+                       birdCount: Number(log.birds?.closing) || stats.totalBirds || 0,
+                        source: 'daily_log',
+                        raw: log
+                     });
+                   }
+                 });
+
+                 // Process dedicated eggLogs
+                 eggLogs.forEach(log => {
+                    const totalCost = (Number(log.feedConsumptionKg) * Number(log.feedCostPerKg) || 0) + 
+                                     (Number(log.medicineCost) || 0) + 
+                                     (Number(log.labourCost) || 0);
+                    const goodEggs = Number(log.goodEggs) || 0;
                     
-                    return {
-                      ...log,
+                    normalizedLogs.push({
+                      id: log.id,
+                      date: log.date,
                       dailyCost: totalCost,
-                      costPerEgg: goodEggs > 0 ? totalCost / goodEggs : 0,
-                      totalEggs: Number(log.production?.eggCount) || 0,
+                      totalEggs: Number(log.totalEggs) || 0,
                       goodEggs,
-                      badEggs: Number(log.production?.badEggs) || 0
-                    };
-                  });
+                      badEggs: Number(log.badEggs) || 0,
+                      costPerEgg: goodEggs > 0 ? totalCost / goodEggs : 0,
+                      birdCount: Number(log.birdCount) || 0,
+                       source: 'egg_log',
+                       raw: log
+                    });
+                 });
+
+                 const layerLogs = normalizedLogs
+                   .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+                   .slice(0, 10);
 
                 if (layerLogs.length === 0) {
                   return (
@@ -929,10 +1003,12 @@ const Dashboard: React.FC = () => {
                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Laying Rate</p>
                          <h3 className="text-xl sm:text-2xl font-black text-indigo-600 leading-none">
                            {(() => {
-                              const latest = layerLogs[0];
-                              const birds = Number(latest?.production?.birdCount) || stats.totalBirds || 1;
-                              return Math.round((latest.totalEggs / birds) * 100);
-                           })()}%
+                             const latest = layerLogs[0];
+                             const flock = activeFlocks.find(f => f.id === latest?.flockId);
+                             const birds = (Number(latest?.birdCount) > 1 ? Number(latest.birdCount) : (Number(flock?.birdCount) || (stats.totalBirds > 0 ? stats.totalBirds : 1)));
+                             const rate = Math.round((Number(latest?.totalEggs || 0) / birds) * 100);
+                             return Math.min(100, rate);
+                          })()}%
                          </h3>
                       </Card>
                     </div>
@@ -947,6 +1023,7 @@ const Dashboard: React.FC = () => {
                                <TableHead className="text-[9px] font-black uppercase tracking-widest text-center min-w-[100px]">Eggs (G/B)</TableHead>
                                <TableHead className="text-[9px] font-black uppercase tracking-widest text-right min-w-[80px]">Daily Cost</TableHead>
                                <TableHead className="text-[9px] font-black uppercase tracking-widest text-right min-w-[80px]">Cost/Egg</TableHead>
+                               <TableHead className="text-[9px] font-black uppercase tracking-widest text-right min-w-[60px]">Actions</TableHead>
                              </TableRow>
                            </TableHeader>
                            <TableBody>
@@ -961,6 +1038,26 @@ const Dashboard: React.FC = () => {
                                    <Badge className={`${log.costPerEgg < 5 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'} border-none font-bold text-[10px]`}>
                                      ₹{log.costPerEgg.toFixed(2)}
                                    </Badge>
+                                 </TableCell>
+                                 <TableCell className="text-right">
+                                   <div className="flex justify-end gap-1">
+                                      <Link to={`/add?tab=history&filter=eggs_prod&edit=${log.id}&source=${log.source === 'daily_log' ? 'daily' : 'egg'}`}>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-slate-100">
+                                          <TrendingUp size={12} className="text-slate-400" />
+                                        </Button>
+                                      </Link>
+                                      <Button 
+                                        variant="ghost" 
+                                        size="icon" 
+                                        className="h-7 w-7 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50"
+                                        onClick={() => {
+                                          if (log.source === 'daily_log') handleDeleteDailyLog(log.id, log.raw);
+                                          else handleDeleteEggLog(log.id);
+                                        }}
+                                      >
+                                        <Trash2 size={12} />
+                                      </Button>
+                                   </div>
                                  </TableCell>
                                </TableRow>
                              ))}
@@ -1129,14 +1226,20 @@ const Dashboard: React.FC = () => {
         </LicenseGuard>
         <LicenseGuard mode="interaction">
           <StatCard 
-            title="Eggs" 
+            title="Available Eggs" 
             value={(() => {
-              const layerLogs = dailyLogs.filter(l => Number(l.production?.eggCount) > 0);
-              return layerLogs[0]?.production?.eggCount || 0;
+              const totalProduced = [
+                ...dailyLogs.map(l => Number(l.production?.goodEggs) || 0),
+                ...eggLogs.map(l => Number(l.goodEggs) || 0)
+              ].reduce((sum, count) => sum + count, 0);
+
+              const totalSold = eggSales.reduce((sum, sale) => sum + (Number(sale.eggCount) || 0), 0);
+              
+              return (totalProduced - totalSold).toLocaleString();
             })()} 
             icon={Egg} 
             color="bg-amber-500"
-            subtitle="Daily Collection"
+            subtitle="Inventory Stock"
             onClick={() => setShowEggLogsModal(true)}
           />
         </LicenseGuard>

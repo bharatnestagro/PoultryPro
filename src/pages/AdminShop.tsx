@@ -226,7 +226,7 @@ const AdminShop: React.FC = () => {
                             )}
                             <div className="pt-2 border-t border-slate-100 mt-2 flex justify-between items-center">
                               <span className="font-bold text-slate-900">Total</span>
-                              <span className="text-emerald-600 font-bold">₹{(cart.items || []).reduce((sum: number, i: any) => sum + ((Number(i.price) || 0) * (Number(i.quantity) || 0)), 0).toLocaleString()}</span>
+                              <span className="text-emerald-600 font-bold">₹{Array.isArray(cart.items) ? cart.items.reduce((sum: number, i: any) => sum + ((Number(i.price) || 0) * (Number(i.quantity) || 0)), 0).toLocaleString() : '0'}</span>
                             </div>
                           </div>
                         </div>

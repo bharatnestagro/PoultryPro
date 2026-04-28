@@ -288,7 +288,7 @@ const AdminSettings: React.FC = () => {
   };
 
   const handleDeleteTerm = async (id: string) => {
-    const updatedList = (settings.termsList || []).filter((t: any) => t.id !== id);
+    const updatedList = Array.isArray(settings.termsList) ? settings.termsList.filter((t: any) => t.id !== id) : [];
     try {
       await updateDoc(doc(db, 'system', 'settings'), {
         termsList: updatedList

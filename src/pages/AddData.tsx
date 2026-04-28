@@ -14,7 +14,8 @@ import {
   Bird, Thermometer, Utensils, Scale, Pill, 
   ShieldCheck, IndianRupee, AlertTriangle, Plus, Save,
   Package, Droplets, Edit2, Trash2, ArrowDownRight, FileText, ShoppingBag,
-  ClipboardList, Egg, TrendingUp, Download, ChevronDown, ChevronUp, ClipboardCheck
+  ClipboardList, Egg, TrendingUp, Download, ChevronDown, ChevronUp, ClipboardCheck,
+  Users
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
@@ -51,10 +52,63 @@ const AddData: React.FC = () => {
   const [feedStock, setFeedStock] = useState<any[]>([]);
   const [editingFlock, setEditingFlock] = useState<any>(null);
   const [logs, setLogs] = useState<any[]>([]);
+  const [eggLogs, setEggLogs] = useState<any[]>([]);
   const [editingLog, setEditingLog] = useState<any>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [eggSales, setEggSales] = useState<any[]>([]);
+  const [contacts, setContacts] = useState<any[]>([]);
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
+  const [hatcheryBatches, setHatcheryBatches] = useState<any[]>([]);
+  const [incubatorLogs, setIncubatorLogs] = useState<any[]>([]);
+  const [editingHatcheryBatch, setEditingHatcheryBatch] = useState<any>(null);
+  const [hatcheryData, setHatcheryData] = useState({
+    batchName: '',
+    eggsSet: '',
+    setDate: format(new Date(), 'yyyy-MM-dd'),
+    expectedHatchDate: format(new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
+    actualHatchDate: '',
+    chicksHatched: '',
+    gradeA: '',
+    gradeB: '',
+    mortality: '',
+    cost: '',
+    status: 'Incubating',
+    notes: ''
+  });
+  const [incubatorLog, setIncubatorLog] = useState({
+    batchId: '',
+    date: format(new Date(), 'yyyy-MM-dd'),
+    time: format(new Date(), 'HH:mm'),
+    temperature: '',
+    humidity: '',
+    ventilation: 'Normal',
+    turning: true,
+    waterLevel: 'Full',
+    notes: ''
+  });
+
+  const handleSaveIncubatorLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+    try {
+      await addDoc(collection(db, 'incubatorLogs'), {
+        ...incubatorLog,
+        userId: user.uid,
+        temperature: Number(incubatorLog.temperature) || 0,
+        humidity: Number(incubatorLog.humidity) || 0,
+        timestamp: new Date().toISOString()
+      });
+      toast.success('Incubator reading saved');
+      setIncubatorLog({ ...incubatorLog, temperature: '', humidity: '', notes: '' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'incubatorLogs');
+      toast.error('Failed to save log');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const [historyFilter, setHistoryFilter] = useState('daily');
   const [reportFlockId, setReportFlockId] = useState<string | null>(null);
 
@@ -62,6 +116,39 @@ const AddData: React.FC = () => {
     const tab = searchParams.get('tab');
     if (tab) {
       setActiveTab(tab);
+    }
+    const filter = searchParams.get('filter');
+    if (filter) {
+      setHistoryFilter(filter);
+    }
+  }, [searchParams]);
+
+  // Handle direct edit from query params
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    const source = searchParams.get('source'); // 'daily' or 'egg'
+    
+    if (editId && (source === 'daily' || source === 'egg')) {
+      const fetchLog = async () => {
+        try {
+          const docRef = doc(db, source === 'daily' ? 'dailyLogs' : 'eggLogs', editId);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            setEditingLog({ id: docSnap.id, ...docSnap.data() });
+            // If it's a daily log, also expand the daily logs section
+            if (source === 'daily') {
+              setActiveTab('logs');
+              setHistoryFilter('daily');
+            } else {
+              setActiveTab('history');
+              setHistoryFilter('eggs_prod');
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching log for edit:", error);
+        }
+      };
+      fetchLog();
     }
   }, [searchParams]);
 
@@ -158,6 +245,8 @@ const AddData: React.FC = () => {
     { id: 'medicine', title: 'Medicine Log', icon: Pill, color: 'blue' },
     { id: 'feed', title: 'Feed Log', icon: Utensils, color: 'amber' },
     { id: 'alerts', title: 'Alerts', icon: AlertTriangle, color: 'red' },
+    { id: 'eggs_prod', title: 'Egg Produced', icon: Egg, color: 'emerald' },
+    { id: 'eggs_sold', title: 'Egg Sold', icon: ShoppingBag, color: 'emerald' },
     { id: 'sold', title: 'Sold Flock', icon: ShoppingBag, color: 'purple' },
     { id: 'financial', title: 'Financial Log', icon: IndianRupee, color: 'slate' },
   ];
@@ -310,12 +399,11 @@ const AddData: React.FC = () => {
   const categories = [
     { id: 'daily_data', title: 'Add Daily Data', icon: FileText, color: 'bg-emerald-600', desc: 'Daily feed, growth, health & production' },
     { id: 'task', title: 'Farmer Task', icon: ClipboardCheck, color: 'bg-blue-500', desc: 'Schedule vaccination or medicine' },
-    { id: 'incubator', title: 'Incubator Log', icon: Thermometer, color: 'bg-indigo-400', desc: 'Daily temp/humidity checks' },
     { id: 'flock', title: 'Flock Details', icon: Bird, color: 'bg-blue-600', desc: 'Register new batches' },
-    { id: 'hatchery', title: 'Hatchery Management', icon: Egg, color: 'bg-emerald-700', desc: 'Batches & Incubation' },
     { id: 'feed_stock', title: 'Feed Stock', icon: Package, color: 'bg-orange-600', desc: 'Manage feed inventory' },
     { id: 'medicine_stock', title: 'Medicine Stock', icon: Pill, color: 'bg-purple-600', desc: 'Manage medicines' },
     { id: 'sold_flock', title: 'Selling Entry', icon: ShoppingBag, color: 'bg-amber-600', desc: 'Record flock & egg sales' },
+    { id: 'contacts', title: 'Contact', icon: Users, color: 'bg-teal-600', desc: 'Buyers, Suppliers & Vets' },
     { id: 'alerts', title: 'Alerts', icon: AlertTriangle, color: 'bg-red-600', desc: 'Warning signals' },
     { id: 'finance', title: 'Financials', icon: IndianRupee, color: 'bg-emerald-500', desc: 'Costs & sales' },
     { id: 'logs_history', title: 'Log history', icon: FileText, color: 'bg-slate-700', desc: 'View, edit & delete records' },
@@ -393,40 +481,6 @@ const AddData: React.FC = () => {
     purchaseCost: '',
   });
 
-  const [incubatorLog, setIncubatorLog] = useState({
-    batchId: '',
-    date: format(new Date(), 'yyyy-MM-dd'),
-    time: format(new Date(), 'HH:mm'),
-    temperature: '',
-    humidity: '',
-    ventilation: 'Normal',
-    turning: true,
-    waterLevel: 'Full',
-    notes: ''
-  });
-
-  const handleSaveIncubatorLog = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-    setLoading(true);
-    try {
-      await addDoc(collection(db, 'incubatorLogs'), {
-        ...incubatorLog,
-        userId: user.uid,
-        temperature: Number(incubatorLog.temperature) || 0,
-        humidity: Number(incubatorLog.humidity) || 0,
-        timestamp: new Date().toISOString()
-      });
-      toast.success('Incubator reading saved');
-      setIncubatorLog({ ...incubatorLog, temperature: '', humidity: '', notes: '' });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'incubatorLogs');
-      toast.error('Failed to save log');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const [soldFlockData, setSoldFlockData] = useState({
     saleType: 'Full',
     saleDate: format(new Date(), 'yyyy-MM-dd'),
@@ -449,23 +503,43 @@ const AddData: React.FC = () => {
   });
   const [sellMode, setSellMode] = useState<'batch' | 'egg'>('batch');
 
-  const [hatcheryBatches, setHatcheryBatches] = useState<any[]>([]);
-  const [incubatorLogs, setIncubatorLogs] = useState<any[]>([]);
-  const [editingHatcheryBatch, setEditingHatcheryBatch] = useState<any>(null);
-  const [hatcheryData, setHatcheryData] = useState({
-    batchName: '',
-    eggsSet: '',
-    setDate: format(new Date(), 'yyyy-MM-dd'),
-    expectedHatchDate: format(new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
-    actualHatchDate: '',
-    chicksHatched: '',
-    gradeA: '',
-    gradeB: '',
-    mortality: '',
-    cost: '',
-    status: 'Incubating',
+  const [contactData, setContactData] = useState({
+    name: '',
+    phone: '',
+    role: 'Buyer' as 'Buyer' | 'Supplier' | 'Labor' | 'Vet' | 'Other',
     notes: ''
   });
+
+  const handleSaveContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+    try {
+      await addDoc(collection(db, 'contacts'), {
+        ...contactData,
+        userId: user.uid,
+        createdAt: new Date().toISOString()
+      });
+      toast.success('Contact added successfully');
+      setContactData({ name: '', phone: '', role: 'Buyer', notes: '' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'contacts');
+      toast.error('Failed to add contact');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteContact = async (id: string) => {
+    if (!window.confirm('Delete this contact?')) return;
+    try {
+      await deleteDoc(doc(db, 'contacts', id));
+      toast.success('Contact deleted');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'contacts');
+      toast.error('Failed to delete contact');
+    }
+  };
 
   const calculateDailyCosts = () => {
     // Feed Cost
@@ -586,6 +660,16 @@ const AddData: React.FC = () => {
       setEggSales(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => handleFirestoreError(error, OperationType.GET, 'eggSales'));
 
+    const qEggLogs = query(collection(db, 'eggLogs'), where('userId', '==', user.uid));
+    const unsubEggLogs = onSnapshot(qEggLogs, (snapshot) => {
+      setEggLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'eggLogs'));
+
+    const qContacts = query(collection(db, 'contacts'), where('userId', '==', user.uid), orderBy('name', 'asc'));
+    const unsubContacts = onSnapshot(qContacts, (snapshot) => {
+      setContacts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'contacts'));
+
     return () => {
       unsubscribe();
       unsubMed();
@@ -595,8 +679,109 @@ const AddData: React.FC = () => {
       unsubHatchery();
       unsubIncubator();
       unsubEggSales();
+      unsubEggLogs();
+      unsubContacts();
+      unsubHatchery();
+      unsubIncubator();
     };
   }, [user]);
+
+  const handleCreateHatcheryBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+    try {
+      const eggsSet = Number(hatcheryData.eggsSet) || 0;
+      const chicksHatched = Number(hatcheryData.chicksHatched) || 0;
+      const hatchability = eggsSet > 0 ? (chicksHatched / eggsSet) * 100 : 0;
+      
+      const docRef = await addDoc(collection(db, 'hatcheryBatches'), {
+        ...hatcheryData,
+        userId: user.uid,
+        eggsSet,
+        chicksHatched: chicksHatched,
+        gradeA: Number(hatcheryData.gradeA) || 0,
+        gradeB: Number(hatcheryData.gradeB) || 0,
+        mortality: Number(hatcheryData.mortality) || 0,
+        cost: Number(hatcheryData.cost) || 0,
+        hatchability: Number(hatchability.toFixed(2)),
+        createdAt: new Date().toISOString(),
+      });
+
+      if (Number(hatcheryData.cost) > 0) {
+        await addDoc(collection(db, 'transactions'), {
+          userId: user.uid,
+          type: 'Expense',
+          category: 'Hatchery',
+          amount: Number(hatcheryData.cost) || 0,
+          description: `Total expenses for hatchery batch: ${hatcheryData.batchName}`,
+          date: hatcheryData.setDate,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      toast.success('Hatchery batch recorded successfully');
+      setHatcheryData({
+        batchName: '',
+        eggsSet: '',
+        setDate: format(new Date(), 'yyyy-MM-dd'),
+        expectedHatchDate: format(new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
+        actualHatchDate: '',
+        chicksHatched: '',
+        gradeA: '',
+        gradeB: '',
+        mortality: '',
+        cost: '',
+        status: 'Incubating',
+        notes: ''
+      });
+      setActiveTab(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'hatcheryBatches');
+      toast.error('Failed to create hatchery batch');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteHatcheryBatch = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'hatcheryBatches', id));
+      toast.success('Hatchery batch deleted successfully');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'hatcheryBatches');
+      toast.error('Failed to delete hatchery batch');
+    }
+  };
+
+  const handleUpdateHatcheryBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingHatcheryBatch) return;
+    setLoading(true);
+    try {
+      const eggsSet = Number(editingHatcheryBatch.eggsSet) || 0;
+      const chicksHatched = Number(editingHatcheryBatch.chicksHatched) || 0;
+      const hatchability = eggsSet > 0 ? (chicksHatched / eggsSet) * 100 : 0;
+
+      await updateDoc(doc(db, 'hatcheryBatches', editingHatcheryBatch.id), {
+        ...editingHatcheryBatch,
+        eggsSet,
+        chicksHatched,
+        gradeA: Number(editingHatcheryBatch.gradeA) || 0,
+        gradeB: Number(editingHatcheryBatch.gradeB) || 0,
+        mortality: Number(editingHatcheryBatch.mortality) || 0,
+        cost: Number(editingHatcheryBatch.cost) || 0,
+        hatchability: Number(hatchability.toFixed(2)),
+      });
+      toast.success('Hatchery batch updated successfully');
+      setEditingHatcheryBatch(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'hatcheryBatches');
+      toast.error('Failed to update hatchery batch');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCreateFlock = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -675,8 +860,6 @@ const AddData: React.FC = () => {
   };
 
   const handleDeleteLog = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this record? Inventory stock and bird counts will be added back accordingly.')) return;
-    
     try {
       // 1. Fetch Log First to know what to revert
       const logSnap = await getDoc(doc(db, 'dailyLogs', id));
@@ -699,29 +882,32 @@ const AddData: React.FC = () => {
       }
 
       // 3. Revert Medicine/Vaccine Stock
-      const medName = logData.health?.medicines;
-      const medDoses = Number(logData.health?.medicineDoses) || 0;
-      if (medDoses > 0 && medName && medName !== 'none') {
-        const q = query(collection(db, 'medicineStock'), where('userId', '==', user?.uid), where('name', '==', medName), where('type', '==', 'Medicine'));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          const stockDoc = snap.docs[0];
-          await updateDoc(doc(db, 'medicineStock', stockDoc.id), {
-            quantity: (Number(stockDoc.data().quantity) || 0) + medDoses
-          });
+      const medicines = Array.isArray(logData.health?.medicines) ? logData.health.medicines : [];
+      const vaccines = Array.isArray(logData.health?.vaccines) ? logData.health.vaccines : [];
+
+      for (const med of medicines) {
+        if (med.name && Number(med.doses) > 0) {
+          const q = query(collection(db, 'medicineStock'), where('userId', '==', user?.uid), where('name', '==', med.name), where('type', '==', 'Medicine'));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const stockDoc = snap.docs[0];
+            await updateDoc(doc(db, 'medicineStock', stockDoc.id), {
+              quantity: (Number(stockDoc.data().quantity) || 0) + Number(med.doses)
+            });
+          }
         }
       }
 
-      const vacName = logData.health?.vaccines;
-      const vacDoses = Number(logData.health?.vaccineDoses) || 0;
-      if (vacDoses > 0 && vacName && vacName !== 'none') {
-        const q = query(collection(db, 'medicineStock'), where('userId', '==', user?.uid), where('name', '==', vacName), where('type', '==', 'Vaccine'));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          const stockDoc = snap.docs[0];
-          await updateDoc(doc(db, 'medicineStock', stockDoc.id), {
-            quantity: (Number(stockDoc.data().quantity) || 0) + vacDoses
-          });
+      for (const vac of vaccines) {
+        if (vac.name && Number(vac.doses) > 0) {
+          const q = query(collection(db, 'medicineStock'), where('userId', '==', user?.uid), where('name', '==', vac.name), where('type', '==', 'Vaccine'));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const stockDoc = snap.docs[0];
+            await updateDoc(doc(db, 'medicineStock', stockDoc.id), {
+              quantity: (Number(stockDoc.data().quantity) || 0) + Number(vac.doses)
+            });
+          }
         }
       }
 
@@ -841,6 +1027,42 @@ const AddData: React.FC = () => {
       toast.error('Failed to update record');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteEggLog = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this egg production record?')) return;
+    try {
+      const logSnap = await getDoc(doc(db, 'eggLogs', id));
+      if (logSnap.exists()) {
+        const logData = logSnap.data();
+        if (logData.flockId) {
+          const flockRef = doc(db, 'flocks', logData.flockId);
+          const flockSnap = await getDoc(flockRef);
+          if (flockSnap.exists()) {
+            await updateDoc(flockRef, {
+              totalEggs: Math.max(0, (Number(flockSnap.data().totalEggs) || 0) - (Number(logData.totalEggs) || 0))
+            });
+          }
+        }
+      }
+      await deleteDoc(doc(db, 'eggLogs', id));
+      toast.success('Egg production record deleted');
+    } catch (error) {
+      toast.error('Failed to delete egg production record');
+      handleFirestoreError(error, OperationType.DELETE, 'eggLogs');
+    }
+  };
+
+  const handleDeleteEggSale = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this egg sale record?')) return;
+    try {
+      await deleteDoc(doc(db, 'eggSales', id));
+      // Optionally find and delete the associated transaction if we gave it a searchable ID
+      toast.success('Egg sale record deleted');
+    } catch (error) {
+      toast.error('Failed to delete egg sale');
+      handleFirestoreError(error, OperationType.DELETE, 'eggSales');
     }
   };
 
@@ -1066,13 +1288,14 @@ const AddData: React.FC = () => {
 
     setLoading(true);
     try {
-      const totalPrice = soldCount * (Number(eggSaleData.sellingRate) || 0);
-      const totalCost = soldCount * (Number(eggSaleData.costPerEgg) || 0);
-      const profit = totalPrice - totalCost;
+      const totalPrice = Number((soldCount * (Number(eggSaleData.sellingRate) || 0)).toFixed(2));
+      const totalCost = Number((soldCount * (Number(eggSaleData.costPerEgg) || 0)).toFixed(2));
+      const profit = Number((totalPrice - totalCost).toFixed(2));
       
       await addDoc(collection(db, 'eggSales'), {
         ...eggSaleData,
         userId: user.uid,
+        flockId: selectedFlockId || null,
         eggCount: soldCount,
         sellingRate: Number(eggSaleData.sellingRate) || 0,
         costPerEgg: Number(eggSaleData.costPerEgg) || 0,
@@ -1104,8 +1327,8 @@ const AddData: React.FC = () => {
         notes: ''
       });
     } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, 'eggSales');
       toast.error('Failed to save egg sale');
+      handleFirestoreError(e, OperationType.WRITE, 'eggSales');
     } finally {
       setLoading(false);
     }
@@ -1334,103 +1557,6 @@ const AddData: React.FC = () => {
       setLoading(false);
     }
   };
-  const handleCreateHatcheryBatch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-    setLoading(true);
-    try {
-      const eggsSet = Number(hatcheryData.eggsSet) || 0;
-      const chicksHatched = Number(hatcheryData.chicksHatched) || 0;
-      const hatchability = eggsSet > 0 ? (chicksHatched / eggsSet) * 100 : 0;
-      
-      const docRef = await addDoc(collection(db, 'hatcheryBatches'), {
-        ...hatcheryData,
-        userId: user.uid,
-        eggsSet,
-        chicksHatched: chicksHatched,
-        gradeA: Number(hatcheryData.gradeA) || 0,
-        gradeB: Number(hatcheryData.gradeB) || 0,
-        mortality: Number(hatcheryData.mortality) || 0,
-        cost: Number(hatcheryData.cost) || 0,
-        hatchability: Number(hatchability.toFixed(2)),
-        createdAt: new Date().toISOString(),
-      });
-
-      if (Number(hatcheryData.cost) > 0) {
-        await addDoc(collection(db, 'transactions'), {
-          userId: user.uid,
-          type: 'Expense',
-          category: 'Hatchery',
-          amount: Number(hatcheryData.cost) || 0,
-          description: `Total expenses for hatchery batch: ${hatcheryData.batchName}`,
-          date: hatcheryData.setDate,
-          createdAt: new Date().toISOString(),
-        });
-      }
-
-      toast.success('Hatchery batch recorded successfully');
-      setHatcheryData({
-        batchName: '',
-        eggsSet: '',
-        setDate: format(new Date(), 'yyyy-MM-dd'),
-        expectedHatchDate: format(new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
-        actualHatchDate: '',
-        chicksHatched: '',
-        gradeA: '',
-        gradeB: '',
-        mortality: '',
-        cost: '',
-        status: 'Incubating',
-        notes: ''
-      });
-      setActiveTab(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'hatcheryBatches');
-      toast.error('Failed to create hatchery batch');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteHatcheryBatch = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'hatcheryBatches', id));
-      toast.success('Hatchery batch deleted successfully');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, 'hatcheryBatches');
-      toast.error('Failed to delete hatchery batch');
-    }
-  };
-
-  const handleUpdateHatcheryBatch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingHatcheryBatch) return;
-    setLoading(true);
-    try {
-      const eggsSet = Number(editingHatcheryBatch.eggsSet) || 0;
-      const chicksHatched = Number(editingHatcheryBatch.chicksHatched) || 0;
-      const hatchability = eggsSet > 0 ? (chicksHatched / eggsSet) * 100 : 0;
-
-      await updateDoc(doc(db, 'hatcheryBatches', editingHatcheryBatch.id), {
-        ...editingHatcheryBatch,
-        eggsSet,
-        chicksHatched,
-        gradeA: Number(editingHatcheryBatch.gradeA) || 0,
-        gradeB: Number(editingHatcheryBatch.gradeB) || 0,
-        mortality: Number(editingHatcheryBatch.mortality) || 0,
-        cost: Number(editingHatcheryBatch.cost) || 0,
-        hatchability: Number(hatchability.toFixed(2)),
-      });
-      toast.success('Hatchery batch updated successfully');
-      setEditingHatcheryBatch(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'hatcheryBatches');
-      toast.error('Failed to update hatchery batch');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSaveTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -1476,6 +1602,7 @@ const AddData: React.FC = () => {
 
       await addDoc(collection(db, 'eggLogs'), {
         userId: user.uid,
+        flockId: selectedFlockId || null,
         date: eggLogData.date,
         totalEggs,
         goodEggs,
@@ -2709,6 +2836,157 @@ const AddData: React.FC = () => {
                               type: 'alert'
                             }));
                             break;
+                          case 'eggs_prod':
+                            const combinedEggLogs = [
+                              ...eggLogs.filter(flockFilter).map(log => ({
+                                ...log,
+                                source: 'egg_log',
+                                count: Number(log.totalEggs),
+                                good: Number(log.goodEggs),
+                                bad: Number(log.badEggs),
+                                birds: Number(log.birdCount) || 1,
+                                logCost: (Number(log.feedConsumptionKg) * Number(log.feedCostPerKg) || 0) + (Number(log.medicineCost) || 0) + (Number(log.labourCost) || 0)
+                              })),
+                              ...logs.filter(l => flockFilter(l) && Number(l.production?.eggCount) > 0).map(log => {
+                                const intake = Number(log.consumption?.feedIntake) || 0;
+                                const fType = log.consumption?.feedType;
+                                const stock = feedStock.find(s => s.type === fType);
+                                const fPrice = stock?.unitPrice || (stock?.initialQuantity ? (Number(stock.purchaseCost) / Number(stock.initialQuantity)) : 0);
+                                const feedCost = intake * fPrice;
+                                const medCost = (Array.isArray(log.health?.medicines) ? log.health.medicines : []).reduce((sum: number, m: any) => {
+                                   const mStock = medicineStock.find(ms => ms.name === m.name);
+                                   const mPrice = mStock?.unitPrice || (mStock?.initialQuantity ? (Number(mStock.purchaseCost) / Number(mStock.initialQuantity)) : 0);
+                                   return sum + (Number(m.doses) * mPrice);
+                                }, 0);
+                                const totalCost = feedCost + medCost + (Number(log.production?.labourCost) || 0);
+                          
+                                return {
+                                  ...log,
+                                  source: 'daily_log',
+                                  date: log.date,
+                                  count: Number(log.production?.eggCount),
+                                  good: Number(log.production?.goodEggs),
+                                  bad: Number(log.production?.badEggs),
+                                  birds: Number(log.birds?.closing) || Number(log.birds?.active) || 1,
+                                  logCost: totalCost
+                                };
+                              })
+                            ].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+                          
+                            displayItems = combinedEggLogs.map(log => {
+                               const flock = flocks.find(f => f.id === log.flockId);
+                               const actualBirds = log.birds > 1 ? log.birds : (Number(flock?.birdCount) || 1);
+                               const layingRatio = Math.round((log.count / actualBirds) * 100);
+                               const costPerEgg = log.good > 0 ? log.logCost / log.good : 0;
+                               
+                               // Find matching sales for this date and flock
+                               const matchingSales = eggSales.filter(s => s.saleDate === log.date && s.flockId === log.flockId);
+                               const totalProfit = matchingSales.reduce((sum, s) => sum + (Number(s.profit) || 0), 0);
+                               const totalSold = matchingSales.reduce((sum, s) => sum + (Number(s.eggCount) || 0), 0);
+                               const profitPerEgg = totalSold > 0 ? totalProfit / totalSold : 0;
+                               const totalRevenue = matchingSales.reduce((sum, s) => sum + (Number(s.totalPrice) || 0), 0);
+                               const profitPercent = (totalRevenue - totalProfit) > 0 ? (totalProfit / (totalRevenue - totalProfit)) * 100 : 0;
+
+                               return {
+                                id: log.id,
+                                date: log.date,
+                                flockId: log.flockId,
+                                title: log.source === 'egg_log' ? 'Egg Production Log' : 'Daily Production Data',
+                                details: (
+                                  <div className="space-y-3 mt-2">
+                                    <div className="grid grid-cols-4 gap-2">
+                                       <div className="p-2 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                                          <p className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">Coll.</p>
+                                          <p className="text-xs font-bold text-slate-900">{log.count}</p>
+                                       </div>
+                                       <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-100 text-center">
+                                          <p className="text-[8px] font-bold text-emerald-600 uppercase tracking-tighter">Good</p>
+                                          <p className="text-xs font-bold text-emerald-900">{log.good}</p>
+                                       </div>
+                                       <div className="p-2 bg-red-50 rounded-xl border border-red-100 text-center">
+                                          <p className="text-[8px] font-bold text-red-600 uppercase tracking-tighter">Bad</p>
+                                          <p className="text-xs font-bold text-red-900">{log.bad}</p>
+                                       </div>
+                                       <div className="p-2 bg-indigo-50 rounded-xl border border-indigo-100 text-center">
+                                          <p className="text-[8px] font-bold text-indigo-600 uppercase tracking-tighter">Ratio</p>
+                                          <p className="text-xs font-bold text-indigo-900">{layingRatio}%</p>
+                                       </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center justify-between px-3 py-1.5 bg-blue-50/50 rounded-xl border border-blue-100">
+                                       <span className="text-[9px] font-bold text-blue-600 uppercase">Cost Per Egg</span>
+                                       <span className="text-xs font-bold text-blue-900">₹{costPerEgg.toFixed(2)}</span>
+                                    </div>
+
+                                    {totalSold > 0 && (
+                                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-50">
+                                        <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-100 text-center">
+                                          <p className="text-[8px] font-bold text-emerald-600 uppercase">Profit/Egg</p>
+                                          <p className="text-xs font-bold text-emerald-900">₹{profitPerEgg.toFixed(2)}</p>
+                                        </div>
+                                        <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-100 text-center">
+                                          <p className="text-[8px] font-bold text-emerald-600 uppercase">Profit</p>
+                                          <p className="text-xs font-bold text-emerald-900">₹{totalProfit}</p>
+                                        </div>
+                                        <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-100 text-center">
+                                          <p className="text-[8px] font-bold text-emerald-600 uppercase">Profit %</p>
+                                          <p className="text-xs font-bold text-emerald-900">{profitPercent.toFixed(1)}%</p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                ),
+                                raw: log,
+                                type: log.source === 'egg_log' ? 'egg_log' : 'daily_log'
+                              };
+                            });
+                            break;
+                          case 'eggs_sold':
+                            displayItems = eggSales.filter(flockFilter).sort((a, b) => (b.saleDate || '').localeCompare(a.saleDate || '')).map(sale => {
+                              const profitPerEgg = sale.eggCount > 0 ? (Number(sale.profit) / Number(sale.eggCount)) : 0;
+                              const totalCost = Number(sale.totalPrice) - Number(sale.profit);
+                              const profitPercent = totalCost > 0 ? (Number(sale.profit) / totalCost) * 100 : 0;
+
+                              return {
+                                id: sale.id,
+                                date: sale.saleDate,
+                                flockId: sale.flockId,
+                                title: 'Egg Sale Record',
+                                details: (
+                                  <div className="space-y-3 mt-2">
+                                    <div className="flex items-center justify-between border-b border-slate-50 pb-2">
+                                      <div>
+                                        <p className="text-[11px] font-black text-slate-900">{sale.eggCount} Eggs sold</p>
+                                        <p className="text-[10px] text-slate-400 font-medium">@{sale.sellingRate}/egg</p>
+                                      </div>
+                                      <div className="text-right">
+                                        <p className="text-xs font-black text-emerald-600">₹{sale.totalPrice}</p>
+                                        <p className="text-[10px] text-slate-400 italic font-medium">to {sale.buyerName || 'Private'}</p>
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-3 gap-2">
+                                      <div className="p-2 bg-blue-50 rounded-xl border border-blue-100 text-center">
+                                        <p className="text-[8px] font-bold text-blue-600 uppercase">Profit/Egg</p>
+                                        <p className="text-xs font-bold text-blue-900">₹{profitPerEgg.toFixed(2)}</p>
+                                      </div>
+                                      <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-100 text-center">
+                                        <p className="text-[8px] font-bold text-emerald-600 uppercase">Profit</p>
+                                        <p className="text-xs font-bold text-emerald-900">₹{sale.profit}</p>
+                                      </div>
+                                      <div className="p-2 bg-amber-50 rounded-xl border border-amber-100 text-center">
+                                        <p className="text-[8px] font-bold text-amber-600 uppercase">Profit %</p>
+                                        <p className="text-xs font-bold text-amber-900">{profitPercent.toFixed(1)}%</p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ),
+                                amount: sale.totalPrice,
+                                raw: sale,
+                                type: 'egg_sale'
+                              };
+                            });
+                            break;
                           case 'sold':
                             displayItems = transactions.filter(tx => flockFilter(tx) && tx.category === 'Flock Sale').map(tx => ({
                               id: tx.id,
@@ -2800,12 +3078,18 @@ const AddData: React.FC = () => {
                                   <FileText size={14} className="mr-2" />
                                   View Report
                                 </Button>
-                                {item.type === 'daily' || item.type === 'medicine' || item.type === 'feed' || item.type === 'alert' ? (
+                                {item.type === 'daily' || item.type === 'medicine' || item.type === 'feed' || item.type === 'alert' || item.type === 'egg_log' || item.type === 'egg_sale' ? (
                                   <>
-                                    <Button variant="ghost" size="icon" onClick={() => setEditingLog(item.raw)} className="h-9 w-9 rounded-full hover:bg-slate-100">
-                                      <Edit2 size={16} />
-                                    </Button>
-                                    <Button variant="ghost" size="icon" onClick={() => handleDeleteLog(item.id)} className="h-9 w-9 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50">
+                                    {item.type !== 'egg_sale' && (
+                                      <Button variant="ghost" size="icon" onClick={() => setEditingLog(item.raw)} className="h-9 w-9 rounded-full hover:bg-slate-100">
+                                        <Edit2 size={16} />
+                                      </Button>
+                                    )}
+                                    <Button variant="ghost" size="icon" onClick={() => {
+                                      if (item.type === 'egg_log') handleDeleteEggLog(item.id);
+                                      else if (item.type === 'egg_sale') handleDeleteEggSale(item.id);
+                                      else handleDeleteLog(item.id);
+                                    }} className="h-9 w-9 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50">
                                       <Trash2 size={16} />
                                     </Button>
                                   </>
@@ -3064,61 +3348,175 @@ const AddData: React.FC = () => {
                 </form>
                 ) : (
                   <form onSubmit={handleSaveEggSale} className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Sale Date</Label>
-                        <Input 
-                          type="date" 
-                          value={eggSaleData.saleDate} 
-                          onChange={e => setEggSaleData({...eggSaleData, saleDate: e.target.value})}
-                          className="rounded-xl border-emerald-100"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Egg Count (Total Eggs)</Label>
-                        <Input 
-                          type="number" 
-                          required 
-                          value={eggSaleData.eggCount} 
-                          onChange={e => setEggSaleData({...eggSaleData, eggCount: e.target.value})}
-                          placeholder="e.g. 30"
-                          className="rounded-xl border-emerald-100"
-                        />
-                      </div>
-                    </div>
+                    {(() => {
+                      // Auto-calculations for Egg Sale - Flock Aware
+                      const relevantLogs = selectedFlockId ? logs.filter(l => l.flockId === selectedFlockId) : logs;
+                      const relevantEggLogs = selectedFlockId ? eggLogs.filter(l => l.flockId === selectedFlockId) : eggLogs;
+                      const relevantEggSales = selectedFlockId ? eggSales.filter(s => s.flockId === selectedFlockId) : eggSales;
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="space-y-2">
-                        <Label>Cost Per Egg (₹)</Label>
-                        <Input 
-                          type="number" 
-                          value={eggSaleData.costPerEgg} 
-                          onChange={e => setEggSaleData({...eggSaleData, costPerEgg: e.target.value})}
-                          placeholder="e.g. 5.50"
-                          className="rounded-xl border-emerald-100"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Selling Rate (₹ per Egg)</Label>
-                        <Input 
-                          type="number" 
-                          required 
-                          value={eggSaleData.sellingRate} 
-                          onChange={e => setEggSaleData({...eggSaleData, sellingRate: e.target.value})}
-                          placeholder="e.g. 7.00"
-                          className="rounded-xl border-emerald-100"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Buyer Name</Label>
-                        <Input 
-                          value={eggSaleData.buyerName} 
-                          onChange={e => setEggSaleData({...eggSaleData, buyerName: e.target.value})}
-                          placeholder="Who bought them?"
-                          className="rounded-xl border-emerald-100"
-                        />
-                      </div>
-                    </div>
+                      const totalGoodEggs = relevantLogs.reduce((sum, log) => sum + (Number(log.production?.goodEggs) || 0), 0) + 
+                                           relevantEggLogs.reduce((sum, log) => sum + (Number(log.goodEggs) || 0), 0);
+                      const totalEggsSold = relevantEggSales.reduce((sum, sale) => sum + (Number(sale.eggCount) || 0), 0);
+                      const availableEggs = Math.max(0, totalGoodEggs - totalEggsSold);
+
+                      // Cost Per Egg calculation
+                      // Operational costs from dailyLogs + eggLogs
+                      const totalLogOpCost = relevantLogs.reduce((sum, log) => {
+                        const feedIntake = Number(log.consumption?.feedIntake) || 0;
+                        const feedType = log.consumption?.feedType;
+                        const stockItem = feedStock.find(s => s.type === feedType);
+                        
+                        const feedPrice = stockItem?.unitPrice || 
+                                           (Number(stockItem?.initialQuantity) ? (Number(stockItem.purchaseCost) / Number(stockItem.initialQuantity)) : 
+                                           (Number(stockItem?.quantity) ? (Number(stockItem.purchaseCost) / Number(stockItem.quantity)) : 0));
+                        
+                        const medicineCost = (Array.isArray(log.health?.medicines) ? log.health.medicines : []).reduce((mSum: number, med: any) => {
+                          const medStock = medicineStock.find(ms => ms.name === med.name);
+                          const unitPrice = medStock?.unitPrice || 
+                                           (Number(medStock?.initialQuantity) ? (Number(medStock.purchaseCost) / Number(medStock.initialQuantity)) : 
+                                           (Number(medStock?.quantity) ? (Number(medStock.purchaseCost) / Number(medStock.quantity)) : 0));
+                          return mSum + (Number(med.doses) * unitPrice);
+                        }, 0);
+
+                        const vaccineCost = (Array.isArray(log.health?.vaccines) ? log.health.vaccines : []).reduce((vSum: number, vac: any) => {
+                          const vacStock = medicineStock.find(vs => vs.name === vac.name);
+                          const unitPrice = vacStock?.unitPrice || 
+                                           (Number(vacStock?.initialQuantity) ? (Number(vacStock.purchaseCost) / Number(vacStock.initialQuantity)) : 
+                                           (Number(vacStock?.quantity) ? (Number(vacStock.purchaseCost) / Number(vacStock.quantity)) : 0));
+                          return vSum + (Number(vac.doses) * unitPrice);
+                        }, 0);
+
+                        return sum + (feedIntake * feedPrice) + medicineCost + vaccineCost + (Number(log.production?.labourCost) || 0);
+                      }, 0);
+
+                      const totalEggLogOpCost = relevantEggLogs.reduce((sum, log) => {
+                        return sum + (Number(log.feedConsumptionKg) * Number(log.feedCostPerKg) || 0) + 
+                               (Number(log.medicineCost) || 0) + 
+                               (Number(log.labourCost) || 0);
+                      }, 0);
+
+                      const totalOpCost = totalLogOpCost + totalEggLogOpCost;
+                      const costPerEgg = totalGoodEggs > 0 ? (totalOpCost / totalGoodEggs) : 0;
+
+                      // 7-Day Average Cost calculation
+                      const sevenDaysAgo = new Date();
+                      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                      const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+
+                      const recentLogs = relevantLogs.filter(l => (l.date || '') >= sevenDaysAgoStr);
+                      const recentEggLogs = relevantEggLogs.filter(l => (l.date || '') >= sevenDaysAgoStr);
+
+                      const recentLogCost = recentLogs.reduce((sum, log) => {
+                        const intake = Number(log.consumption?.feedIntake) || 0;
+                        const fType = log.consumption?.feedType;
+                        const stockItem = feedStock.find(s => s.type === fType);
+                        const fPrice = stockItem?.unitPrice || (stockItem?.initialQuantity ? (stockItem.purchaseCost / stockItem.initialQuantity) : 0);
+                        return sum + (intake * fPrice) + (Number(log.production?.labourCost) || 0);
+                      }, 0);
+
+                      const recentEggLogCost = recentEggLogs.reduce((sum, log) => {
+                        return sum + (Number(log.feedConsumptionKg) * Number(log.feedCostPerKg) || 0) + (Number(log.medicineCost) || 0) + (Number(log.labourCost) || 0);
+                      }, 0);
+
+                      const recentEggs = recentLogs.reduce((sum, log) => sum + (Number(log.production?.goodEggs) || 0), 0) + 
+                                        recentEggLogs.reduce((sum, log) => sum + (Number(log.goodEggs) || 0), 0);
+                      
+                      const recentCostPerEgg = recentEggs > 0 ? ((recentLogCost + recentEggLogCost) / recentEggs) : costPerEgg;
+
+                      return (
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-2">
+                            <div className="p-5 bg-emerald-50 rounded-[2rem] border border-emerald-100 flex items-center justify-between shadow-sm">
+                              <div>
+                                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em] mb-1">Available Eggs</p>
+                                <p className="text-3xl font-black text-slate-900 leading-none">{availableEggs}</p>
+                              </div>
+                              <div className="bg-white p-3 rounded-2xl text-emerald-600 shadow-sm border border-emerald-50">
+                                <Egg size={20} />
+                              </div>
+                            </div>
+                            <div className="p-5 bg-amber-50 rounded-[2rem] border border-amber-100 flex items-center justify-between shadow-sm">
+                              <div>
+                                <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.2em] mb-1">Recent Cost (7d)</p>
+                                <p className="text-2xl font-black text-slate-900 leading-none">₹{recentCostPerEgg.toFixed(2)}</p>
+                              </div>
+                              <div className="bg-white p-3 rounded-2xl text-amber-600 shadow-sm border border-amber-50">
+                                <TrendingUp size={20} />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label>Sale Date</Label>
+                              <Input 
+                                type="date" 
+                                value={eggSaleData.saleDate} 
+                                onChange={e => setEggSaleData({...eggSaleData, saleDate: e.target.value})}
+                                className="rounded-xl border-emerald-100"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Egg Count (Total Eggs)</Label>
+                              <Input 
+                                type="number" 
+                                required 
+                                value={eggSaleData.eggCount} 
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  setEggSaleData({
+                                    ...eggSaleData, 
+                                    eggCount: val,
+                                    costPerEgg: eggSaleData.costPerEgg || costPerEgg.toFixed(2)
+                                  });
+                                }}
+                                placeholder={`Max: ${availableEggs}`}
+                                max={availableEggs}
+                                className="rounded-xl border-emerald-100"
+                              />
+                              {Number(eggSaleData.eggCount) > availableEggs && (
+                                <p className="text-[10px] text-red-500 font-bold">Error: Exceeds available stock!</p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                              <Label>Recent Cost (7D) (₹)</Label>
+                              <Input 
+                                type="number" 
+                                step="0.01"
+                                value={eggSaleData.costPerEgg || recentCostPerEgg.toFixed(2)} 
+                                onChange={e => setEggSaleData({...eggSaleData, costPerEgg: e.target.value})}
+                                placeholder="e.g. 5.50"
+                                className="rounded-xl border-emerald-100"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Selling Rate (₹ per Egg)</Label>
+                              <Input 
+                                type="number" 
+                                step="0.01"
+                                required 
+                                value={eggSaleData.sellingRate} 
+                                onChange={e => setEggSaleData({...eggSaleData, sellingRate: e.target.value})}
+                                placeholder="e.g. 7.00"
+                                className="rounded-xl border-emerald-100"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Buyer Name</Label>
+                              <Input 
+                                value={eggSaleData.buyerName} 
+                                onChange={e => setEggSaleData({...eggSaleData, buyerName: e.target.value})}
+                                placeholder="Who bought them?"
+                                className="rounded-xl border-emerald-100"
+                              />
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
 
                     <div className="space-y-2">
                       <Label>Buyer Contact / Notes</Label>
@@ -3132,8 +3530,8 @@ const AddData: React.FC = () => {
 
                     {/* Egg Sale Live Calculation */}
                     {(Number(eggSaleData.eggCount) > 0 && Number(eggSaleData.sellingRate) > 0) && (
-                      <div className="p-6 bg-emerald-900 rounded-3xl text-white shadow-xl shadow-emerald-900/20 animate-in zoom-in duration-300">
-                        <div className="flex justify-between items-center">
+                      <div className="p-6 bg-[#122B21] rounded-[2rem] text-white shadow-xl shadow-emerald-900/20 animate-in zoom-in duration-300">
+                        <div className="flex justify-between items-center mb-6">
                           <div>
                             <p className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest mb-1">Revenue Estimation</p>
                             <h4 className="text-lg font-bold">Egg Sale Total</h4>
@@ -3141,13 +3539,33 @@ const AddData: React.FC = () => {
                           <div className="text-right">
                             <p className="text-emerald-400 text-xs font-medium">{eggSaleData.eggCount} eggs × ₹{eggSaleData.sellingRate}</p>
                             <p className="text-3xl font-black">₹{(Number(eggSaleData.eggCount) * Number(eggSaleData.sellingRate)).toLocaleString()}</p>
-                            {Number(eggSaleData.costPerEgg) > 0 && (
-                              <p className="text-[10px] text-emerald-300 mt-1 font-bold">
-                                Estimated Profit: ₹{((Number(eggSaleData.sellingRate) - Number(eggSaleData.costPerEgg)) * Number(eggSaleData.eggCount)).toFixed(2)}
-                              </p>
-                            )}
                           </div>
                         </div>
+
+                        {Number(eggSaleData.costPerEgg) > 0 && (() => {
+                          const revenue = Number(eggSaleData.eggCount) * Number(eggSaleData.sellingRate);
+                          const cost = Number(eggSaleData.eggCount) * Number(eggSaleData.costPerEgg);
+                          const profit = revenue - cost;
+                          const profitPerEgg = Number(eggSaleData.sellingRate) - Number(eggSaleData.costPerEgg);
+                          const profitPercent = cost > 0 ? (profit / cost) * 100 : 0;
+
+                          return (
+                            <div className="grid grid-cols-3 gap-3 border-t border-white/10 pt-6">
+                              <div>
+                                <p className="text-emerald-400 text-[9px] font-bold uppercase mb-1">Profit/Egg</p>
+                                <p className="text-sm font-bold">₹{profitPerEgg.toFixed(2)}</p>
+                              </div>
+                              <div>
+                                <p className="text-emerald-400 text-[9px] font-bold uppercase mb-1">Total Profit</p>
+                                <p className="text-sm font-bold">₹{profit.toLocaleString()}</p>
+                              </div>
+                              <div>
+                                <p className="text-emerald-400 text-[9px] font-bold uppercase mb-1">Profit %</p>
+                                <p className="text-sm font-bold">{profitPercent.toFixed(1)}%</p>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
 
@@ -4462,6 +4880,118 @@ const AddData: React.FC = () => {
           )}
 
           {/* Tab 8: Alert Indicators */}
+          {activeTab === 'contacts' && (
+            <div className="space-y-6">
+              <Card className="border-none shadow-sm rounded-3xl overflow-hidden hover:shadow-md transition-shadow">
+                <CardHeader className="bg-teal-600 text-white pb-8">
+                  <CardTitle className="flex items-center gap-2 text-2xl font-black">
+                    <Users size={28} />
+                    Manage Contacts
+                  </CardTitle>
+                  <CardDescription className="text-teal-50/70 font-medium">Add buyers, suppliers, and essential service providers</CardDescription>
+                </CardHeader>
+                <CardContent className="mt-[-20px]">
+                  <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
+                    <form onSubmit={handleSaveContact} className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="contactName">Name</Label>
+                          <Input 
+                            id="contactName" 
+                            required 
+                            value={contactData.name} 
+                            onChange={e => setContactData({...contactData, name: e.target.value})}
+                            placeholder="John Doe"
+                            className="rounded-xl"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="contactPhone">Phone</Label>
+                          <Input 
+                            id="contactPhone" 
+                            required 
+                            value={contactData.phone} 
+                            onChange={e => setContactData({...contactData, phone: e.target.value})}
+                            placeholder="+91 9999999999"
+                            className="rounded-xl"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="contactRole">Role</Label>
+                          <Select 
+                            value={contactData.role} 
+                            onValueChange={(v: any) => setContactData({...contactData, role: v})}
+                          >
+                            <SelectTrigger className="rounded-xl">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Buyer">Buyer (Egg/Bird)</SelectItem>
+                              <SelectItem value="Supplier">Supplier (Feed/Med)</SelectItem>
+                              <SelectItem value="Labor">Labor/Staff</SelectItem>
+                              <SelectItem value="Vet">Veterinarian</SelectItem>
+                              <SelectItem value="Other">Other</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="contactNotes">Notes</Label>
+                          <Input 
+                            id="contactNotes" 
+                            value={contactData.notes} 
+                            onChange={e => setContactData({...contactData, notes: e.target.value})}
+                            placeholder="Short note..."
+                            className="rounded-xl"
+                          />
+                        </div>
+                      </div>
+                      <Button type="submit" disabled={loading} className="w-full bg-teal-600 hover:bg-teal-700 rounded-xl py-6 font-bold shadow-lg shadow-teal-900/10 transition-all hover:scale-[1.01]">
+                        <Plus size={18} className="mr-2" />
+                        Save New Contact
+                      </Button>
+                    </form>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {contacts.length === 0 ? (
+                  <div className="col-span-full p-12 text-center bg-slate-50/50 rounded-3xl border border-dashed border-slate-200">
+                    <p className="text-slate-400 font-medium">No contacts saved yet.</p>
+                  </div>
+                ) : (
+                  contacts.map(contact => (
+                    <div key={contact.id} className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm flex items-start justify-between group hover:border-teal-200 transition-all">
+                      <div className="flex items-center gap-4">
+                        <div className={`p-3 rounded-2xl ${
+                          contact.role === 'Buyer' ? 'bg-emerald-50 text-emerald-600' :
+                          contact.role === 'Supplier' ? 'bg-amber-50 text-amber-600' :
+                          contact.role === 'Vet' ? 'bg-blue-50 text-blue-600' :
+                          'bg-slate-50 text-slate-600'
+                        }`}>
+                          <Users size={20} />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{contact.role}</p>
+                          <h4 className="font-bold text-slate-900 leading-tight">{contact.name}</h4>
+                          <a href={`tel:${contact.phone}`} className="text-xs font-bold text-teal-600 hover:underline">{contact.phone}</a>
+                          {contact.notes && <p className="text-[10px] text-slate-400 mt-1 italic">"{contact.notes}"</p>}
+                        </div>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => handleDeleteContact(contact.id)}
+                        className="h-8 w-8 rounded-full text-red-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
           {activeTab === 'alerts' && (
             <Card className="border-none shadow-sm rounded-3xl">
             <CardHeader>

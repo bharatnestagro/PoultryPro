@@ -43,6 +43,10 @@ const ManagerDashboard: React.FC = () => {
   const [feedStocks, setFeedStocks] = useState<any[]>([]);
   const [medicineStocks, setMedicineStocks] = useState<any[]>([]);
   const [commissionConfig, setCommissionConfig] = useState<any>({});
+  const [eggLogs, setEggLogs] = useState<any[]>([]);
+  const [eggSales, setEggSales] = useState<any[]>([]);
+  const [licenseKeys, setLicenseKeys] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
   
   const [selectedCart, setSelectedCart] = useState<any>(null);
   const [isAbandonedCartModalOpen, setIsAbandonedCartModalOpen] = useState(false);
@@ -59,6 +63,13 @@ const ManagerDashboard: React.FC = () => {
   const [isMedicineStockModalOpen, setIsMedicineStockModalOpen] = useState(false);
   const [isLogsModalOpen, setIsLogsModalOpen] = useState(false);
   const [isMortalityApprovalOpen, setIsMortalityApprovalOpen] = useState(false);
+  const [isAssignedFarmersModalOpen, setIsAssignedFarmersModalOpen] = useState(false);
+  const [isEggCollectionModalOpen, setIsEggCollectionModalOpen] = useState(false);
+  const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
+
+  const [mortalityTimeRange, setMortalityTimeRange] = useState<'1d' | '7d' | '30d'>('1d');
+  const [logsTimeRange, setLogsTimeRange] = useState<'1d' | '7d' | '30d'>('1d');
+  const [eggTimeRange, setEggTimeRange] = useState<'Today' | 'Yesterday' | '7d' | '30d'>('Today');
 
   useEffect(() => {
     if (!profile?.uid) return;
@@ -105,7 +116,33 @@ const ManagerDashboard: React.FC = () => {
           const all = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           setMedicineStocks(all.filter((item: any) => farmerIds.includes(item.userId)));
         });
+
+        // Fetch Egg Logs
+        const eggLogQ = query(collection(db, 'eggLogs'), orderBy('date', 'desc'), limit(500));
+        onSnapshot(eggLogQ, (snap) => {
+          const all = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setEggLogs(all.filter((item: any) => farmerIds.includes(item.userId)));
+        });
+
+        // Fetch Egg Sales
+        const eggSaleQ = query(collection(db, 'eggSales'), orderBy('createdAt', 'desc'), limit(500));
+        onSnapshot(eggSaleQ, (snap) => {
+          const all = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setEggSales(all.filter((item: any) => farmerIds.includes(item.userId)));
+        });
+
+        // Fetch License Keys
+        const licenseQ = query(collection(db, 'licenseKeys'));
+        onSnapshot(licenseQ, (snap) => {
+          const all = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setLicenseKeys(all.filter((item: any) => farmerIds.includes(item.userId)));
+        });
       }
+    });
+
+    // Fetch all users for license reporting
+    getDocs(collection(db, 'users')).then(snap => {
+      setAllUsers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
     // Fetch products
@@ -125,14 +162,28 @@ const ManagerDashboard: React.FC = () => {
     totalFarmers: myFarmers.length,
     activeFlocks: flocks.length,
     totalBirds: flocks.reduce((sum, f) => sum + (f.currentCount || 0), 0),
-    avgMortality: logs.length > 0 ? (logs.reduce((sum, l) => sum + (l.health?.mortality || 0), 0) / (flocks.reduce((sum, f) => sum + (f.initialCount || 0), 0) || 1) * 100) : 0,
-    missingLogs: myFarmers.filter(f => !logs.some(l => l.userId === f.id && l.date === format(new Date(), 'yyyy-MM-dd'))).length,
+    avgMortality: flocks.length > 0 ? (flocks.reduce((sum, f) => sum + ((Number(f.initialCount) || 0) - (Number(f.currentCount) || 0)), 0) / (flocks.reduce((sum, f) => sum + (Number(f.initialCount) || 0), 0) || 1) * 100) : 0,
+    missingLogs: myFarmers.filter(f => {
+      const todayFlocks = flocks.filter(fl => fl.userId === f.id);
+      if (todayFlocks.length === 0) return false;
+      const today = format(new Date(), 'yyyy-MM-dd');
+      return todayFlocks.some(fl => !logs.some(l => l.flockId === fl.id && l.date === today));
+    }).length,
     criticalAlerts: logs.filter(l => l.alerts?.feedDrop || l.alerts?.mortalityIncrease || l.alerts?.eggDrop).length,
     pendingMortalityApproval: logs.filter(l => l.health?.mortality > 0 && l.approved === false).length,
     abandonedCarts: abandonedCarts.length,
     abandonedCartFarmers: new Set(abandonedCarts.map(c => c.userId)).size,
     totalFeedStock: feedStocks.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0),
-    totalMedicineStock: medicineStocks.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0)
+    totalMedicineStock: medicineStocks.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0),
+    expiringLicensesCount: licenseKeys.filter(lk => {
+      if (!lk.expiryDate || lk.status !== 'Used') return false;
+      const expiry = new Date(lk.expiryDate);
+      const now = new Date();
+      const diff = expiry.getTime() - now.getTime();
+      return diff > 0 && diff <= 5 * 24 * 60 * 60 * 1000;
+    }).length,
+    todayEggCollection: eggLogs.filter(l => l.date === format(new Date(), 'yyyy-MM-dd')).reduce((sum, l) => sum + (Number(l.totalEggs) || 0), 0),
+    todayEggSales: eggSales.filter(s => s.saleDate === format(new Date(), 'yyyy-MM-dd')).reduce((sum, s) => sum + (Number(s.totalPrice) || 0), 0)
   };
 
   const calculateCartCommission = (items: any[]) => {
@@ -198,11 +249,15 @@ const ManagerDashboard: React.FC = () => {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
         {/* My Assigned Farmers Card */}
-        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 flex flex-col justify-between group hover:border-indigo-200 transition-all hover:bg-indigo-50/10">
+        <div 
+          className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 flex flex-col justify-between group hover:border-indigo-200 transition-all hover:bg-indigo-50/10 cursor-pointer"
+          onClick={() => setIsAssignedFarmersModalOpen(true)}
+        >
           <div className="flex justify-between items-start">
             <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600 group-hover:scale-110 transition-transform">
               <Users size={22} />
             </div>
+            <ArrowUpRight size={16} className="text-slate-300 group-hover:text-indigo-600 transition-colors" />
           </div>
           <div className="mt-6">
             <h4 className="text-2xl font-bold text-slate-900">{stats.totalFarmers}</h4>
@@ -219,11 +274,85 @@ const ManagerDashboard: React.FC = () => {
             <div className="bg-emerald-50 p-3 rounded-2xl text-emerald-600 group-hover:scale-110 transition-transform">
               <Activity size={22} />
             </div>
-            <ArrowUpRight size={16} className="text-slate-300 group-hover:text-emerald-600 transition-colors" />
+            <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+              {(['1d', '7d', '30d'] as const).map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setMortalityTimeRange(range)}
+                  className={`text-[9px] font-black px-2 py-0.5 rounded-lg transition-all ${mortalityTimeRange === range ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                >
+                  {range.toUpperCase()}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="mt-6">
-            <h4 className="text-2xl font-bold text-slate-900 text-emerald-600">{stats.avgMortality.toFixed(2)}%</h4>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Mortality Rate</p>
+            <h4 className="text-2xl font-bold text-slate-900 text-emerald-600">
+              {(() => {
+                const now = new Date();
+                let filteredLogs = logs;
+                if (mortalityTimeRange === '1d') {
+                  const today = format(now, 'yyyy-MM-dd');
+                  filteredLogs = logs.filter(l => l.date === today);
+                } else if (mortalityTimeRange === '7d') {
+                  const lastWeekly = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                  filteredLogs = logs.filter(l => new Date(l.date) >= lastWeekly);
+                } else {
+                  const lastMonthly = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                  filteredLogs = logs.filter(l => new Date(l.date) >= lastMonthly);
+                }
+                
+                const mortCount = filteredLogs.reduce((sum, l) => sum + (Number(l.health?.mortality) || 0), 0);
+                // For period mortality, we compare to current active bird count
+                const totalActiveBirds = flocks.reduce((sum, f) => sum + (Number(f.currentCount) || 0), 0) || 1;
+                return ((mortCount / totalActiveBirds) * 100).toFixed(2);
+              })()}%
+            </h4>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Mortality Rate ({mortalityTimeRange})</p>
+          </div>
+        </div>
+
+        {/* Egg Collection Card */}
+        <div 
+          className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 flex flex-col justify-between cursor-pointer hover:border-amber-200 transition-all hover:bg-amber-50/10 group"
+          onClick={() => setIsEggCollectionModalOpen(true)}
+        >
+          <div className="flex justify-between items-start">
+            <div className="bg-amber-50 p-3 rounded-2xl text-amber-600 group-hover:scale-110 transition-transform">
+              <ShoppingBag size={22} />
+            </div>
+            <ArrowUpRight size={16} className="text-slate-300 group-hover:text-amber-600 transition-colors" />
+          </div>
+          <div className="mt-6 flex items-end justify-between">
+            <div>
+              <h4 className="text-2xl font-bold text-slate-900">{stats.todayEggCollection.toLocaleString()}</h4>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Today's Eggs</p>
+            </div>
+            {stats.todayEggSales > 0 && (
+              <div className="text-right">
+                <p className="text-[14px] font-black text-emerald-600">₹{stats.todayEggSales.toLocaleString()}</p>
+                <p className="text-[8px] font-bold text-slate-400 uppercase">Sales</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* License Key Card */}
+        <div 
+          className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50 flex flex-col justify-between cursor-pointer hover:border-red-200 transition-all hover:bg-red-50/10 group"
+          onClick={() => setIsLicenseModalOpen(true)}
+        >
+          <div className="flex justify-between items-start">
+            <div className="bg-red-50 p-3 rounded-2xl text-red-600 group-hover:scale-110 transition-transform">
+              <ShieldCheck size={22} />
+            </div>
+            {stats.expiringLicensesCount > 0 && (
+              <Badge className="bg-red-500 text-white text-[8px] animate-pulse">EXPIRING SOON</Badge>
+            )}
+          </div>
+          <div className="mt-6">
+            <h4 className="text-2xl font-bold text-slate-900">{stats.expiringLicensesCount}</h4>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Expiring Licenses</p>
           </div>
         </div>
 
@@ -270,11 +399,35 @@ const ManagerDashboard: React.FC = () => {
             <div className="bg-amber-50 p-3 rounded-2xl text-amber-600 group-hover:scale-110 transition-transform">
               <ClipboardList size={22} />
             </div>
-            <ArrowUpRight size={16} className="text-slate-300 group-hover:text-amber-600 transition-colors" />
+            <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+              {(['1d', '7d', '30d'] as const).map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setLogsTimeRange(range)}
+                  className={`text-[9px] font-black px-2 py-0.5 rounded-lg transition-all ${logsTimeRange === range ? 'bg-amber-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                >
+                  {range.toUpperCase()}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="mt-6">
-            <h4 className="text-2xl font-bold text-slate-900">{stats.missingLogs}</h4>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Missing Logs (Today)</p>
+            <h4 className="text-2xl font-bold text-slate-900">
+              {(() => {
+                if (logsTimeRange === '1d') return stats.missingLogs;
+                
+                const now = new Date();
+                const days = logsTimeRange === '7d' ? 7 : 30;
+                let missingCount = 0;
+                
+                for (let i = 0; i < days; i++) {
+                  const checkDate = format(new Date(now.getTime() - i * 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
+                  missingCount += myFarmers.filter(f => !logs.some(l => l.userId === f.id && l.date === checkDate)).length;
+                }
+                return missingCount;
+              })()}
+            </h4>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Missing Logs ({logsTimeRange})</p>
           </div>
         </div>
 
@@ -477,7 +630,73 @@ const ManagerDashboard: React.FC = () => {
 
       {/* --- ALL POPUP MODALS --- */}
 
-      {/* Abandoned Carts Farmers Modal */}
+      {/* My Assigned Farmers Modal */}
+      <Dialog open={isAssignedFarmersModalOpen} onOpenChange={setIsAssignedFarmersModalOpen}>
+        <DialogContent className="rounded-[2.5rem] max-w-6xl max-h-[85vh] overflow-y-auto bg-slate-50">
+          <DialogHeader>
+            <DialogTitle className="text-3xl font-black text-indigo-900">Your Assigned Farmers</DialogTitle>
+            <DialogDescription className="font-bold text-slate-400">Detailed overview of team members and their farm capacity</DialogDescription>
+          </DialogHeader>
+          <div className="py-6">
+            <div className="overflow-x-auto rounded-[2rem] border border-slate-100 shadow-sm bg-white">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50/50 border-slate-100 h-14">
+                    <TableHead className="font-black text-[11px] uppercase tracking-widest px-8">Farmer Name</TableHead>
+                    <TableHead className="font-black text-[11px] uppercase tracking-widest text-center">Contact</TableHead>
+                    <TableHead className="font-black text-[11px] uppercase tracking-widest text-center">Active Flocks</TableHead>
+                    <TableHead className="font-black text-[11px] uppercase tracking-widest text-center">Placed Birds</TableHead>
+                    <TableHead className="font-black text-[11px] uppercase tracking-widest text-center">Capacity</TableHead>
+                    <TableHead className="font-black text-[11px] uppercase tracking-widest text-right px-8">Location (City/Dist/State)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {myFarmers.map(farmer => {
+                    const farmerFlocks = flocks.filter(f => f.userId === farmer.id);
+                    const birdsCount = farmerFlocks.reduce((sum, f) => sum + (f.currentCount || 0), 0);
+                    return (
+                      <TableRow key={farmer.id} className="border-slate-50 hover:bg-slate-50/50 transition-colors h-16 group">
+                        <TableCell className="px-8 flex items-center gap-3 py-4">
+                           <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center font-black text-indigo-400">
+                             {farmer.name?.[0]}
+                           </div>
+                           <p className="text-sm font-black text-slate-900 uppercase">{farmer.name}</p>
+                        </TableCell>
+                        <TableCell className="text-center font-bold text-slate-600 text-xs">
+                           <p>{farmer.phone}</p>
+                           <p className="text-[10px] text-slate-400">{farmer.email}</p>
+                        </TableCell>
+                        <TableCell className="text-center">
+                           <Badge className="bg-slate-100 text-slate-600 border-none font-black">{farmerFlocks.length}</Badge>
+                        </TableCell>
+                        <TableCell className="text-center font-black text-indigo-600">
+                           {birdsCount.toLocaleString()}
+                        </TableCell>
+                        <TableCell className="text-center font-bold text-slate-400">
+                           {farmer.capacity || 'N/A'}
+                        </TableCell>
+                        <TableCell className="text-right px-8">
+                           <p className="text-[11px] font-black text-slate-900">{farmer.city || 'N/A'}</p>
+                           <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">
+                             {farmer.district || 'N/A'} • {farmer.state || 'N/A'}
+                           </p>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {myFarmers.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="py-20 text-center text-slate-300 italic font-medium">
+                        No farmers assigned yet.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={isAbandonedCartModalOpen} onOpenChange={setIsAbandonedCartModalOpen}>
         <DialogContent className="rounded-[2rem] sm:max-w-[600px] bg-white overflow-hidden p-0">
           <div className="p-6 border-b border-slate-50 flex justify-between items-center">
@@ -677,34 +896,91 @@ const ManagerDashboard: React.FC = () => {
 
       {/* Missing Logs Modal */}
       <Dialog open={isLogsModalOpen} onOpenChange={setIsLogsModalOpen}>
-        <DialogContent className="rounded-[2.5rem] max-w-lg">
+        <DialogContent className="rounded-[2.5rem] max-w-2xl bg-white max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-black">Missing Daily Reports (Today)</DialogTitle>
+            <DialogTitle className="text-2xl font-black text-amber-600 flex items-center gap-2">
+               <ClipboardList />
+               Missing Reports ({logsTimeRange.toUpperCase()})
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 py-4 max-h-[60vh] overflow-y-auto pr-2 no-scrollbar">
-            {myFarmers.filter(f => !logs.some(l => l.userId === f.id && l.date === format(new Date(), 'yyyy-MM-dd'))).map(farmer => (
-              <div key={farmer.id} className="flex justify-between items-center p-5 bg-amber-50/50 rounded-[2rem] border border-amber-100 hover:border-amber-300 transition-all group">
-                <div className="flex items-center gap-4">
-                   <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center font-black text-slate-400 border border-amber-100 group-hover:text-amber-600 group-hover:scale-105 transition-all shadow-sm">
-                      {farmer.name?.[0]}
+          <div className="space-y-3 py-4">
+            {myFarmers.map(farmer => {
+               const now = new Date();
+               const days = logsTimeRange === '1d' ? 1 : (logsTimeRange === '7d' ? 7 : 30);
+               const missingDates: string[] = [];
+               
+               const farmerFlocks = flocks.filter(f => f.userId === farmer.id);
+               if (farmerFlocks.length === 0) return null;
+
+               for (let i = 0; i < days; i++) {
+                 const checkDate = format(new Date(now.getTime() - i * 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
+                 farmerFlocks.forEach(flock => {
+                   if (!logs.some(l => l.userId === farmer.id && l.flockId === flock.id && l.date === checkDate)) {
+                     missingDates.push(`${checkDate} (${flock.name})`);
+                   }
+                 });
+               }
+
+               if (missingDates.length === 0) return null;
+
+               return (
+                 <div key={farmer.id} className="p-6 bg-amber-50/30 rounded-[2rem] border border-amber-100 flex flex-col gap-4">
+                   <div className="flex justify-between items-center">
+                     <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center font-black text-amber-600 border border-amber-100 shadow-sm">
+                           {farmer.name?.[0]}
+                        </div>
+                        <div>
+                           <p className="text-base font-black text-slate-900 leading-none">{farmer.name}</p>
+                           <p className="text-[10px] text-amber-600 font-bold uppercase mt-1 tracking-tighter">{farmer.district || 'Location N/A'}</p>
+                        </div>
+                     </div>
+                     <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="rounded-xl h-10 px-4 border-amber-200 text-amber-600 font-black text-[10px]" 
+                        onClick={() => window.location.href = `tel:${farmer.phone}`}
+                     >
+                        CALL FARMER
+                     </Button>
                    </div>
-                   <div>
-                      <p className="text-base font-black text-slate-900 leading-none">{farmer.name}</p>
-                      <p className="text-[10px] text-amber-600 font-bold uppercase mt-1 tracking-tighter">{farmer.district || 'Location N/A'}</p>
+                   <div className="bg-white p-4 rounded-2xl border border-amber-50">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Unsubmitted Batches</p>
+                      <div className="flex flex-wrap gap-2">
+                        {missingDates.slice(0, 10).map((d, idx) => (
+                           <Badge key={idx} variant="secondary" className="bg-amber-50 text-amber-700 text-[10px] font-bold border-none">
+                             {d}
+                           </Badge>
+                        ))}
+                        {missingDates.length > 10 && (
+                          <Badge variant="secondary" className="bg-slate-100 text-slate-500 text-[10px] font-bold border-none">
+                            +{missingDates.length - 10} more
+                          </Badge>
+                        )}
+                      </div>
                    </div>
-                </div>
-                <Button size="sm" variant="ghost" className="rounded-2xl h-10 px-4 bg-white text-amber-600 font-black text-[10px] hover:bg-amber-100 border border-amber-100 shadow-sm" onClick={() => window.location.href = `tel:${farmer.phone}`}>
-                   CALL NOW
-                </Button>
-              </div>
-            ))}
-            {stats.missingLogs === 0 && (
+                 </div>
+               );
+            })}
+            {(() => {
+               const now = new Date();
+               const days = logsTimeRange === '1d' ? 1 : (logsTimeRange === '7d' ? 7 : 30);
+               let anyMissing = false;
+               for (let i = 0; i < days; i++) {
+                 const checkDate = format(new Date(now.getTime() - i * 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
+                 if (myFarmers.some(f => flocks.some(flock => flock.userId === f.id && !logs.some(l => l.userId === f.id && l.flockId === flock.id && l.date === checkDate)))) {
+                   anyMissing = true;
+                   break;
+                 }
+               }
+               return !anyMissing;
+            })() && (
                <div className="py-20 text-center text-emerald-600 flex flex-col items-center">
                   <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mb-4">
                      <CheckCircle2 size={40} />
                   </div>
-                  <p className="text-xl font-black">Report Integrity 100%</p>
-                  <p className="text-sm font-medium">All farmers have submitted logs for today.</p>
+                  <p className="text-xl font-black">All Clear</p>
+                  <p className="text-sm font-medium">All assigned farmers have submitted their logs for the period.</p>
                </div>
             )}
           </div>
@@ -920,7 +1196,7 @@ const ManagerDashboard: React.FC = () => {
 
       {/* Deep Stock Detail Modal */}
       <Dialog open={!!selectedFarmerForStock} onOpenChange={() => setSelectedFarmerForStock(null)}>
-        <DialogContent className="rounded-[2.5rem] max-w-3xl">
+        <DialogContent className="rounded-[2.5rem] max-w-4xl">
            <DialogHeader>
               <DialogTitle className="text-2xl font-black">
                  {stockType === 'feed' ? 'Feed Inventory' : 'Medicine Inventory'}: {selectedFarmerForStock?.name}
@@ -930,31 +1206,40 @@ const ManagerDashboard: React.FC = () => {
               <Table>
                  <TableHeader>
                     <TableRow className="border-slate-100">
-                       <TableHead className="font-bold">Item Name</TableHead>
-                       {stockType === 'medicine' && <TableHead className="font-bold">Type</TableHead>}
-                       <TableHead className="font-bold text-right">Quantity</TableHead>
-                       <TableHead className="font-bold text-right pr-6">Cost</TableHead>
+                       <TableHead className="font-black text-[10px] uppercase tracking-widest">Item Name</TableHead>
+                       {stockType === 'medicine' && <TableHead className="font-black text-[10px] uppercase tracking-widest">Type</TableHead>}
+                       <TableHead className="font-black text-[10px] uppercase tracking-widest text-right">Quantity</TableHead>
+                       <TableHead className="font-black text-[10px] uppercase tracking-widest text-right">Last Purchase</TableHead>
+                       <TableHead className="font-black text-[10px] uppercase tracking-widest text-right pr-6">Cost Value</TableHead>
                     </TableRow>
                  </TableHeader>
                  <TableBody>
                     {(stockType === 'feed' ? feedStocks : medicineStocks)
                       .filter(s => s.userId === selectedFarmerForStock?.id)
-                      .map(item => (
-                        <TableRow key={item.id} className="border-slate-50">
-                           <TableCell className="font-bold text-slate-900 py-4">{item.name}</TableCell>
-                           {stockType === 'medicine' && (
-                             <TableCell>
-                               <Badge variant="secondary" className="bg-slate-100 text-[9px] font-bold uppercase">{item.type}</Badge>
+                      .map(item => {
+                        const daysSincePurchase = item.timestamp ? Math.floor((new Date().getTime() - new Date(item.timestamp).getTime()) / (1000 * 60 * 60 * 24)) : 'N/A';
+                        const currentVal = Number(item.purchaseCost || 0);
+                        
+                        return (
+                          <TableRow key={item.id} className="border-slate-50">
+                             <TableCell className="font-bold text-slate-900 py-4">{item.name}</TableCell>
+                             {stockType === 'medicine' && (
+                               <TableCell>
+                                 <Badge variant="secondary" className="bg-slate-100 text-[9px] font-bold uppercase">{item.type}</Badge>
+                               </TableCell>
+                             )}
+                             <TableCell className="text-right font-black">
+                               {item.quantity?.toLocaleString()} {item.unit || (stockType === 'feed' ? 'KG' : 'units')}
                              </TableCell>
-                           )}
-                           <TableCell className="text-right font-black">
-                             {item.quantity?.toLocaleString()} {item.unit || (stockType === 'feed' ? 'KG' : 'units')}
-                           </TableCell>
-                           <TableCell className="text-right pr-6 font-bold text-emerald-600">
-                             ₹{Number(item.purchaseCost || 0).toLocaleString()}
-                           </TableCell>
-                        </TableRow>
-                      ))
+                             <TableCell className="text-right text-xs font-bold text-slate-400">
+                               {daysSincePurchase === 0 ? 'Today' : (daysSincePurchase === 'N/A' ? 'N/A' : `${daysSincePurchase} days ago`)}
+                             </TableCell>
+                             <TableCell className="text-right pr-6 font-bold text-emerald-600">
+                               ₹{currentVal.toLocaleString()}
+                             </TableCell>
+                          </TableRow>
+                        );
+                      })
                     }
                  </TableBody>
               </Table>
@@ -962,107 +1247,111 @@ const ManagerDashboard: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Mortality Insights */}
+      {/* Mortality Insights Detail Modal */}
       <Dialog open={isMortalityModalOpen} onOpenChange={(open) => { setIsMortalityModalOpen(open); if(!open) setSelectedFarmerForMortality(null); }}>
-        <DialogContent className="rounded-[3rem] max-w-2xl bg-white">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-3 text-2xl font-black text-rose-600">
-               <Thermometer size={32} />
-               Mortality Trend Analysis
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-4 max-h-[60vh] overflow-y-auto pr-2 no-scrollbar">
-             {!selectedFarmerForMortality ? (
-                <div className="space-y-3">
-                  {myFarmers.map(farmer => {
-                    const farmerLogs = logs.filter(l => l.userId === farmer.id && (Number(l.health?.mortality) || 0) > 0);
-                    const totalMortality = farmerLogs.reduce((sum, l) => sum + (Number(l.health?.mortality) || 0), 0);
-                    if (totalMortality === 0) return null;
-
-                    return (
-                      <div 
-                        key={farmer.id} 
-                        className="p-6 bg-rose-50/50 border border-rose-100 rounded-[2rem] flex justify-between items-center group cursor-pointer hover:bg-rose-50 transition-all shadow-sm"
-                        onClick={() => setSelectedFarmerForMortality(farmer)}
-                      >
-                         <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-2xl bg-white border border-rose-100 flex items-center justify-center font-black text-rose-600 shadow-sm group-hover:scale-110 transition-transform">
-                               {farmer.name?.[0]}
-                            </div>
-                            <div>
-                               <p className="text-lg font-black text-slate-900 leading-none">{farmer.name}</p>
-                               <p className="text-[10px] font-bold text-rose-500 uppercase tracking-widest mt-1">Total {totalMortality} Deaths</p>
-                            </div>
-                         </div>
-                         <div className="flex items-center gap-2 text-rose-600 font-black text-[10px] bg-white px-4 py-2 rounded-xl border border-rose-100 group-hover:bg-rose-600 group-hover:text-white transition-all">
-                            VIEW BATCHES
-                            <ArrowUpRight size={14} />
-                         </div>
-                      </div>
-                    );
-                  })}
-                  {logs.filter(l => (Number(l.health?.mortality) || 0) > 0).length === 0 && (
-                    <div className="py-20 text-center text-slate-300 italic">No mortality reports found.</div>
-                  )}
+        <DialogContent className="rounded-[3rem] max-w-5xl bg-white max-h-[90vh] overflow-y-auto p-0 border-none shadow-2xl">
+          <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+            <DialogHeader className="p-0 text-left">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-rose-50 rounded-[1.5rem] flex items-center justify-center text-rose-600 shadow-inner">
+                   <Activity size={28} />
                 </div>
-             ) : (
-                <div className="space-y-6">
-                  <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-[2rem] border border-slate-100 mb-4">
-                    <Button variant="ghost" size="icon" onClick={() => setSelectedFarmerForMortality(null)} className="rounded-full text-slate-400">
-                      <ArrowUpRight className="rotate-180" size={20} />
-                    </Button>
-                    <div>
-                      <p className="text-sm font-bold text-slate-400 uppercase tracking-widest leading-none">Farmer Statistics</p>
-                      <p className="text-xl font-black text-slate-900">{selectedFarmerForMortality.name}</p>
-                    </div>
-                  </div>
+                <div>
+                   <DialogTitle className="text-2xl font-black text-rose-950 uppercase tracking-tight leading-none">Mortality Analytics</DialogTitle>
+                   <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest mt-1.5">Historical Batch Performance</p>
+                </div>
+              </div>
+            </DialogHeader>
+            <div className="flex gap-1.5 bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100">
+              {(['1d', '7d', '30d'] as const).map((range) => (
+                <Button
+                  key={range}
+                  variant={mortalityTimeRange === range ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setMortalityTimeRange(range)}
+                  className={`rounded-xl text-[10px] font-black h-9 px-5 ${mortalityTimeRange === range ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-50'}`}
+                >
+                   {range.toUpperCase()}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="p-8">
+             <div className="overflow-hidden rounded-[2.5rem] border border-slate-100 shadow-sm bg-white">
+               <Table>
+                 <TableHeader>
+                   <TableRow className="bg-slate-50/50 border-slate-100">
+                     <TableHead className="font-black text-[10px] uppercase tracking-widest px-6">Farmer & Batch</TableHead>
+                     <TableHead className="font-black text-[10px] uppercase tracking-widest text-center">Age</TableHead>
+                     <TableHead className="font-black text-[10px] uppercase tracking-widest text-center">Mortality % ({mortalityTimeRange})</TableHead>
+                     <TableHead className="font-black text-[10px] uppercase tracking-widest text-center">Till Now %</TableHead>
+                     <TableHead className="font-black text-[10px] uppercase tracking-widest text-right">Birds (I/C)</TableHead>
+                   </TableRow>
+                 </TableHeader>
+                 <TableBody>
+                   {(() => {
+                     const now = new Date();
+                     let rangeLogs = logs;
+                     if (mortalityTimeRange === '1d') {
+                       rangeLogs = logs.filter(l => l.date === format(now, 'yyyy-MM-dd'));
+                     } else if (mortalityTimeRange === '7d') {
+                       rangeLogs = logs.filter(l => new Date(l.date) >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
+                     } else {
+                       rangeLogs = logs.filter(l => new Date(l.date) >= new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
+                     }
 
-                  <div className="space-y-3">
-                    {(() => {
-                      const farmerFlocks = flocks.filter(f => f.userId === selectedFarmerForMortality.id);
-                      return farmerFlocks.map(flock => {
-                        const flockLogs = logs.filter(l => l.flockId === flock.id);
-                        const flockMortality = flockLogs.reduce((sum, l) => sum + (Number(l.health?.mortality) || 0), 0);
-                        const mortalityRate = flock.initialCount > 0 ? ((flockMortality / flock.initialCount) * 100).toFixed(2) : 0;
+                     const mortalityRecords: any[] = [];
+                     flocks.forEach(flock => {
+                        const farmer = myFarmers.find(f => f.id === flock.userId);
+                        const flockRangeLogs = rangeLogs.filter(l => l.flockId === flock.id);
+                        const rangeMortality = flockRangeLogs.reduce((sum, l) => sum + (Number(l.health?.mortality) || 0), 0);
                         
-                        return (
-                          <div key={flock.id} className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm space-y-4">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <h4 className="font-black text-slate-900 text-lg">{flock.name}</h4>
-                                <Badge className="bg-indigo-50 text-indigo-600 border-none text-[9px] font-bold uppercase">{flock.breed}</Badge>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-2xl font-black text-rose-600">{flockMortality}</p>
-                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Total Mortality</p>
-                              </div>
-                            </div>
-                            
-                            <div className="p-4 bg-rose-50/50 rounded-2xl flex justify-between items-center">
-                              <p className="text-xs font-bold text-rose-700">Mortality Percentage</p>
-                              <div className="flex items-center gap-2">
-                                <span className="font-black text-rose-600 text-lg">{mortalityRate}%</span>
-                                {Number(mortalityRate) > 5 && <AlertTriangle size={16} className="text-rose-600 animate-pulse" />}
-                              </div>
-                            </div>
+                        const totalMortality = (Number(flock.initialCount) || 0) - (Number(flock.currentCount) || 0);
+                        
+                        const rangeRate = Number(flock.initialCount) > 0 ? (rangeMortality / Number(flock.initialCount)) * 100 : 0;
+                        const totalRate = Number(flock.initialCount) > 0 ? (totalMortality / Number(flock.initialCount)) * 100 : 0;
+                        const age = Math.floor((new Date().getTime() - new Date(flock.placementDate).getTime()) / (1000 * 60 * 60 * 24));
 
-                            <div className="grid grid-cols-2 gap-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex justify-between">
-                                  <span>Initial</span>
-                                  <span className="text-slate-900">{flock.initialCount?.toLocaleString()}</span>
-                               </div>
-                               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex justify-between">
-                                  <span>Current</span>
-                                  <span className="text-slate-900">{flock.currentCount?.toLocaleString()}</span>
-                               </div>
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                </div>
-             )}
+                        mortalityRecords.push({
+                           farmerName: farmer?.name || 'N/A',
+                           batchName: flock.name,
+                           age,
+                           rangeRate: rangeRate.toFixed(2),
+                           totalRate: totalRate.toFixed(2),
+                           initial: flock.initialCount,
+                           current: flock.currentCount
+                        });
+                     });
+
+                     return mortalityRecords.sort((a, b) => Number(b.rangeRate) - Number(a.rangeRate)).map((rec, i) => (
+                        <TableRow key={i} className="border-slate-50 hover:bg-rose-50/30 transition-colors">
+                          <TableCell className="px-6 py-4">
+                             <p className="text-xs font-black text-slate-900">{rec.farmerName}</p>
+                             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">{rec.batchName}</p>
+                          </TableCell>
+                          <TableCell className="text-center font-bold text-slate-600 text-xs">
+                             {rec.age} Days
+                          </TableCell>
+                          <TableCell className="text-center">
+                             <span className={`px-3 py-1 rounded-lg font-black text-xs ${Number(rec.rangeRate) > 1 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-400'}`}>
+                               {rec.rangeRate}%
+                             </span>
+                          </TableCell>
+                          <TableCell className="text-center">
+                             <span className={`px-3 py-1 rounded-lg font-black text-xs ${Number(rec.totalRate) > 5 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'}`}>
+                               {rec.totalRate}%
+                             </span>
+                          </TableCell>
+                          <TableCell className="text-right py-4">
+                             <p className="text-xs font-black text-slate-900">{rec.current.toLocaleString()}</p>
+                             <p className="text-[9px] text-slate-400 font-bold uppercase">Start: {rec.initial.toLocaleString()}</p>
+                          </TableCell>
+                        </TableRow>
+                     ));
+                   })()}
+                 </TableBody>
+               </Table>
+             </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -1121,6 +1410,204 @@ const ManagerDashboard: React.FC = () => {
                  </div>
               )}
            </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Egg Collection Modal */}
+      <Dialog open={isEggCollectionModalOpen} onOpenChange={setIsEggCollectionModalOpen}>
+        <DialogContent className="rounded-[2.5rem] max-w-6xl max-h-[85vh] overflow-y-auto bg-slate-50">
+          <DialogHeader>
+            <DialogTitle className="text-3xl font-black text-amber-600 flex items-center gap-2">
+              <ShoppingBag size={32} />
+              Egg Collection Data
+            </DialogTitle>
+            <DialogDescription className="font-bold text-slate-400">Detailed production and costing overview for egg collection</DialogDescription>
+            <div className="flex gap-2 mt-4">
+              {(['Today', 'Yesterday', '7d', '30d'] as const).map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setEggTimeRange(range)}
+                  className={`text-xs font-bold px-4 py-2 rounded-xl transition-all ${eggTimeRange === range ? 'bg-amber-600 text-white shadow-lg shadow-amber-200' : 'bg-white text-slate-400 hover:bg-slate-100'}`}
+                >
+                  {range}
+                </button>
+              ))}
+            </div>
+          </DialogHeader>
+          <div className="py-6">
+            <div className="overflow-x-auto rounded-[2rem] border border-slate-100 shadow-sm bg-white">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50/50 border-slate-100 h-14">
+                    <TableHead className="font-black text-[11px] uppercase tracking-widest px-8">Farmer & Batch</TableHead>
+                    <TableHead className="font-black text-[11px] uppercase tracking-widest text-center">Eggs (Good/Bad)</TableHead>
+                    <TableHead className="font-black text-[11px] uppercase tracking-widest text-center">Laying Ratio</TableHead>
+                    <TableHead className="font-black text-[11px] uppercase tracking-widest text-center">Cost/Egg</TableHead>
+                    <TableHead className="font-black text-[11px] uppercase tracking-widest text-center">Unsold Eggs</TableHead>
+                    <TableHead className="font-black text-[11px] uppercase tracking-widest text-right px-8">Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(() => {
+                    const now = new Date();
+                    let filteredLogs = eggLogs;
+                    if (eggTimeRange === 'Today') {
+                      const today = format(now, 'yyyy-MM-dd');
+                      filteredLogs = eggLogs.filter(l => l.date === today);
+                    } else if (eggTimeRange === 'Yesterday') {
+                      const yesterday = format(new Date(now.getTime() - 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
+                      filteredLogs = eggLogs.filter(l => l.date === yesterday);
+                    } else if (eggTimeRange === '7d') {
+                      const lastWeekly = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                      filteredLogs = eggLogs.filter(l => new Date(l.date) >= lastWeekly);
+                    } else {
+                      const lastMonthly = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                      filteredLogs = eggLogs.filter(l => new Date(l.date) >= lastMonthly);
+                    }
+
+                    return filteredLogs.map((log, idx) => {
+                      const farmer = myFarmers.find(f => f.id === log.userId);
+                      const totalEggs = (Number(log.goodEggs) || 0) + (Number(log.badEggs) || 0) || Number(log.totalEggs) || 0;
+                      const goodEggs = Number(log.goodEggs) || totalEggs;
+                      const badEggs = Number(log.badEggs) || (totalEggs - goodEggs);
+                      const feedCost = Number(log.feedCost) || 0;
+                      const medCost = Number(log.medicineCost) || 0;
+                      const labourCost = Number(log.labourCost) || 0;
+                      const totalCost = feedCost + medCost + labourCost;
+                      const costPerEgg = goodEggs > 0 ? totalCost / goodEggs : 0;
+                      const birdCount = Number(log.birdCount) || 1;
+                      const layingRatio = (totalEggs / birdCount) * 100;
+                      
+                      return (
+                        <TableRow key={idx} className="border-slate-50 hover:bg-slate-50/50 transition-colors h-20 group">
+                          <TableCell className="px-8 py-4">
+                            <p className="text-sm font-black text-slate-900 uppercase">{farmer?.name || 'Unknown'}</p>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{log.batchName || 'No Batch'}</p>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="font-black text-slate-900 text-base">{totalEggs}</div>
+                            <div className="text-[10px] text-slate-400 font-bold uppercase flex justify-center gap-2">
+                               <span className="text-emerald-600">G: {goodEggs}</span>
+                               <span className="text-rose-600">B: {badEggs}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge className="bg-amber-50 text-amber-600 border-none font-black text-xs h-7 px-3">{layingRatio.toFixed(1)}%</Badge>
+                          </TableCell>
+                          <TableCell className="text-center">
+                             <div className="font-black text-emerald-600">₹{costPerEgg.toFixed(2)}</div>
+                             <div className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">PER EGG</div>
+                          </TableCell>
+                          <TableCell className="text-center font-bold text-slate-300 italic text-[10px]">
+                            DATA UNAVAILABLE
+                          </TableCell>
+                          <TableCell className="text-right px-8">
+                             <p className="text-xs font-black text-slate-700">{format(new Date(log.date), 'dd MMM')}</p>
+                             <p className="text-[9px] text-slate-400 font-bold uppercase">{format(new Date(log.date), 'yyyy')}</p>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    });
+                  })()}
+                  {eggLogs.filter(l => {
+                      const now = new Date();
+                      if (eggTimeRange === 'Today') return l.date === format(now, 'yyyy-MM-dd');
+                      if (eggTimeRange === 'Yesterday') return l.date === format(new Date(now.getTime() - 24*60*60*1000), 'yyyy-MM-dd');
+                      if (eggTimeRange === '7d') return new Date(l.date) >= new Date(now.getTime() - 7*24*60*60*1000);
+                      return new Date(l.date) >= new Date(now.getTime() - 30*24*60*60*1000);
+                  }).length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="py-24 text-center">
+                        <div className="flex flex-col items-center opacity-30">
+                           <ShoppingBag size={48} className="mb-4" />
+                           <p className="text-sm font-black uppercase tracking-widest text-slate-400">No Collection Records</p>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* License Key Modal Detail */}
+      <Dialog open={isLicenseModalOpen} onOpenChange={setIsLicenseModalOpen}>
+        <DialogContent className="rounded-[3.5rem] max-w-4xl max-h-[85vh] overflow-y-auto bg-slate-50 p-0 border-none shadow-2xl">
+          <div className="p-10 border-b border-slate-50 flex justify-between items-center bg-white">
+            <DialogHeader className="p-0 text-left">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 bg-red-50 rounded-[2.2rem] flex items-center justify-center text-red-600 shadow-inner">
+                   <ShieldCheck size={32} />
+                </div>
+                <div>
+                   <DialogTitle className="text-3xl font-black text-slate-900 leading-tight uppercase tracking-tight">License System</DialogTitle>
+                   <p className="text-[11px] font-black text-red-500 uppercase tracking-widest mt-1">Expiring within 5 days</p>
+                </div>
+              </div>
+            </DialogHeader>
+          </div>
+          <div className="p-10 space-y-4">
+             {licenseKeys.filter(lk => {
+                if (!lk.expiryDate || lk.status !== 'Used') return false;
+                const expiry = new Date(lk.expiryDate);
+                const now = new Date();
+                const diff = expiry.getTime() - now.getTime();
+                return diff > 0 && diff <= 5 * 24 * 60 * 60 * 1000;
+             }).map((lk, idx) => {
+                const farmer = allUsers.find(u => u.id === lk.userId);
+                const expiryDate = new Date(lk.expiryDate);
+                const now = new Date();
+                const daysRemaining = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                
+                return (
+                  <div key={idx} className="p-8 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex items-center justify-between group hover:border-red-200 transition-all hover:shadow-xl hover:shadow-red-500/5">
+                    <div className="flex items-center gap-6">
+                      <div className="w-14 h-14 rounded-[1.8rem] bg-slate-50 flex items-center justify-center font-black text-slate-300 border border-slate-100 uppercase text-xl group-hover:bg-red-50 group-hover:text-red-400 group-hover:border-red-100 transition-all">
+                        {farmer?.name?.[0] || '?'}
+                      </div>
+                      <div>
+                        <p className="text-xl font-black text-slate-900 leading-none uppercase">{farmer?.name || 'Unknown Farmer'}</p>
+                        <div className="flex items-center gap-3 mt-3">
+                           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-xl border border-slate-100">
+                             <Phone size={12} className="text-slate-400" />
+                             <p className="text-[11px] text-slate-600 font-black">{farmer?.phone || 'No phone'}</p>
+                           </div>
+                           <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">KEY: {lk.key}</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right flex items-center gap-6">
+                      <div>
+                        <Badge className="bg-red-600 text-white border-none font-black h-10 px-6 rounded-2xl text-xs uppercase tracking-tight shadow-lg shadow-red-200">
+                           EXPIRING IN {daysRemaining} DAYS
+                        </Badge>
+                        <p className="text-[10px] text-slate-400 font-black mt-2 uppercase italic tracking-widest">VALID UNTIL {format(expiryDate, 'dd MMM yyyy')}</p>
+                      </div>
+                      <Button size="icon" onClick={() => window.location.href = `tel:${farmer?.phone}`} className="w-12 h-12 rounded-2xl bg-slate-900 hover:bg-red-600 transition-colors shadow-lg">
+                         <Phone size={20} />
+                      </Button>
+                    </div>
+                  </div>
+                );
+             })}
+             {licenseKeys.filter(lk => {
+                if (!lk.expiryDate || lk.status !== 'Used') return false;
+                const expiry = new Date(lk.expiryDate);
+                const now = new Date();
+                const diff = expiry.getTime() - now.getTime();
+                return diff > 0 && diff <= 5 * 24 * 60 * 60 * 1000;
+             }).length === 0 && (
+               <div className="py-24 text-center">
+                  <div className="w-24 h-24 bg-white rounded-[2.5rem] border border-slate-100 flex items-center justify-center mx-auto mb-6 opacity-30 shadow-inner">
+                     <ShieldCheck size={48} className="text-slate-400" />
+                  </div>
+                  <p className="text-xl font-black text-slate-300 uppercase tracking-widest">No Near Expiries</p>
+                  <p className="text-sm font-bold text-slate-300 mt-2">All managed licenses are within safe validity periods.</p>
+               </div>
+             )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

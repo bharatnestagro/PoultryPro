@@ -76,6 +76,8 @@ const AdminManagers: React.FC = () => {
     }
   };
 
+  const generateManagerCode = () => 'MN' + Math.random().toString(36).substring(2, 6).toUpperCase();
+
   const handleAddManager = async () => {
     if (!newManager.email || !newManager.name) {
       toast.error('Name and Email are required');
@@ -83,12 +85,14 @@ const AdminManagers: React.FC = () => {
     }
     setLoading(true);
     try {
+      const code = generateManagerCode();
       // Check if user already exists
       const existing = users.find(u => u.email === newManager.email);
       if (existing) {
         await updateDoc(doc(db, 'users', existing.id), {
           ...newManager,
-          role: newManager.role
+          role: newManager.role,
+          managerCode: existing.managerCode || code
         });
         toast.success('Existing user role updated');
       } else {
@@ -96,6 +100,7 @@ const AdminManagers: React.FC = () => {
         await setDoc(doc(db, 'users', tempId), {
           ...newManager,
           role: newManager.role,
+          managerCode: code,
           createdAt: Timestamp.now(),
           isPlaceholder: true
         });
@@ -116,13 +121,15 @@ const AdminManagers: React.FC = () => {
     if (!editingManager) return;
     setLoading(true);
     try {
+      const code = editingManager.managerCode || generateManagerCode();
       await updateDoc(doc(db, 'users', editingManager.id), {
         name: editingManager.name,
         phone: editingManager.phone,
         district: editingManager.district,
         state: editingManager.state,
         email: editingManager.email,
-        role: editingManager.role
+        role: editingManager.role,
+        managerCode: code
       });
       toast.success('Manager updated');
       setEditingManager(null);
@@ -138,7 +145,11 @@ const AdminManagers: React.FC = () => {
   const promoteFarmer = async (farmer: any) => {
     if (!confirm(`Promote ${farmer.name} to Manager?`)) return;
     try {
-      await updateDoc(doc(db, 'users', farmer.id), { role: 'manager' });
+      const code = generateManagerCode();
+      await updateDoc(doc(db, 'users', farmer.id), { 
+        role: 'manager',
+        managerCode: farmer.managerCode || code
+      });
       toast.success('Farmer promoted to Manager');
       fetchUsers();
     } catch (e) {
@@ -464,8 +475,11 @@ const AdminManagers: React.FC = () => {
                           {m.name?.[0] || 'M'}
                         </div>
                         <div>
-                          <p className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{m.name}</p>
-                          <p className="text-[10px] text-slate-400 font-medium">Click to view farmers</p>
+                          <p className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors uppercase">{m.name}</p>
+                          <div className="flex items-center gap-2">
+                             <p className="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-1 rounded uppercase tracking-tighter">ID: {m.managerCode || 'PENDING'}</p>
+                             <p className="text-[10px] text-slate-400 font-medium">Click to view farmers</p>
+                          </div>
                         </div>
                       </button>
                     </TableCell>

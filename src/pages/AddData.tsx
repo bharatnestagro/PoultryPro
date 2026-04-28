@@ -53,6 +53,7 @@ const AddData: React.FC = () => {
   const [logs, setLogs] = useState<any[]>([]);
   const [editingLog, setEditingLog] = useState<any>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [eggSales, setEggSales] = useState<any[]>([]);
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
   const [historyFilter, setHistoryFilter] = useState('daily');
   const [reportFlockId, setReportFlockId] = useState<string | null>(null);
@@ -314,7 +315,7 @@ const AddData: React.FC = () => {
     { id: 'hatchery', title: 'Hatchery Management', icon: Egg, color: 'bg-emerald-700', desc: 'Batches & Incubation' },
     { id: 'feed_stock', title: 'Feed Stock', icon: Package, color: 'bg-orange-600', desc: 'Manage feed inventory' },
     { id: 'medicine_stock', title: 'Medicine Stock', icon: Pill, color: 'bg-purple-600', desc: 'Manage medicines' },
-    { id: 'sold_flock', title: 'Sold Flock', icon: ShoppingBag, color: 'bg-amber-600', desc: 'Record flock sales & closing' },
+    { id: 'sold_flock', title: 'Selling Entry', icon: ShoppingBag, color: 'bg-amber-600', desc: 'Record flock & egg sales' },
     { id: 'alerts', title: 'Alerts', icon: AlertTriangle, color: 'bg-red-600', desc: 'Warning signals' },
     { id: 'finance', title: 'Financials', icon: IndianRupee, color: 'bg-emerald-500', desc: 'Costs & sales' },
     { id: 'logs_history', title: 'Log history', icon: FileText, color: 'bg-slate-700', desc: 'View, edit & delete records' },
@@ -436,6 +437,17 @@ const AddData: React.FC = () => {
     buyerName: '',
     notes: '',
   });
+
+  const [eggSaleData, setEggSaleData] = useState({
+    saleDate: format(new Date(), 'yyyy-MM-dd'),
+    eggCount: '',
+    sellingRate: '',
+    costPerEgg: '',
+    buyerName: '',
+    buyerContact: '',
+    notes: ''
+  });
+  const [sellMode, setSellMode] = useState<'batch' | 'egg'>('batch');
 
   const [hatcheryBatches, setHatcheryBatches] = useState<any[]>([]);
   const [incubatorLogs, setIncubatorLogs] = useState<any[]>([]);
@@ -569,6 +581,11 @@ const AddData: React.FC = () => {
       setIncubatorLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => handleFirestoreError(error, OperationType.GET, 'incubatorLogs'));
 
+    const qEggSales = query(collection(db, 'eggSales'), where('userId', '==', user.uid));
+    const unsubEggSales = onSnapshot(qEggSales, (snapshot) => {
+      setEggSales(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'eggSales'));
+
     return () => {
       unsubscribe();
       unsubMed();
@@ -577,6 +594,7 @@ const AddData: React.FC = () => {
       unsubTxs();
       unsubHatchery();
       unsubIncubator();
+      unsubEggSales();
     };
   }, [user]);
 
@@ -1032,6 +1050,62 @@ const AddData: React.FC = () => {
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'flocks');
       toast.error('Failed to record sale');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveEggSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    const soldCount = Number(eggSaleData.eggCount) || 0;
+    if (soldCount <= 0) {
+      toast.error('Please enter a valid egg count');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const totalPrice = soldCount * (Number(eggSaleData.sellingRate) || 0);
+      const totalCost = soldCount * (Number(eggSaleData.costPerEgg) || 0);
+      const profit = totalPrice - totalCost;
+      
+      await addDoc(collection(db, 'eggSales'), {
+        ...eggSaleData,
+        userId: user.uid,
+        eggCount: soldCount,
+        sellingRate: Number(eggSaleData.sellingRate) || 0,
+        costPerEgg: Number(eggSaleData.costPerEgg) || 0,
+        totalPrice: totalPrice,
+        totalCost: totalCost,
+        profit: profit,
+        createdAt: new Date().toISOString()
+      });
+
+      // Record transaction
+      await addDoc(collection(db, 'transactions'), {
+        userId: user.uid,
+        type: 'Income',
+        category: 'Egg Sale',
+        amount: totalPrice,
+        description: `Sold ${soldCount} eggs to ${eggSaleData.buyerName || 'Unknown'}. Rate: ₹${eggSaleData.sellingRate}/egg. Profit: ₹${profit.toFixed(2)}`,
+        date: eggSaleData.saleDate,
+        createdAt: new Date().toISOString()
+      });
+
+      toast.success('Egg sale recorded');
+      setEggSaleData({
+        saleDate: format(new Date(), 'yyyy-MM-dd'),
+        eggCount: '',
+        sellingRate: '',
+        costPerEgg: '',
+        buyerName: '',
+        buyerContact: '',
+        notes: ''
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, 'eggSales');
+      toast.error('Failed to save egg sale');
     } finally {
       setLoading(false);
     }
@@ -2758,39 +2832,59 @@ const AddData: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <ShoppingBag className="text-amber-600" />
-                  Record Flock Sale
+                  Selling Entry
                 </CardTitle>
-                <CardDescription>Record partial or full sale of your birds</CardDescription>
+                <CardDescription>Record flock or egg sales</CardDescription>
+                
+                <div className="flex bg-slate-100 p-1 rounded-xl mt-4">
+                  <button 
+                    type="button"
+                    onClick={() => setSellMode('batch')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${sellMode === 'batch' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    <Bird size={14} />
+                    Record Batch Sell
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setSellMode('egg')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${sellMode === 'egg' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    <Egg size={14} />
+                    Record Egg Sell
+                  </button>
+                </div>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleSoldFlock} className="space-y-6">
-                  {/* Flock Stats Summary */}
-                  {selectedFlockId && (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                      {(() => {
-                        const flock = flocks.find(f => f.id === selectedFlockId);
-                        const avgWeight = flock?.currentWeight || flock?.initialAvgWeight || 0;
-                        const birds = flock?.currentCount || 0;
-                        const estTotalWeight = (avgWeight * birds) / 1000;
-                        return (
-                          <>
-                            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
-                              <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1">Current Avg Weight</p>
-                              <p className="text-xl font-bold text-slate-900">{avgWeight}g</p>
-                            </div>
-                            <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Birds Available</p>
-                              <p className="text-xl font-bold text-slate-900">{birds}</p>
-                            </div>
-                            <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100">
-                              <p className="text-[10px] font-bold text-purple-600 uppercase tracking-widest mb-1">Est. Total Weight</p>
-                              <p className="text-xl font-bold text-slate-900">{estTotalWeight.toFixed(2)}kg</p>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  )}
+                {sellMode === 'batch' ? (
+                  <form onSubmit={handleSoldFlock} className="space-y-6">
+                    {/* Flock Stats Summary */}
+                    {selectedFlockId && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                        {(() => {
+                          const flock = flocks.find(f => f.id === selectedFlockId);
+                          const avgWeight = flock?.currentWeight || flock?.initialAvgWeight || 0;
+                          const birds = flock?.currentCount || 0;
+                          const estTotalWeight = (avgWeight * birds) / 1000;
+                          return (
+                            <>
+                              <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+                                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1">Current Avg Weight</p>
+                                <p className="text-xl font-bold text-slate-900">{avgWeight}g</p>
+                              </div>
+                              <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Birds Available</p>
+                                <p className="text-xl font-bold text-slate-900">{birds}</p>
+                              </div>
+                              <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100">
+                                <p className="text-[10px] font-bold text-purple-600 uppercase tracking-widest mb-1">Est. Total Weight</p>
+                                <p className="text-xl font-bold text-slate-900">{estTotalWeight.toFixed(2)}kg</p>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
                     <div className="space-y-2">
@@ -2968,6 +3062,100 @@ const AddData: React.FC = () => {
                     {soldFlockData.saleType === 'Full' ? 'Record Sale & Close Batch' : 'Record Partial Sale'}
                   </Button>
                 </form>
+                ) : (
+                  <form onSubmit={handleSaveEggSale} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Sale Date</Label>
+                        <Input 
+                          type="date" 
+                          value={eggSaleData.saleDate} 
+                          onChange={e => setEggSaleData({...eggSaleData, saleDate: e.target.value})}
+                          className="rounded-xl border-emerald-100"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Egg Count (Total Eggs)</Label>
+                        <Input 
+                          type="number" 
+                          required 
+                          value={eggSaleData.eggCount} 
+                          onChange={e => setEggSaleData({...eggSaleData, eggCount: e.target.value})}
+                          placeholder="e.g. 30"
+                          className="rounded-xl border-emerald-100"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label>Cost Per Egg (₹)</Label>
+                        <Input 
+                          type="number" 
+                          value={eggSaleData.costPerEgg} 
+                          onChange={e => setEggSaleData({...eggSaleData, costPerEgg: e.target.value})}
+                          placeholder="e.g. 5.50"
+                          className="rounded-xl border-emerald-100"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Selling Rate (₹ per Egg)</Label>
+                        <Input 
+                          type="number" 
+                          required 
+                          value={eggSaleData.sellingRate} 
+                          onChange={e => setEggSaleData({...eggSaleData, sellingRate: e.target.value})}
+                          placeholder="e.g. 7.00"
+                          className="rounded-xl border-emerald-100"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Buyer Name</Label>
+                        <Input 
+                          value={eggSaleData.buyerName} 
+                          onChange={e => setEggSaleData({...eggSaleData, buyerName: e.target.value})}
+                          placeholder="Who bought them?"
+                          className="rounded-xl border-emerald-100"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Buyer Contact / Notes</Label>
+                      <Input 
+                        value={eggSaleData.buyerContact} 
+                        onChange={e => setEggSaleData({...eggSaleData, buyerContact: e.target.value})}
+                        placeholder="Phone or extra details..."
+                        className="rounded-xl border-emerald-100"
+                      />
+                    </div>
+
+                    {/* Egg Sale Live Calculation */}
+                    {(Number(eggSaleData.eggCount) > 0 && Number(eggSaleData.sellingRate) > 0) && (
+                      <div className="p-6 bg-emerald-900 rounded-3xl text-white shadow-xl shadow-emerald-900/20 animate-in zoom-in duration-300">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest mb-1">Revenue Estimation</p>
+                            <h4 className="text-lg font-bold">Egg Sale Total</h4>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-emerald-400 text-xs font-medium">{eggSaleData.eggCount} eggs × ₹{eggSaleData.sellingRate}</p>
+                            <p className="text-3xl font-black">₹{(Number(eggSaleData.eggCount) * Number(eggSaleData.sellingRate)).toLocaleString()}</p>
+                            {Number(eggSaleData.costPerEgg) > 0 && (
+                              <p className="text-[10px] text-emerald-300 mt-1 font-bold">
+                                Estimated Profit: ₹{((Number(eggSaleData.sellingRate) - Number(eggSaleData.costPerEgg)) * Number(eggSaleData.eggCount)).toFixed(2)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <Button type="submit" disabled={loading} className="w-full h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl shadow-lg shadow-emerald-200 font-bold text-lg">
+                      {loading ? 'Recording...' : 'Record Egg Sale'}
+                    </Button>
+                  </form>
+                )}
 
                 {/* Sale History Section */}
                 <div className="mt-12 space-y-6">

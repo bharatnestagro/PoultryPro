@@ -22,6 +22,8 @@ const KeyManagement: React.FC = () => {
   const [farmers, setFarmers] = useState<any[]>([]);
   const [expiryDays, setExpiryDays] = useState<string>('365');
   const [targetFarmerId, setTargetFarmerId] = useState<string>('none');
+  const [description, setDescription] = useState<string>('');
+  const [isCustomDays, setIsCustomDays] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showGenDialog, setShowGenDialog] = useState(false);
   const [editingKey, setEditingKey] = useState<any>(null);
@@ -32,7 +34,16 @@ const KeyManagement: React.FC = () => {
   useEffect(() => {
     const q = query(collection(db, 'licenseKeys'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      let list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Filter for managers
+      if (isManager && !isAdmin) {
+        list = list.filter((k: any) => 
+          k.createdBy === user?.uid || 
+          farmers.some(f => f.id === k.usedBy)
+        );
+      }
+      
       list.sort((a: any, b: any) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
       setKeys(list);
     });
@@ -53,7 +64,10 @@ const KeyManagement: React.FC = () => {
   useEffect(() => {
     const fetchFarmers = async () => {
       try {
-        const q = query(collection(db, 'users'), where('role', '==', 'farmer'));
+        let q = query(collection(db, 'users'), where('role', '==', 'farmer'));
+        if (isManager && !isAdmin) {
+          q = query(collection(db, 'users'), where('role', '==', 'farmer'), where('managerId', '==', user?.uid));
+        }
         const snap = await getDocs(q);
         const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setFarmers(list);
@@ -62,7 +76,7 @@ const KeyManagement: React.FC = () => {
       }
     };
     fetchFarmers();
-  }, [showGenDialog, assigningKey]);
+  }, [showGenDialog, assigningKey, user?.uid, isManager, isAdmin]);
 
   const generateKey = async () => {
     if (!isManager) {
@@ -86,6 +100,7 @@ const KeyManagement: React.FC = () => {
         createdBy: user?.uid,
         createdByEmail: user?.email,
         type: 'Standard',
+        description: description,
         validityDays: Number(expiryDays)
       };
 
@@ -110,6 +125,9 @@ const KeyManagement: React.FC = () => {
       toast.success(targetFarmerId !== 'none' ? `Key generated and allotted to ${keyData.usedByEmail}` : `License Key generated (${expiryDays} days validity)`);
       setShowGenDialog(false);
       setTargetFarmerId('none');
+      setDescription('');
+      setExpiryDays('365');
+      setIsCustomDays(false);
     } catch (error: any) {
       console.error('Key Gen Error:', error);
       toast.error(`Failed to generate key: ${error.message || 'unknown error'}`);
@@ -340,19 +358,51 @@ const KeyManagement: React.FC = () => {
               <div className="py-4 space-y-6">
                 <div className="space-y-3">
                   <Label className="text-xs font-bold text-slate-400 uppercase">Validity Period</Label>
-                  <Select value={expiryDays} onValueChange={setExpiryDays}>
-                    <SelectTrigger className="w-full h-12 rounded-xl border-slate-200 focus:ring-indigo-500">
-                      <SelectValue placeholder="Select validity" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="30">30 Days</SelectItem>
-                      <SelectItem value="90">90 Days</SelectItem>
-                      <SelectItem value="180">180 Days</SelectItem>
-                      <SelectItem value="365">365 Days (1 Year)</SelectItem>
-                      <SelectItem value="730">730 Days (2 Years)</SelectItem>
-                      <SelectItem value="9999">Lifetime</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  {!isCustomDays ? (
+                    <Select value={expiryDays} onValueChange={(val) => {
+                      if (val === 'custom') {
+                        setIsCustomDays(true);
+                        setExpiryDays('');
+                      } else {
+                        setExpiryDays(val);
+                      }
+                    }}>
+                      <SelectTrigger className="w-full h-12 rounded-xl border-slate-200 focus:ring-indigo-500">
+                        <SelectValue placeholder="Select validity" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="30">30 Days</SelectItem>
+                        <SelectItem value="90">90 Days</SelectItem>
+                        <SelectItem value="180">180 Days</SelectItem>
+                        <SelectItem value="365">365 Days (1 Year)</SelectItem>
+                        <SelectItem value="730">730 Days (2 Years)</SelectItem>
+                        <SelectItem value="9999">Lifetime</SelectItem>
+                        <SelectItem value="custom" className="text-indigo-600 font-bold">Custom Validity...</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="flex gap-2">
+                       <Input 
+                        type="number" 
+                        placeholder="Enter days" 
+                        value={expiryDays} 
+                        onChange={(e) => setExpiryDays(e.target.value)}
+                        className="h-12 rounded-xl border-slate-200"
+                        autoFocus
+                       />
+                       <Button variant="ghost" onClick={() => setIsCustomDays(false)} className="h-12">Cancel</Button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <Label className="text-xs font-bold text-slate-400 uppercase text-left block">Purpose / Description</Label>
+                  <Input 
+                    placeholder="E.g. Gift for premium farmer, Promotional key, etc."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="h-12 rounded-xl border-slate-200"
+                  />
                 </div>
 
                 <div className="space-y-3">
@@ -616,7 +666,7 @@ const KeyManagement: React.FC = () => {
                   <TableHead>License Key</TableHead>
                   <TableHead>Assigned To</TableHead>
                   <TableHead>Activated At</TableHead>
-                  <TableHead>Expiry</TableHead>
+                  <TableHead>Expiry / Remaining</TableHead>
                   <TableHead>Created By</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -651,9 +701,16 @@ const KeyManagement: React.FC = () => {
                         </TableCell>
                         <TableCell className="text-slate-500 text-xs">
                           {k.activatedAt?.toDate && k.validityDays ? (
-                            <span className={isExpired ? 'text-red-500 font-bold' : 'text-slate-500'}>
-                              {format(addDays(k.activatedAt.toDate(), k.validityDays), 'PPP')}
-                            </span>
+                            <div className="flex flex-col">
+                              <span className={isExpired ? 'text-red-500 font-bold' : 'text-slate-500'}>
+                                {format(addDays(k.activatedAt.toDate(), k.validityDays), 'PPP')}
+                              </span>
+                              {!isExpired && (
+                                <span className="text-[10px] text-emerald-600 font-bold">
+                                  {Math.max(0, Math.ceil((addDays(k.activatedAt.toDate(), k.validityDays).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))} days left
+                                </span>
+                              )}
+                            </div>
                           ) : 'Unlimited'}
                         </TableCell>
                         <TableCell className="text-slate-500 text-xs font-medium">

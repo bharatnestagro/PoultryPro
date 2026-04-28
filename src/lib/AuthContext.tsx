@@ -18,6 +18,7 @@ interface UserProfile {
   phone?: string;
   mobile?: string;
   managerId?: string;
+  managerCode?: string;
   assignedManagerId?: string;
   licenseActive?: boolean;
   licenseKey?: string;
@@ -79,6 +80,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               if (isGlobalAdmin && !data.role) {
                 data.role = 'admin';
                 await setDoc(docRef, { role: 'admin' }, { merge: true });
+              }
+
+              // Auto-generate managerCode for managers if missing
+              if (data.role === 'manager' && !data.managerCode) {
+                const newCode = 'MN' + Math.random().toString(36).substring(2, 6).toUpperCase();
+                await setDoc(docRef, { managerCode: newCode }, { merge: true });
+                data.managerCode = newCode;
               }
 
               // Strict License Check for Farmers

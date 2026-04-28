@@ -17,6 +17,7 @@ const Register: React.FC = () => {
     name: '',
     email: '',
     password: '',
+    confirmPassword: '',
     farmName: '',
     address: '',
     city: '',
@@ -25,6 +26,7 @@ const Register: React.FC = () => {
     farmArea: '',
     birdCapacity: '',
     farmType: '',
+    managerIdentifier: '', // Manager ID or Phone
   });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -38,7 +40,33 @@ const Register: React.FC = () => {
       return;
     }
 
+    if (formData.password !== formData.confirmPassword) {
+      toast.error('Passwords do not match');
+      setLoading(false);
+      return;
+    }
+
     try {
+      // Find manager if identifier provided
+      let managerId = '';
+      if (formData.managerIdentifier) {
+        try {
+          const { collection, query, where, getDocs } = await import('firebase/firestore');
+          const qPhone = query(collection(db, 'users'), where('phone', '==', formData.managerIdentifier), where('role', 'in', ['manager', 'admin', 'sub-admin']));
+          const qCode = query(collection(db, 'users'), where('managerCode', '==', formData.managerIdentifier.toUpperCase()), where('role', 'in', ['manager', 'admin', 'sub-admin']));
+          
+          const [snapPhone, snapCode] = await Promise.all([getDocs(qPhone), getDocs(qCode)]);
+          
+          if (!snapPhone.empty) {
+            managerId = snapPhone.docs[0].id;
+          } else if (!snapCode.empty) {
+            managerId = snapCode.docs[0].id;
+          }
+        } catch (e) {
+          console.error("Error looking up manager:", e);
+        }
+      }
+
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
       const user = userCredential.user;
 
@@ -56,6 +84,8 @@ const Register: React.FC = () => {
           farmArea: Number(formData.farmArea),
           birdCapacity: Number(formData.birdCapacity),
           farmType: formData.farmType,
+          managerId: managerId,
+          assignedManagerId: managerId,
           role: 'farmer', // Default role
           createdAt: new Date().toISOString(),
         });
@@ -95,7 +125,7 @@ const Register: React.FC = () => {
             Join PoultryPro and manage your farm efficiently
           </CardDescription>
         </CardHeader>
-        <form onSubmit={handleRegister}>
+        <form onSubmit={handleRegister} className="max-h-[80vh] overflow-y-auto">
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -121,16 +151,41 @@ const Register: React.FC = () => {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input 
+                  id="password" 
+                  type="password" 
+                  required 
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  className="rounded-xl"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Input 
+                  id="confirmPassword" 
+                  type="password" 
+                  required 
+                  value={formData.confirmPassword}
+                  onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                  className="rounded-xl"
+                />
+              </div>
+            </div>
+
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="managerIdentifier">Manager ID or Phone (Optional)</Label>
               <Input 
-                id="password" 
-                type="password" 
-                required 
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                id="managerIdentifier" 
+                placeholder="Enter Manager ID or Mobile Number"
+                value={formData.managerIdentifier}
+                onChange={(e) => setFormData({ ...formData, managerIdentifier: e.target.value })}
                 className="rounded-xl"
               />
+              <p className="text-[10px] text-slate-400 px-1">Mapping under a specific manager allows better support.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

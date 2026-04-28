@@ -918,6 +918,11 @@ const Profile: React.FC = () => {
             <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 border border-emerald-100">
               {profile?.role}
             </Badge>
+            {profile?.role === 'manager' && profile?.managerCode && (
+              <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-100 text-[10px] font-bold uppercase">
+                ID: {profile.managerCode}
+              </Badge>
+            )}
             {profile?.licenseActive && (
               <Badge variant="outline" className="flex items-center gap-1 text-[10px] bg-indigo-50 border-indigo-100 text-indigo-600 font-bold uppercase">
                 <ShieldCheck size={10} />

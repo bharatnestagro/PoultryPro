@@ -15,11 +15,11 @@ import {
   ShieldCheck, IndianRupee, AlertTriangle, Plus, Save,
   Package, Droplets, Edit2, Trash2, ArrowDownRight, FileText, ShoppingBag,
   ClipboardList, Egg, TrendingUp, Download, ChevronDown, ChevronUp, ClipboardCheck,
-  Users
+  Users, Calendar
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, Legend, Cell, PieChart, Pie
@@ -111,6 +111,124 @@ const AddData: React.FC = () => {
 
   const [historyFilter, setHistoryFilter] = useState('daily');
   const [reportFlockId, setReportFlockId] = useState<string | null>(null);
+  const [farmerSchedule, setFarmerSchedule] = useState<any>(null);
+  const [upcomingTasks, setUpcomingTasks] = useState<any[]>([]);
+  const [selectedTaskDetails, setSelectedTaskDetails] = useState<any>(null);
+
+  useEffect(() => {
+    if (!user) return;
+
+    // Fetch Farmer's Active Schedule (Roadmap)
+    const qSchedule = query(
+      collection(db, 'schedules'),
+      where('userId', '==', user.uid),
+      where('status', '==', 'active'),
+      limit(1)
+    );
+
+    const unsubSchedule = onSnapshot(qSchedule, async (snapshot) => {
+      if (!snapshot.empty) {
+        const scheduleDoc = snapshot.docs[0];
+        const scheduleData = { id: scheduleDoc.id, ...scheduleDoc.data() } as any;
+        
+        // Load template to get steps
+        if (scheduleData.templateId) {
+          const templateDoc = await getDoc(doc(db, 'scheduleTemplates', scheduleData.templateId));
+          if (templateDoc.exists()) {
+            const templateData = templateDoc.data() as any;
+            setFarmerSchedule({ ...scheduleData, steps: templateData.days || templateData.steps || [] });
+          } else {
+            setFarmerSchedule(scheduleData);
+          }
+        } else {
+          setFarmerSchedule(scheduleData);
+        }
+      } else {
+        setFarmerSchedule(null);
+      }
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'schedules'));
+
+    // Fetch Farmer's Independent Tasks
+    const qTasks = query(
+      collection(db, 'tasks'),
+      where('userId', '==', user.uid),
+      where('status', '==', 'Pending'),
+      orderBy('scheduledDate', 'asc')
+    );
+
+    const unsubTasks = onSnapshot(qTasks, (snapshot) => {
+      setUpcomingTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'tasks'));
+
+    return () => {
+      unsubSchedule();
+      unsubTasks();
+    };
+  }, [user]);
+
+  const getRemainingDaysLabel = (targetDate: string) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const target = new Date(targetDate);
+    target.setHours(0, 0, 0, 0);
+    const diffTime = target.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'DUE TODAY';
+    if (diffDays === 1) return 'DUE TOMORROW';
+    if (diffDays < 0) return `${Math.abs(diffDays)} DAYS AGO`;
+    return `DUE IN ${diffDays} DAYS`;
+  };
+
+  const isFutureTask = (targetDate: string) => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const target = new Date(targetDate);
+    target.setHours(0,0,0,0);
+    return target > today;
+  };
+
+  const handleWatchVideo = async (task: any) => {
+    if (!farmerSchedule || !task.videoUrl) return;
+    window.open(task.videoUrl, '_blank', 'referrerpolicy=no-referrer');
+    
+    try {
+      const watchedVideos = farmerSchedule.watchedVideos || [];
+      const videoWatchLogs = farmerSchedule.videoWatchLogs || [];
+      
+      if (!watchedVideos.includes(task.day)) {
+        await updateDoc(doc(db, 'schedules', farmerSchedule.id), {
+          watchedVideos: [...watchedVideos, task.day],
+          videoWatchLogs: [...videoWatchLogs, { day: task.day, timestamp: new Date().toISOString() }],
+          updatedAt: new Date().toISOString()
+        });
+      }
+    } catch (err) {
+      console.error('Failed to track video watch:', err);
+    }
+  };
+
+  const handleMarkRoadmapDone = async (day: number) => {
+    if (!farmerSchedule) return;
+    try {
+      const completedDays = farmerSchedule.completedDays || [];
+      const completionLogs = farmerSchedule.completionLogs || [];
+      
+      if (!completedDays.includes(day)) {
+        await updateDoc(doc(db, 'schedules', farmerSchedule.id), {
+          completedDays: [...completedDays, day],
+          completionLogs: [...completionLogs, { day, timestamp: new Date().toISOString() }],
+          updatedAt: new Date().toISOString()
+        });
+        toast.success('Task marked as completed');
+        if (selectedTaskDetails && selectedTaskDetails.day === day) {
+           setSelectedTaskDetails(prev => ({ ...prev, isCompleted: true }));
+        }
+      }
+    } catch (err) {
+      toast.error('Failed to update schedule');
+    }
+  };
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -1752,7 +1870,8 @@ const AddData: React.FC = () => {
         <div className="w-full">
           {/* Tab: Farmer Task */}
           {activeTab === 'task' && (
-            <Card className="border-none shadow-sm rounded-3xl">
+            <>
+              <Card className="border-none shadow-sm rounded-3xl">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <ClipboardCheck className="text-blue-600" />
@@ -1814,6 +1933,138 @@ const AddData: React.FC = () => {
                 </form>
               </CardContent>
             </Card>
+
+            {/* Allotted Tasks Row */}
+            <div className="mt-12 space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-3xl font-black text-[#122B21] italic leading-tight">ALLOTTED TASKS</h2>
+                  <p className="text-slate-400 font-bold italic">Schedule provided by Admin for your farm</p>
+                </div>
+                <Badge className="bg-[#122B21] text-white px-4 py-1.5 rounded-full font-black italic">
+                  {upcomingTasks.length + (farmerSchedule?.steps?.length || 0)} TASKS
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-h-[600px] overflow-y-auto pb-6 pr-2 scrollbar-hide">
+                {/* Manual/Assigned Tasks */}
+                {upcomingTasks.map((task) => (
+                  <Card 
+                    key={task.id} 
+                    className="rounded-[2rem] border-none shadow-xl shadow-slate-200/50 overflow-hidden cursor-pointer hover:scale-[1.02] transition-transform"
+                    onClick={() => setSelectedTaskDetails({ ...task, isCompleted: task.status === 'Completed' })}
+                  >
+                    <div className="p-6">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                          task.category === 'Vaccination' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'
+                        }`}>
+                          {task.category === 'Vaccination' ? <ShieldCheck size={24} /> : <Pill size={24} />}
+                        </div>
+                        <Badge variant="outline" className="text-[10px] uppercase font-black tracking-widest border-slate-200">
+                          {task.category}
+                        </Badge>
+                      </div>
+                      <h3 className="text-xl font-black italic text-slate-900 mb-1">{task.title}</h3>
+                      <p className="text-xs font-bold text-slate-400 italic mb-4">
+                         {format(new Date(task.scheduledDate), 'MMM dd, yyyy')}
+                      </p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex -space-x-2">
+                          <div className="w-8 h-8 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center">
+                             <FileText size={14} className="text-slate-400" />
+                          </div>
+                        </div>
+                        <Button variant="ghost" className="text-[10px] font-black italic text-emerald-600 hover:bg-emerald-50 h-8 rounded-full">
+                          VIEW DETAILS
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+
+                {/* Roadmap Steps */}
+                {farmerSchedule?.steps?.filter((step: any) => {
+                  const scheduledDate = new Date(farmerSchedule.startDate);
+                  scheduledDate.setDate(scheduledDate.getDate() + (step.day - 1));
+                  
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  
+                  const diffTime = scheduledDate.getTime() - today.getTime();
+                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                  
+                  const window = farmerSchedule.visibilityDaysBefore ?? 7;
+                  return diffDays <= window;
+                }).map((step: any) => {
+                  const isCompleted = farmerSchedule.completedDays?.includes(step.day);
+                  const scheduledDate = new Date(farmerSchedule.startDate);
+                  scheduledDate.setDate(scheduledDate.getDate() + (step.day - 1));
+                  
+                  return (
+                    <Card 
+                      key={`step-${step.day}`} 
+                      className={`rounded-[2rem] border-none shadow-xl shadow-slate-200/50 overflow-hidden cursor-pointer hover:scale-[1.02] transition-transform ${
+                        isCompleted ? 'opacity-70 bg-slate-50' : ''
+                      }`}
+                      onClick={() => setSelectedTaskDetails({ 
+                        ...step, 
+                        isRoadmap: true, 
+                        isCompleted, 
+                        scheduledDate: scheduledDate.toISOString(),
+                        flockName: flocks.find(f => f.id === farmerSchedule.flockId)?.name || 'Batch'
+                      })}
+                    >
+                      <div className="p-6">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                            isCompleted ? 'bg-emerald-100 text-emerald-600' :
+                            step.type === 'Vaccination' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'
+                          }`}>
+                            {isCompleted ? <ClipboardCheck size={24} /> :
+                             step.type === 'Vaccination' ? <ShieldCheck size={24} /> : <Pill size={24} />}
+                          </div>
+                          <div className="text-right flex flex-col items-end gap-1">
+                            <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest leading-none">ROADMAP</p>
+                            <Badge variant="outline" className="text-[10px] uppercase font-black tracking-widest border-slate-200">
+                              Day {step.day}
+                            </Badge>
+                            <p className="text-[10px] font-black italic text-emerald-600 mt-1">
+                              {getRemainingDaysLabel(scheduledDate.toISOString())}
+                            </p>
+                          </div>
+                        </div>
+                        <h3 className="text-xl font-black italic text-slate-900 mb-1">{step.taskTitle}</h3>
+                        <div className="flex items-center justify-between mt-4">
+                           <div className="flex gap-2">
+                             {step.videoUrl && (
+                               <Badge className="bg-amber-100 text-amber-600 border-none text-[8px] font-black">VIDEO GUIDE</Badge>
+                             )}
+                             {isCompleted && (
+                               <Badge className="bg-emerald-100 text-emerald-600 border-none text-[8px] font-black">DONE</Badge>
+                             )}
+                           </div>
+                          <Button variant="ghost" className="text-[10px] font-black italic text-emerald-600 hover:bg-emerald-50 h-8 rounded-full">
+                            {isCompleted ? 'COMPLETED' : 'VIEW DETAILS'}
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+
+              {upcomingTasks.length === 0 && !farmerSchedule && (
+                <div className="text-center py-20 bg-slate-50 rounded-[3rem] border-2 border-dashed border-slate-200">
+                  <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+                     <ClipboardList className="text-slate-300" />
+                  </div>
+                  <h3 className="text-xl font-black italic text-slate-400">NO TASKS ALLOTTED YET</h3>
+                  <p className="text-slate-400 font-bold italic max-w-xs mx-auto">Tasks assigned by your administrator will appear here.</p>
+                </div>
+              )}
+            </div>
+          </>
           )}
 
           {/* Tab: Incubator Log */}
@@ -5553,6 +5804,101 @@ const AddData: React.FC = () => {
                     <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 rounded-xl" disabled={loading}>Save Changes</Button>
                   </DialogFooter>
                 </form>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Task Details Modal */}
+          <Dialog open={!!selectedTaskDetails} onOpenChange={(open) => !open && setSelectedTaskDetails(null)}>
+            <DialogContent className="max-w-xl rounded-[2.5rem] p-8 border-none overflow-y-auto max-h-[90vh]">
+              {selectedTaskDetails && (
+                <div className="space-y-8">
+                  <div className="flex items-center gap-6">
+                    <div className={`w-20 h-20 rounded-3xl flex items-center justify-center shrink-0 ${
+                      selectedTaskDetails.isCompleted ? 'bg-emerald-100 text-emerald-600' :
+                      (selectedTaskDetails.category === 'Vaccination' || selectedTaskDetails.type === 'Vaccination') ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'
+                    }`}>
+                      {selectedTaskDetails.isCompleted ? <ClipboardCheck size={40} /> :
+                       (selectedTaskDetails.category === 'Vaccination' || selectedTaskDetails.type === 'Vaccination') ? <ShieldCheck size={40} /> : <Pill size={40} />}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="text-[10px] uppercase font-black tracking-widest border-slate-200">
+                          {selectedTaskDetails.category || selectedTaskDetails.type}
+                        </Badge>
+                        {selectedTaskDetails.isCompleted && <Badge className="bg-emerald-500 text-white border-none text-[10px]">COMPLETED</Badge>}
+                        {selectedTaskDetails.isRoadmap && <Badge variant="secondary" className="text-[10px] font-black">ROADMAP</Badge>}
+                      </div>
+                      <DialogTitle className="text-3xl font-black italic text-slate-900 leading-tight">
+                        {selectedTaskDetails.title || selectedTaskDetails.taskTitle}
+                      </DialogTitle>
+                      <DialogDescription className="font-bold text-slate-400 italic flex items-center gap-2 mt-1">
+                        {format(new Date(selectedTaskDetails.scheduledDate), 'MMM dd, yyyy')}
+                        {selectedTaskDetails.isRoadmap && ` (Day ${selectedTaskDetails.day})`}
+                      </DialogDescription>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Methods & Instructions</h4>
+                      <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100 max-h-[300px] overflow-y-auto scrollbar-hide">
+                        <p className="text-slate-700 font-bold leading-relaxed whitespace-pre-wrap">
+                          {selectedTaskDetails.description || selectedTaskDetails.instructions}
+                        </p>
+                      </div>
+                    </div>
+
+                    {selectedTaskDetails.videoUrl && (
+                      <div className="space-y-2">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Video Tutorial</h4>
+                        <Button 
+                          className="w-full bg-[#122B21] text-white hover:bg-black font-black h-16 rounded-2xl flex items-center justify-center gap-3 transition-all"
+                          onClick={() => handleWatchVideo(selectedTaskDetails)}
+                        >
+                          WATCH VIDEO GUIDE
+                        </Button>
+                        <p className="text-[10px] text-center text-slate-400 font-bold italic mt-2">
+                          Clicking will redirect you to the video guide provided by Admin.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-4">
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => setSelectedTaskDetails(null)}
+                      className="h-14 rounded-2xl font-bold text-slate-400"
+                    >
+                      Close
+                    </Button>
+                    {!selectedTaskDetails.isCompleted && (
+                      <Button 
+                        disabled={isFutureTask(selectedTaskDetails.scheduledDate)}
+                        className={`h-14 rounded-2xl font-black shadow-xl uppercase tracking-widest text-[10px] ${
+                          isFutureTask(selectedTaskDetails.scheduledDate) ? 'bg-slate-200 text-slate-400' :
+                          selectedTaskDetails.isRoadmap ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        }`}
+                        onClick={async () => {
+                          if (selectedTaskDetails.isRoadmap) {
+                            await handleMarkRoadmapDone(selectedTaskDetails.day);
+                          } else {
+                            try {
+                              await updateDoc(doc(db, 'tasks', selectedTaskDetails.id), { status: 'Completed', updatedAt: new Date().toISOString() });
+                              toast.success('Task marked as completed');
+                            } catch (err) {
+                              toast.error('Failed to update task');
+                            }
+                          }
+                          setSelectedTaskDetails(null);
+                        }}
+                      >
+                        {isFutureTask(selectedTaskDetails.scheduledDate) ? 'LOCKED (FUTURE)' : 'Mark as Done'}
+                      </Button>
+                    )}
+                  </div>
+                </div>
               )}
             </DialogContent>
           </Dialog>

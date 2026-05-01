@@ -255,5 +255,29 @@ service cloud.firestore {
       allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
     }
+
+    // 14. Batch Schedules & Templates
+    match /schedules/{scheduleId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn());
+      allow create: if isAdmin() || isManager();
+      allow update: if isAdmin() || isManager() || (
+        isSignedIn() && 
+        resource.data.userId == request.auth.uid && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['completedDays', 'completionLogs', 'watchedVideos', 'videoWatchLogs', 'updatedAt'])
+      );
+      allow delete: if isAdmin() || isManager();
+    }
+
+    match /scheduleTemplates/{templateId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isManager();
+    }
+
+    // 15. Alerts & Rules
+    match /alertRules/{ruleId} {
+      allow read: if isAdmin() || isManager();
+      allow write: if isAdmin();
+    }
   }
 }

@@ -79,8 +79,80 @@ const Dashboard: React.FC = () => {
   const [tasks, setTasks] = useState<any[]>([]);
   const [eggLogs, setEggLogs] = useState<any[]>([]);
   const [eggSales, setEggSales] = useState<any[]>([]);
+  const [farmerSchedule, setFarmerSchedule] = useState<any | null>(null);
   const [showTasksModal, setShowTasksModal] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showEggLogsModal, setShowEggLogsModal] = useState(false);
+
+  const [selectedTaskDetails, setSelectedTaskDetails] = useState<any | null>(null);
+
+  const getRemainingDaysLabel = (targetDate: string) => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const target = new Date(targetDate);
+    target.setHours(0,0,0,0);
+    const diff = differenceInDays(target, today);
+    
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Tomorrow';
+    if (diff === -1) return 'Yesterday';
+    if (diff > 1) return `In ${diff} days`;
+    if (diff < -1) return `${Math.abs(diff)} days ago`;
+    return format(target, 'MMM dd');
+  };
+
+  const isFutureTask = (targetDate: string) => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const target = new Date(targetDate);
+    target.setHours(0,0,0,0);
+    return target > today;
+  };
+
+  const handleMarkRoadmapDone = async (day: number) => {
+    if (!farmerSchedule) return;
+    try {
+      const completedDays = farmerSchedule.completedDays || [];
+      const completionLogs = farmerSchedule.completionLogs || [];
+      
+      if (!completedDays.includes(day)) {
+        await updateDoc(doc(db, 'schedules', farmerSchedule.id), {
+          completedDays: [...completedDays, day],
+          completionLogs: [...completionLogs, { day, timestamp: new Date().toISOString() }],
+          updatedAt: new Date().toISOString()
+        });
+        toast.success('Roadmap milestone marked as completed');
+        // If the modal is open for this task, update it
+        if (selectedTaskDetails && selectedTaskDetails.day === day) {
+          setSelectedTaskDetails(prev => ({ ...prev, isCompleted: true }));
+        }
+      }
+    } catch (err) {
+      toast.error('Failed to update schedule');
+    }
+  };
+
+  const handleWatchVideo = async (task: any) => {
+    if (!farmerSchedule || !task.videoUrl) return;
+    
+    // Open the video link
+    window.open(task.videoUrl, '_blank', 'referrerpolicy=no-referrer');
+    
+    try {
+      const watchedVideos = farmerSchedule.watchedVideos || [];
+      const videoWatchLogs = farmerSchedule.videoWatchLogs || [];
+      
+      if (!watchedVideos.includes(task.day)) {
+        await updateDoc(doc(db, 'schedules', farmerSchedule.id), {
+          watchedVideos: [...watchedVideos, task.day],
+          videoWatchLogs: [...videoWatchLogs, { day: task.day, timestamp: new Date().toISOString() }],
+          updatedAt: new Date().toISOString()
+        });
+      }
+    } catch (err) {
+      console.error('Failed to track video watch:', err);
+    }
+  };
 
   const handleDeleteEggLog = async (id: string) => {
     if (!window.confirm('Are you sure you want to delete this log?')) return;
@@ -502,6 +574,23 @@ const Dashboard: React.FC = () => {
       setEggSales(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => handleFirestoreError(error, OperationType.GET, 'eggSales'));
 
+    // 8. Listen to Farmer Schedule
+    const qSchedule = query(collection(db, 'schedules'), where('userId', '==', user.uid));
+    const unsubSchedule = onSnapshot(qSchedule, async (snap) => {
+      if (!snap.empty) {
+        const scheduleData = { id: snap.docs[0].id, ...snap.docs[0].data() } as any;
+        // Fetch Template to get actual tasks
+        const templateId = scheduleData.templateId;
+        onSnapshot(doc(db, 'scheduleTemplates', templateId), (tSnap) => {
+           if (tSnap.exists()) {
+             setFarmerSchedule({ ...scheduleData, template: tSnap.data() });
+           }
+        });
+      } else {
+        setFarmerSchedule(null);
+      }
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'schedules'));
+
     return () => {
       unsubscribeFlocks();
       unsubscribeRecent();
@@ -513,6 +602,7 @@ const Dashboard: React.FC = () => {
       unsubEggSales();
       unsubAlerts();
       unsubTasks();
+      unsubSchedule();
     };
   }, [user]);
 
@@ -803,10 +893,100 @@ const Dashboard: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Upcoming Schedule / Tasks Modal */}
+      {/* Task Details Modal */}
+      <Dialog open={!!selectedTaskDetails} onOpenChange={(open) => !open && setSelectedTaskDetails(null)}>
+        <DialogContent className="max-w-md rounded-[2.5rem] p-8 border-none overflow-y-auto max-h-[90vh]">
+          {selectedTaskDetails && (
+            <div className="space-y-8">
+              <div className="flex items-center gap-6">
+                <div className={`w-20 h-20 rounded-3xl flex items-center justify-center shrink-0 ${
+                  selectedTaskDetails.isCompleted ? 'bg-emerald-100 text-emerald-600' :
+                  selectedTaskDetails.category === 'Vaccination' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'
+                }`}>
+                  {selectedTaskDetails.isCompleted ? <ClipboardCheck size={40} /> :
+                   selectedTaskDetails.category === 'Vaccination' ? <ShieldCheck size={40} /> : <Pill size={40} />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant="outline" className="text-[10px] uppercase font-black tracking-widest border-slate-200">
+                      {selectedTaskDetails.category}
+                    </Badge>
+                    {selectedTaskDetails.isCompleted && <Badge className="bg-emerald-500 text-white border-none text-[10px]">COMPLETED</Badge>}
+                  </div>
+                  <DialogTitle className="text-3xl font-black italic text-slate-900 leading-tight">{selectedTaskDetails.title}</DialogTitle>
+                  <DialogDescription className="font-bold text-slate-400 italic flex items-center gap-2 mt-1">
+                    <Calendar size={14} />
+                    {selectedTaskDetails.scheduledDate ? `${getRemainingDaysLabel(selectedTaskDetails.scheduledDate)} (${format(new Date(selectedTaskDetails.scheduledDate), 'MMM dd, yyyy')})` : `Day ${selectedTaskDetails.day}`}
+                  </DialogDescription>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Methods & Instructions</h4>
+                  <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100 max-h-[300px] overflow-y-auto scrollbar-hide">
+                    <p className="text-slate-700 font-bold leading-relaxed whitespace-pre-wrap">{selectedTaskDetails.description}</p>
+                  </div>
+                </div>
+
+                {selectedTaskDetails.videoUrl && (
+                  <div className="space-y-2">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Video Tutorial</h4>
+                    <Button 
+                      className="w-full bg-[#122B21] text-white hover:bg-black font-black h-16 rounded-2xl flex items-center justify-center gap-3 transition-all"
+                      onClick={() => handleWatchVideo(selectedTaskDetails)}
+                    >
+                      <Download size={20} className="rotate-[270deg]" />
+                      WATCH VIDEO GUIDE
+                    </Button>
+                    <p className="text-[9px] text-center text-slate-400 font-bold italic mt-2">
+                      Clicking will redirect you to the video guide provided by Admin.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-4">
+                <Button 
+                  variant="ghost" 
+                  onClick={() => setSelectedTaskDetails(null)}
+                  className="h-14 rounded-2xl font-bold text-slate-400"
+                >
+                  Close
+                </Button>
+                {!selectedTaskDetails.isCompleted && (
+                  <Button 
+                    disabled={isFutureTask(selectedTaskDetails.scheduledDate)}
+                    className={`h-14 rounded-2xl font-black shadow-xl uppercase tracking-widest text-[10px] ${
+                      isFutureTask(selectedTaskDetails.scheduledDate) ? 'bg-slate-200 text-slate-400' :
+                      selectedTaskDetails.isRoadmap ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    }`}
+                    onClick={async () => {
+                      if (selectedTaskDetails.isRoadmap) {
+                        await handleMarkRoadmapDone(selectedTaskDetails.day);
+                      } else {
+                        try {
+                          await updateDoc(doc(db, 'tasks', selectedTaskDetails.id), { status: 'Completed', updatedAt: new Date().toISOString() });
+                          toast.success('Task marked as completed');
+                        } catch (err) {
+                          toast.error('Failed to update task');
+                        }
+                      }
+                      setSelectedTaskDetails(null);
+                    }}
+                  >
+                    {isFutureTask(selectedTaskDetails.scheduledDate) ? 'LOCKED (FUTURE)' : 'Mark as Done'}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showTasksModal} onOpenChange={setShowTasksModal}>
-        <DialogContent className="max-w-2xl rounded-[2rem] max-h-[80vh] overflow-y-auto p-0 border-none overflow-hidden">
-          <div className="bg-sky-600 p-8 text-white relative">
+        <DialogContent className="max-w-2xl rounded-[2rem] max-h-[90vh] p-0 border-none flex flex-col overflow-hidden">
+          <div className="bg-sky-600 p-8 text-white relative shrink-0">
             <h2 className="text-2xl font-black mb-1 flex items-center gap-2">
               <Calendar />
               Upcoming Schedule
@@ -816,66 +996,126 @@ const Dashboard: React.FC = () => {
               <ClipboardCheck size={40} className="text-sky-200 opacity-50" />
             </div>
           </div>
-          <div className="p-8 space-y-6 bg-slate-50">
-            {tasks.length === 0 ? (
-              <div className="text-center py-20 text-slate-400">
-                <CheckSquare size={50} className="mx-auto mb-4 opacity-20" />
-                <p className="font-bold">No tasks scheduled</p>
-                <p className="text-xs">Your schedule is currently clear</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {tasks.map(task => (
-                  <Card key={task.id} className="border-none shadow-sm rounded-2xl overflow-hidden group hover:shadow-md transition-all">
-                    <CardContent className="p-6">
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="flex gap-4">
-                          <div className={`p-3 rounded-2xl ${
-                            task.status === 'Completed' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
-                          }`}>
-                            {task.category === 'Vaccination' ? <ShieldCheck size={20} /> : <ClipboardList size={20} />}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                                <h4 className={`font-black text-slate-900 ${task.status === 'Completed' ? 'line-through opacity-50' : ''}`}>
-                                  {task.title}
-                                </h4>
-                                <Badge className={`text-[8px] uppercase font-bold border-none ${
-                                    task.category === 'Vaccination' ? 'bg-rose-100 text-rose-600' : 'bg-blue-100 text-blue-600'
-                                }`}>
-                                    {task.category}
-                                </Badge>
+          <div className="p-8 space-y-6 bg-slate-50 overflow-y-auto flex-1">
+            {(() => {
+                  const roadmapTasks = (farmerSchedule?.template?.days || [])
+                    .filter((t: any) => {
+                      const taskDate = new Date(farmerSchedule.startDate);
+                      taskDate.setDate(taskDate.getDate() + (t.day - 1));
+                      
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      
+                      const diffTime = taskDate.getTime() - today.getTime();
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                      
+                      // Filter based on visibility window (default 7 if not set)
+                      const window = farmerSchedule.visibilityDaysBefore ?? 7;
+                      return diffDays <= window;
+                    })
+                    .map((t: any) => {
+                      const taskDate = new Date(farmerSchedule.startDate);
+                      taskDate.setDate(taskDate.getDate() + (t.day - 1));
+                      const isCompleted = farmerSchedule.completedDays?.includes(t.day);
+                      return {
+                        id: `roadmap-${t.day}-${t.title}`,
+                        day: t.day,
+                        title: t.title,
+                        description: t.description,
+                        category: t.category,
+                        videoUrl: t.videoUrl,
+                        scheduledDate: format(taskDate, 'yyyy-MM-dd'),
+                        creatorType: 'System Roadmap',
+                        isRoadmap: true,
+                        isCompleted
+                      };
+                    });
+
+              const allTasks = [
+                ...tasks.map(t => ({ ...t, isCompleted: t.status === 'Completed' })), 
+                ...roadmapTasks
+              ].sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || ''));
+
+              if (allTasks.length === 0) {
+                return (
+                  <div className="text-center py-20 text-slate-400">
+                    <CheckSquare size={50} className="mx-auto mb-4 opacity-20" />
+                    <p className="font-bold">No tasks scheduled</p>
+                    <p className="text-xs">Your schedule is currently clear</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-4">
+                  {allTasks.map(task => (
+                    <Card 
+                      key={task.id} 
+                      className={`border-none shadow-sm rounded-2xl overflow-hidden group hover:shadow-md transition-all cursor-pointer ${task.isRoadmap ? 'border-l-4 border-l-emerald-500' : ''} ${task.isCompleted ? 'opacity-60 bg-slate-100' : 'bg-white'}`}
+                      onClick={() => setSelectedTaskDetails(task)}
+                    >
+                      <CardContent className="p-6">
+                        <div className="flex justify-between items-start gap-4">
+                          <div className="flex gap-4">
+                            <div className={`p-3 rounded-2xl ${
+                              task.isCompleted ? 'bg-emerald-50 text-emerald-600' : 
+                              task.isRoadmap ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
+                            }`}>
+                              {task.category === 'Vaccination' ? <ShieldCheck size={20} /> : <ClipboardList size={20} />}
                             </div>
-                            <p className="text-xs text-slate-500 font-medium mt-1">{task.description}</p>
-                            <div className="flex items-center gap-3 mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                                <span className="flex items-center gap-1"><Calendar size={12}/> {task.scheduledDate}</span>
-                                {task.creatorType && <span className="flex items-center gap-1">• From {task.creatorType}</span>}
+                            <div>
+                              <div className="flex items-center gap-2">
+                                  <h4 className={`font-black text-slate-900 ${task.isCompleted ? 'line-through opacity-50' : ''}`}>
+                                    {task.title}
+                                  </h4>
+                                  <div className="flex gap-1">
+                                    <Badge className={`text-[8px] uppercase font-bold border-none ${
+                                        task.category === 'Vaccination' ? 'bg-rose-100 text-rose-600' : 
+                                        task.isRoadmap ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'
+                                    }`}>
+                                        {task.category}
+                                    </Badge>
+                                  </div>
+                              </div>
+                              <div className="flex items-center gap-3 mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                  <span className="flex items-center gap-1 text-emerald-600 font-black">
+                                    <Calendar size={12}/> {getRemainingDaysLabel(task.scheduledDate)}
+                                  </span>
+                                  {task.creatorType && <span className="flex items-center gap-1">• {task.creatorType}</span>}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        {task.status !== 'Completed' && (
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="rounded-xl border-emerald-100 text-emerald-600 hover:bg-emerald-50 font-bold text-[10px]"
-                            onClick={async () => {
-                                try {
-                                    await updateDoc(doc(db, 'tasks', task.id), { status: 'Completed', updatedAt: new Date().toISOString() });
-                                    toast.success('Task marked as completed');
-                                } catch (err) {
-                                    toast.error('Failed to update task');
+                          {!task.isCompleted && (
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              disabled={isFutureTask(task.scheduledDate)}
+                              className={`rounded-xl border-emerald-100 text-emerald-600 hover:bg-emerald-50 font-bold text-[10px] shrink-0 ${isFutureTask(task.scheduledDate) ? 'opacity-50 grayscale' : ''}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isFutureTask(task.scheduledDate)) {
+                                  toast.error('You cannot mark future tasks as done yet!');
+                                  return;
                                 }
-                            }}
-                          >
-                            COMPLETE
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
+                                if (task.isRoadmap) {
+                                  handleMarkRoadmapDone(task.day);
+                                } else {
+                                  updateDoc(doc(db, 'tasks', task.id), { status: 'Completed', updatedAt: new Date().toISOString() });
+                                  toast.success('Task marked as completed');
+                                }
+                              }}
+                            >
+                              {isFutureTask(task.scheduledDate) ? 'LOCKED' : 'DONE'}
+                            </Button>
+                          )}
+                          {task.isCompleted && <CheckSquare className="text-emerald-500" size={20} />}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         </DialogContent>
       </Dialog>
@@ -1247,6 +1487,109 @@ const Dashboard: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
+          {/* Schedule / Upcoming Tasks - Farmer Visibility Restriction */}
+          <AnimatePresence>
+            {farmerSchedule && farmerSchedule.template && (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-4"
+              >
+                <div className="flex justify-between items-center px-1">
+                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                      <Calendar size={14} className="text-emerald-500" />
+                      Upcoming Batch Schedule
+                   </h4>
+                   <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 h-6 px-2 rounded-lg"
+                    onClick={() => setShowScheduleModal(true)}
+                   >
+                      View Full Plan
+                   </Button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[500px] overflow-y-auto pb-4 pr-1 scrollbar-hide">
+                  {(() => {
+                    const template = farmerSchedule.template;
+                    const visibleDays = profile?.scheduleDisplayDays || 2;
+                    const completedDays = farmerSchedule.completedDays || [];
+                    
+                    const filteredTasks = template.days
+                      ? template.days
+                          .sort((a: any, b: any) => a.day - b.day)
+                          .filter((task: any) => {
+                            const taskDate = new Date(farmerSchedule.startDate);
+                            taskDate.setDate(taskDate.getDate() + (task.day - 1));
+                            const today = new Date();
+                            today.setHours(0,0,0,0);
+                            const diffDays = Math.ceil((taskDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                            const isCompleted = completedDays.includes(task.day);
+                            return diffDays >= 0 && diffDays < visibleDays && !isCompleted;
+                          })
+                      : [];
+                    
+                    if (filteredTasks.length === 0) return <p className="col-span-full py-4 text-center text-slate-400 italic text-xs">No pending scheduled tasks for the next {visibleDays} days.</p>;
+
+                    return filteredTasks.map((task: any, idx: number) => {
+                        const taskDate = new Date(farmerSchedule.startDate);
+                        taskDate.setDate(taskDate.getDate() + (task.day - 1));
+                        const isToday = format(new Date(), 'yyyy-MM-dd') === format(taskDate, 'yyyy-MM-dd');
+
+                        return (
+                          <div 
+                            key={idx} 
+                            className={`p-4 rounded-[1.5rem] border flex items-center gap-4 transition-all hover:shadow-md cursor-pointer ${isToday ? 'bg-emerald-50 border-emerald-100 shadow-sm shadow-emerald-900/5' : 'bg-white border-slate-50'}`}
+                            onClick={() => setSelectedTaskDetails({
+                              ...task,
+                              videoUrl: task.videoUrl,
+                              scheduledDate: format(taskDate, 'yyyy-MM-dd'),
+                              isRoadmap: true,
+                              isCompleted: false
+                            })}
+                          >
+                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                              task.category === 'Vaccination' ? 'bg-amber-100 text-amber-600' :
+                              task.category === 'Medicine Plan' ? 'bg-indigo-100 text-indigo-600' :
+                              'bg-slate-100 text-slate-500'
+                            }`}>
+                              {task.category === 'Vaccination' ? <ShieldCheck size={20} /> : <Pill size={20} />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">
+                                  {getRemainingDaysLabel(format(taskDate, 'yyyy-MM-dd'))}
+                                </p>
+                                {isToday && <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>}
+                                {task.videoUrl && (
+                                  <Badge className="bg-amber-100 text-amber-600 border-none text-[8px] font-black px-1.5 h-4 ml-auto">
+                                    VIDEO
+                                  </Badge>
+                                )}
+                              </div>
+                              <h5 className="font-bold text-slate-900 text-sm truncate">{task.title}</h5>
+                              <p className="text-[10px] text-slate-500 font-medium truncate">{task.description}</p>
+                            </div>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-[10px] font-black text-emerald-600 h-8 rounded-xl shrink-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMarkRoadmapDone(task.day);
+                              }}
+                            >
+                              DONE
+                            </Button>
+                          </div>
+                        );
+                      });
+                  })()}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Batch Performance Section */}
           <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -1791,6 +2134,49 @@ const Dashboard: React.FC = () => {
                 />
               </div>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* Full Schedule Modal */}
+      <Dialog open={showScheduleModal} onOpenChange={setShowScheduleModal}>
+        <DialogContent className="max-w-2xl rounded-[2.5rem] p-8 border-none overflow-y-auto max-h-[85vh]">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black italic">Your Batch Plan</DialogTitle>
+            <DialogDescription className="font-bold text-slate-400">Complete roadmap for your current active batch.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-6">
+            {farmerSchedule?.template?.days ? (
+              farmerSchedule.template.days.sort((a: any, b: any) => a.day - b.day).map((task: any, idx: number) => {
+               const taskDate = new Date(farmerSchedule.startDate);
+               taskDate.setDate(taskDate.getDate() + (task.day - 1));
+               const isToday = format(new Date(), 'yyyy-MM-dd') === format(taskDate, 'yyyy-MM-dd');
+               const isPast = taskDate < new Date(new Date().setHours(0,0,0,0));
+
+               return (
+                <div key={idx} className={`p-5 rounded-2xl border flex items-center gap-4 ${isToday ? 'bg-emerald-50 border-emerald-200' : isPast ? 'bg-slate-50 border-slate-100 opacity-60' : 'bg-white border-slate-100'}`}>
+                   <div className="flex flex-col items-center shrink-0 w-12">
+                      <p className="text-[10px] font-black text-slate-400 uppercase">Day</p>
+                      <p className="text-xl font-black text-slate-900">{task.day}</p>
+                   </div>
+                   <div className="h-10 w-px bg-slate-100 mx-2"></div>
+                   <div className="flex-1">
+                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">{format(taskDate, 'MMM dd, yyyy')}</p>
+                      <h5 className="font-bold text-slate-900">{task.title}</h5>
+                      <p className="text-xs text-slate-500">{task.description}</p>
+                   </div>
+                   <Badge className={`${
+                      task.category === 'Vaccination' ? 'bg-amber-100 text-amber-700' : 
+                      task.category === 'Medicine Plan' ? 'bg-indigo-100 text-indigo-700' : 
+                      'bg-slate-100 text-slate-600'
+                    } border-none font-bold text-[10px]`}>
+                      {task.category}
+                    </Badge>
+                </div>
+               );
+              })
+            ) : (
+              <p className="text-center text-slate-400 italic py-8">No plan defined for this schedule.</p>
+            )}
           </div>
         </DialogContent>
       </Dialog>

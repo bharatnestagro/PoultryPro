@@ -39,6 +39,7 @@ const AdminAutoAlerts: React.FC = () => {
   });
 
   const [settings, setSettings] = useState({
+    enabled: true,
     geminiApiKey: '',
     aiPrompt: 'As a Poultry Health AI, analyze this daily log data and provide a smart diagnosis alert if needed.\nFarm Type: {{farmType}}\nChicks Data: {{data}}\nWeather Data: {{weather}}\n\nIf you detect an issue (like heat stroke, diarrhea, nutritional deficiency) based on mortality, feed/water ratio, and symptoms, return a JSON object:\n{\n  "title": "Short title",\n  "description": "Short explanation",\n  "priority": "Low/Medium/High",\n  "condition": "The detected problem",\n  "treatment": "Recommended action"\n}\nIf no major issue, return {"priority": "None"}. Only return valid JSON.',
     thresholds: {
@@ -95,6 +96,7 @@ const AdminAutoAlerts: React.FC = () => {
       if (snap.exists()) {
         const data = snap.data();
         setSettings({
+          enabled: data.enabled ?? true,
           geminiApiKey: data.geminiApiKey || '',
           aiPrompt: data.aiPrompt || settings.aiPrompt,
           thresholds: data.thresholds || settings.thresholds
@@ -176,6 +178,7 @@ const AdminAutoAlerts: React.FC = () => {
     setIsSubmitting(true);
     try {
       await setDoc(doc(db, 'system', 'autoAlertSettings'), {
+        enabled: settings.enabled,
         geminiApiKey: settings.geminiApiKey,
         aiPrompt: settings.aiPrompt,
         thresholds: settings.thresholds,
@@ -269,6 +272,21 @@ const AdminAutoAlerts: React.FC = () => {
     }
   };
 
+  const toggleAutoAlerts = async () => {
+    const newVal = !settings.enabled;
+    setSettings(prev => ({ ...prev, enabled: newVal }));
+    try {
+      await updateDoc(doc(db, 'system', 'autoAlertSettings'), {
+        enabled: newVal,
+        updatedAt: serverTimestamp()
+      });
+      toast.success(`Auto alerts turned ${newVal ? 'ON' : 'OFF'}`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'system/autoAlertSettings');
+      setSettings(prev => ({ ...prev, enabled: !newVal })); // Rollback
+    }
+  };
+
   return (
     <div className="space-y-8 pb-20 px-4 max-w-7xl mx-auto">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -280,6 +298,19 @@ const AdminAutoAlerts: React.FC = () => {
           <p className="text-slate-500 font-medium mt-1">Rule-based automated diagnostics and notifications</p>
         </div>
         <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-2 shadow-sm mr-2">
+              <span className={`text-[10px] font-black uppercase tracking-widest ${settings.enabled ? 'text-emerald-600' : 'text-slate-400'}`}>
+                {settings.enabled ? 'Auto Alerts ON' : 'Auto Alerts OFF'}
+              </span>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={toggleAutoAlerts}
+                className={`h-8 w-14 rounded-full p-1 transition-colors ${settings.enabled ? 'bg-emerald-100' : 'bg-slate-100'}`}
+              >
+                <div className={`w-6 h-6 rounded-full transition-transform shadow-sm ${settings.enabled ? 'translate-x-6 bg-emerald-500' : 'translate-x-0 bg-slate-400'}`} />
+              </Button>
+            </div>
             <Button 
               variant="outline"
               onClick={() => setIsSettingsOpen(true)}

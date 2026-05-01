@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, setDoc, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, setDoc, addDoc, where } from 'firebase/firestore';
 import { db } from '@/src/lib/firebase';
 import { handleFirestoreError, OperationType } from '@/src/lib/errorHandlers';
 import { initializeApp, getApps, getApp, deleteApp } from 'firebase/app';
@@ -45,7 +45,13 @@ import {
   Mail,
   Lock,
   MapPin,
-  ClipboardList
+  ClipboardList,
+  Plus,
+  Calendar,
+  TrendingUp,
+  ArrowUpRight,
+  ArrowDownRight,
+  Bird
 } from 'lucide-react';
 import { 
   DropdownMenu, 
@@ -98,6 +104,9 @@ const AdminFarmers: React.FC = () => {
   });
   const [editingDetails, setEditingDetails] = useState<any>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'schedule'>('overview');
+  const [scheduleTemplates, setScheduleTemplates] = useState<any[]>([]);
+  const [farmerSchedule, setFarmerSchedule] = useState<any | null>(null);
   const [isSchedulingTask, setIsSchedulingTask] = useState(false);
   const [taskData, setTaskData] = useState({
     title: '',
@@ -105,6 +114,15 @@ const AdminFarmers: React.FC = () => {
     category: 'Vaccination',
     scheduledDate: format(new Date(), 'yyyy-MM-dd')
   });
+
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+  const [showApplyTemplateDialog, setShowApplyTemplateDialog] = useState(false);
+  const [newTemplate, setNewTemplate] = useState<{name: string, description: string, days: any[]}>({
+    name: '',
+    description: '',
+    days: []
+  });
+
 
   const handleScheduleTask = async () => {
     if (!selectedFarmerId || !taskData.title) {
@@ -239,13 +257,38 @@ const AdminFarmers: React.FC = () => {
       setSelectedFarmerTransactions(list);
     }, (error) => handleFirestoreError(error, OperationType.GET, 'transactions'));
 
+    // Fetch Schedule Templates
+    const qTemplates = query(collection(db, 'scheduleTemplates'));
+    const unsubTemplates = onSnapshot(qTemplates, (snap) => {
+      setScheduleTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
     return () => {
       unsubFlocks();
       unsubLogs();
       unsubFeed();
       unsubMed();
       unsubTxs();
+      unsubTemplates();
     };
+  }, [selectedFarmerId]);
+
+  useEffect(() => {
+    if (!selectedFarmerId) {
+      setFarmerSchedule(null);
+      return;
+    }
+
+    const qSchedule = query(collection(db, 'schedules'), where('userId', '==', selectedFarmerId));
+    const unsubSchedule = onSnapshot(qSchedule, (snap) => {
+      if (!snap.empty) {
+        setFarmerSchedule({ id: snap.docs[0].id, ...snap.docs[0].data() });
+      } else {
+        setFarmerSchedule(null);
+      }
+    });
+
+    return () => unsubSchedule();
   }, [selectedFarmerId]);
 
   const handleToggleStatus = async (farmer: any) => {
@@ -391,6 +434,16 @@ const AdminFarmers: React.FC = () => {
     }
 
     return Math.round((loggedDays / daysToTrack) * 100);
+  };
+
+  // Derived stats for selected farmer
+  const selectedFarmerStats = {
+    totalFlocks: selectedFarmerFlocks.length,
+    totalBirds: selectedFarmerFlocks.reduce((sum, f) => sum + (Number(f.currentCount) || 0), 0),
+    balance: selectedFarmerTransactions.reduce((sum, t) => sum + (t.type === 'payment' ? -t.amount : t.amount), 0),
+    compliance: getLogPercentage(),
+    feedStock: selectedFarmerStock.feed.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0),
+    feedValue: selectedFarmerStock.feed.reduce((sum, s) => sum + (Number(s.purchaseCost) || 0), 0)
   };
 
   const handleDownloadLogs = () => {
@@ -604,10 +657,10 @@ const AdminFarmers: React.FC = () => {
                   <TableCell className="px-8 py-6">
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs">
-                        {farmer.name.split(' ').map((n: any) => n[0]).join('')}
+                        {farmer.name ? farmer.name.split(' ').map((n: any) => n[0]).join('') : '??'}
                       </div>
                       <div>
-                        <p className="font-bold text-slate-900">{farmer.name}</p>
+                        <p className="font-bold text-slate-900">{farmer.name || 'Anonymous'}</p>
                         <p className="text-xs text-slate-400 font-medium">{farmer.farmName || 'No Farm Name'}</p>
                       </div>
                     </div>
@@ -725,7 +778,7 @@ const AdminFarmers: React.FC = () => {
       {/* Farmer Details Section */}
       {selectedFarmer && (
         <div className="animate-in fade-in slide-in-from-top-4 duration-500 space-y-8">
-          <div className="flex justify-between items-center bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 gap-4">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-2xl bg-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-200">
                 <Users size={24} />
@@ -735,496 +788,507 @@ const AdminFarmers: React.FC = () => {
                 <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Comprehensive Performance & Inventory Analysis</p>
               </div>
             </div>
+            
+            <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-2xl">
+              <Button 
+                variant={activeTab === 'overview' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setActiveTab('overview')}
+                className={`rounded-xl px-6 font-bold text-xs uppercase tracking-widest h-10 ${activeTab === 'overview' ? 'bg-[#122B21] text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Overview
+              </Button>
+              <Button 
+                variant={activeTab === 'schedule' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setActiveTab('schedule')}
+                className={`rounded-xl px-6 font-bold text-xs uppercase tracking-widest h-10 ${activeTab === 'schedule' ? 'bg-[#122B21] text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Schedule
+              </Button>
+            </div>
+
             <Button variant="ghost" size="sm" onClick={() => setSelectedFarmerId(null)} className="text-slate-400 hover:text-slate-900 rounded-xl">
               Close Details
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-            {/* Redesigned Profile Header */}
-            <div className="lg:col-span-4 lg:grid lg:grid-cols-3 gap-8">
-              <Card className="lg:col-span-1 border-none shadow-sm bg-white rounded-[2rem] p-8">
-                <div className="flex flex-col items-center text-center">
-                  <div className="w-24 h-24 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-3xl mb-4 border-4 border-white shadow-sm">
-                    {selectedFarmer.name.split(' ').map((n: any) => n[0]).join('')}
+          {activeTab === 'overview' ? (
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+              {/* Profile Card */}
+              <Card className="lg:col-span-1 border-none shadow-sm bg-white rounded-[2rem] p-8 space-y-6">
+                <div className="flex flex-col items-center text-center space-y-4">
+                  <div className="w-24 h-24 rounded-[2.5rem] bg-slate-50 flex items-center justify-center text-slate-300 border border-slate-100 italic font-black text-2xl uppercase">
+                    {selectedFarmer.name?.substring(0, 2)}
                   </div>
-                  <h3 className="text-xl font-bold text-slate-900">{selectedFarmer.name}</h3>
-                  <p className="text-sm text-slate-500 font-medium">{selectedFarmer.farmName}</p>
-                  <Badge className="mt-4 bg-emerald-100 text-emerald-600 border-none px-4 py-1 rounded-full text-xs font-bold">
-                    {selectedFarmer.status || 'Active'}
-                  </Badge>
-                  <div className="w-full space-y-2 mt-6">
-                    <Button 
-                      variant="outline" 
-                      className="rounded-xl gap-2 w-full border-slate-100 hover:bg-slate-50 transition-all font-bold text-slate-700"
-                      onClick={() => {
-                        setEditingDetails(selectedFarmer);
-                        setIsEditingDetails(true);
-                      }}
-                    >
-                      <Edit2 size={16} className="text-emerald-600" />
-                      Manage Details
-                    </Button>
-                    <Button 
-                      variant="default" 
-                      className="rounded-xl gap-2 w-full bg-[#122B21] hover:bg-[#1a3d2e] shadow-lg transition-all font-bold text-white"
-                      onClick={() => setIsSchedulingTask(true)}
-                    >
-                      <ClipboardList size={16} className="text-emerald-400" />
-                      Farmer Task
-                    </Button>
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-900">{selectedFarmer.name}</h3>
+                    <p className="text-sm font-medium text-slate-500">{selectedFarmer.email}</p>
                   </div>
+                  <div className="flex flex-wrap gap-2 justify-center">
+                    <Badge className="bg-emerald-50 text-emerald-600 border-none font-bold uppercase text-[10px] px-3 py-1">
+                      {selectedFarmer.status || 'Active'}
+                    </Badge>
+                    <Badge className="bg-slate-50 text-slate-500 border-none font-bold uppercase text-[10px] px-3 py-1">
+                      {selectedFarmer.farmType || 'Standard'}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-6 border-t border-slate-50">
+                   <div className="flex items-center gap-3 text-slate-600">
+                      <Phone size={16} className="text-slate-400" />
+                      <span className="text-xs font-bold">{selectedFarmer.phone || 'No phone added'}</span>
+                   </div>
+                   <div className="flex items-center gap-3 text-slate-600">
+                      <MapPin size={16} className="text-slate-400" />
+                      <span className="text-xs font-bold">{selectedFarmer.farmArea || '0'} Acres Farm</span>
+                   </div>
+                   <div className="flex items-center gap-3 text-slate-600">
+                      <Bird size={16} className="text-slate-400" />
+                      <span className="text-xs font-bold">{selectedFarmer.birdCapacity || '0'} Total Capacity</span>
+                   </div>
                 </div>
               </Card>
 
-              <Card className="lg:col-span-2 border-none shadow-sm bg-white rounded-[2rem] p-8">
-                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-50 pb-4">Contact Details</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
-                  <div className="space-y-6">
-                    <div className="flex items-center gap-4 text-sm text-slate-600 group">
-                      <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-emerald-50 group-hover:text-emerald-500 transition-colors">
-                        <Phone size={18} />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Phone Number</p>
-                        <p className="font-bold text-slate-900">{selectedFarmer.phone || 'Not provided'}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-slate-600 group">
-                      <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-500 transition-colors">
-                        <Mail size={18} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Email Address</p>
-                        <p className="font-bold text-slate-900 truncate">{selectedFarmer.email}</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-6">
-                    <div className="flex items-start gap-4 text-sm text-slate-600 group">
-                      <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-amber-50 group-hover:text-amber-500 transition-colors mt-1">
-                        <MapPin size={18} />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Farm Address</p>
-                        <p className="font-bold text-slate-900 leading-relaxed uppercase">{selectedFarmer.address || 'No address provided'}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            </div>
-
-            {/* Farm Specs & Performance Row */}
-            <div className="lg:col-span-4 space-y-8">
-              <div>
-                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Farm Specs</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                  <div className="p-6 bg-white shadow-sm border border-slate-50 rounded-2xl">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Type</p>
-                    <p className="text-lg font-bold text-slate-900">{selectedFarmer.farmType || 'N/A'}</p>
-                  </div>
-                  <div className="p-6 bg-white shadow-sm border border-slate-50 rounded-2xl">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Capacity</p>
-                    <p className="text-lg font-bold text-slate-900">{selectedFarmer.birdCapacity || 0}</p>
-                  </div>
-                  <div className="p-6 bg-white shadow-sm border border-slate-50 rounded-2xl">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Chicks Placed</p>
-                    <p className="text-lg font-bold text-slate-900">{chicksPlaced.toLocaleString()}</p>
-                  </div>
-                  <div className="p-6 bg-white shadow-sm border border-slate-50 rounded-2xl">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Days Count</p>
-                    <p className="text-lg font-bold text-indigo-600">{getDaysCount()} <span className="text-xs">Days</span></p>
-                  </div>
-                  <div className="p-6 bg-[#122B21] shadow-lg shadow-emerald-900/10 rounded-2xl">
-                    <p className="text-[10px] font-bold text-emerald-400 uppercase">Lifting Remaining</p>
-                    <p className="text-lg font-bold text-white">{(selectedFarmer.liftingDays || 0)} <span className="text-xs opacity-70">Days</span></p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Inventory Summary */}
-              <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8">
-                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Inventory Overview</h4>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center p-4 bg-emerald-50 rounded-2xl">
-                    <div>
-                      <p className="text-[10px] font-bold text-emerald-600 uppercase">Feed Stock</p>
-                      <p className="text-lg font-bold text-emerald-900">
-                        {selectedFarmerStock.feed.reduce((sum, s) => sum + (s.quantity || 0), 0).toLocaleString()} <span className="text-xs">kg</span>
-                      </p>
-                    </div>
-                    <Package className="text-emerald-500" size={20} />
-                  </div>
-                  <div className="flex justify-between items-center p-4 bg-indigo-50 rounded-2xl">
-                    <div>
-                      <p className="text-[10px] font-bold text-indigo-600 uppercase">Medicine</p>
-                      <p className="text-lg font-bold text-indigo-900">
-                        {selectedFarmerStock.medicine.length} <span className="text-xs">Items</span>
-                      </p>
-                    </div>
-                    <Activity className="text-indigo-500" size={20} />
-                  </div>
-                  <div className="flex justify-between items-center p-4 bg-amber-50 rounded-2xl">
-                    <div>
-                      <p className="text-[10px] font-bold text-amber-600 uppercase">Total Feed Used Until Now</p>
-                      <p className="text-lg font-bold text-amber-900">
-                        {totalFeedUsed.toLocaleString()} <span className="text-xs">kg</span>
-                      </p>
-                    </div>
-                    <Package className="text-amber-500" size={20} />
-                  </div>
-                  <div className="flex justify-between items-center p-4 bg-rose-50 rounded-2xl">
-                    <div>
-                      <p className="text-[10px] font-bold text-rose-600 uppercase">Total Medicine Used Until Now</p>
-                      <p className="text-lg font-bold text-rose-900">
-                        {totalMedicineUsed.toLocaleString()} <span className="text-xs">Doses</span>
-                      </p>
-                    </div>
-                    <Activity className="text-rose-500" size={20} />
-                  </div>
-                </div>
-              </Card>
-            </div>
-
-            {/* Main Content: Performance & History */}
-            <div className="lg:col-span-3 space-y-8">
               {/* Performance Stats Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                  <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Active Flocks</p>
-                    <p className="text-2xl font-bold text-slate-900">
-                      {activeFlocks.length}
-                    </p>
-                  </div>
-                  <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Birds Placed</p>
-                    <p className="text-2xl font-bold text-slate-900">
-                      {selectedFarmerFlocks.reduce((sum, f) => sum + (Number(f.initialCount) || 0), 0).toLocaleString()}
-                    </p>
-                    <p className="text-[10px] font-bold text-emerald-600 mt-1">{birdsAlive.toLocaleString()} ALIVE</p>
-                  </div>
-                  <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Farmer Log %</p>
-                    <p className="text-2xl font-bold text-indigo-600">
-                      {getLogPercentage()}%
-                    </p>
-                    <p className="text-[10px] font-bold text-slate-400 mt-1">LAST 7 DAYS</p>
-                  </div>
-                  <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-50">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Avg Mortality</p>
-                    <p className="text-2xl font-bold text-red-600">
-                      {selectedFarmerFlocks.length > 0 
-                        ? (selectedFarmerFlocks.reduce((sum, f) => sum + (Number(f.totalMortality) || 0), 0) / (selectedFarmerFlocks.reduce((sum, f) => sum + (Number(f.initialCount) || 1), 0)) * 100).toFixed(1)
-                        : 0}%
-                    </p>
-                  </div>
-                </div>
-
-              {/* Flocks & Logs Tabs (Simplified) */}
-              <div className="flex flex-col gap-8">
-                {/* Flocks List */}
-                <Card className="border-none shadow-sm bg-white rounded-[2rem] overflow-hidden">
-                  <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
-                    <h4 className="font-bold text-slate-900">Flock History</h4>
-                    <Badge className="bg-white text-slate-500 border-slate-100 shadow-sm">{selectedFarmerFlocks.length} Total</Badge>
-                  </div>
-                  <div className="max-h-[400px] overflow-y-auto">
-                    <Table>
-                      <TableHeader className="bg-white sticky top-0 z-10">
-                        <TableRow className="hover:bg-transparent border-slate-50">
-                          <TableHead className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Flock Name</TableHead>
-                          <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Breed</TableHead>
-                          <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Count</TableHead>
-                          <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">FCR</TableHead>
-                          <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {selectedFarmerFlocks.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={4} className="h-32 text-center text-slate-400 italic text-sm">No flocks recorded</TableCell>
-                          </TableRow>
-                        ) : (
-                          selectedFarmerFlocks.map((flock) => (
-                            <React.Fragment key={flock.id}>
-                              <TableRow 
-                                className="border-slate-50 hover:bg-slate-50/50 transition-colors cursor-pointer"
-                                onClick={() => setExpandedFlockId(expandedFlockId === flock.id ? null : flock.id)}
-                              >
-                                <td className="px-8 py-4">
-                                  <div className="flex items-center gap-2">
-                                    {expandedFlockId === flock.id ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
-                                    <div>
-                                      <p className="font-bold text-slate-900 text-sm">{flock.name}</p>
-                                      <p className="text-[10px] text-slate-400">{flock.createdAt ? format(new Date(flock.createdAt), 'MMM dd, yyyy') : 'N/A'}</p>
-                                    </div>
-                                  </div>
-                                </td>
-                                <td className="text-xs text-slate-600 font-medium">{flock.breed}</td>
-                                <td className="text-xs font-bold text-slate-900">{flock.initialCount}</td>
-                                <td className="text-xs font-bold text-blue-600">{flock.currentFCR || 'N/A'}</td>
-                                <td>
-                                  <Badge className={flock.status === 'Active' ? 'bg-emerald-50 text-emerald-600 border-none rounded-lg text-[10px]' : 'bg-slate-50 text-slate-400 border-none rounded-lg text-[10px]'}>
-                                    {flock.status}
-                                  </Badge>
-                                </td>
-                              </TableRow>
-                              {expandedFlockId === flock.id && (
-                                <TableRow className="bg-slate-50/30 hover:bg-slate-50/30 border-none">
-                                  <TableCell colSpan={5} className="p-6">
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 animate-in fade-in slide-in-from-top-2 duration-300 mb-6">
-                                      {/* Row 1: Breed, Placement Date, Days Done, Bird Count */}
-                                      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Breed</p>
-                                        <p className="text-sm font-bold text-slate-900">{flock.breed}</p>
-                                      </div>
-                                      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Placement Date</p>
-                                        <p className="text-sm font-bold text-slate-900">{flock.placementDate ? format(new Date(flock.placementDate), 'MMM dd, yyyy') : 'N/A'}</p>
-                                      </div>
-                                      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Days Done</p>
-                                        <p className="text-sm font-bold text-indigo-600">{getDaysCount(flock)} Days</p>
-                                      </div>
-                                      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Bird Count</p>
-                                        <p className="text-sm font-bold text-slate-900">{flock.initialCount}</p>
-                                      </div>
-
-                                      {/* Row 2: Bird Alive, Per Bird Cost, FCR, avg Weight */}
-                                      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Bird Alive</p>
-                                        <p className="text-sm font-bold text-emerald-600">{flock.currentCount}</p>
-                                      </div>
-                                      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Per Bird Cost</p>
-                                        <p className="text-sm font-bold text-amber-600">₹{calculateFlockCost(flock).toFixed(2)}</p>
-                                      </div>
-                                      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">FCR</p>
-                                        <p className="text-sm font-bold text-blue-600">{flock.currentFCR || 'N/A'}</p>
-                                      </div>
-                                      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Avg Weight</p>
-                                        <p className="text-sm font-bold text-emerald-600">{flock.currentWeight || flock.initialAvgWeight || 0}g</p>
-                                      </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-                                      <button 
-                                        onClick={() => setLogFilter(logFilter === 'feed' ? null : 'feed')}
-                                        className={`p-4 rounded-2xl shadow-sm border transition-all text-left ${logFilter === 'feed' ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-slate-100 text-slate-900 hover:border-emerald-200'}`}
-                                      >
-                                        <p className={`text-[9px] font-bold uppercase tracking-widest mb-1 ${logFilter === 'feed' ? 'text-emerald-100' : 'text-slate-400'}`}>Feed & Water Log</p>
-                                        <p className="text-xs font-bold">View Details</p>
-                                      </button>
-                                      <button 
-                                        onClick={() => setLogFilter(logFilter === 'medicine' ? null : 'medicine')}
-                                        className={`p-4 rounded-2xl shadow-sm border transition-all text-left ${logFilter === 'medicine' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-100 text-slate-900 hover:border-indigo-200'}`}
-                                      >
-                                        <p className={`text-[9px] font-bold uppercase tracking-widest mb-1 ${logFilter === 'medicine' ? 'text-indigo-100' : 'text-slate-400'}`}>Medicine Log</p>
-                                        <p className="text-xs font-bold">View Details</p>
-                                      </button>
-                                      <button 
-                                        onClick={() => setLogFilter(logFilter === 'vaccine' ? null : 'vaccine')}
-                                        className={`p-4 rounded-2xl shadow-sm border transition-all text-left ${logFilter === 'vaccine' ? 'bg-amber-600 border-amber-600 text-white' : 'bg-white border-slate-100 text-slate-900 hover:border-amber-200'}`}
-                                      >
-                                        <p className={`text-[9px] font-bold uppercase tracking-widest mb-1 ${logFilter === 'vaccine' ? 'text-amber-100' : 'text-slate-400'}`}>Vaccination Log</p>
-                                        <p className="text-xs font-bold">View Details</p>
-                                      </button>
-                                      <button 
-                                        onClick={() => setLogFilter(logFilter === 'eggs' ? null : 'eggs')}
-                                        className={`p-4 rounded-2xl shadow-sm border transition-all text-left ${logFilter === 'eggs' ? 'bg-yellow-600 border-yellow-600 text-white' : 'bg-white border-slate-100 text-slate-900 hover:border-yellow-200'}`}
-                                      >
-                                        <p className={`text-[9px] font-bold uppercase tracking-widest mb-1 ${logFilter === 'eggs' ? 'text-yellow-100' : 'text-slate-400'}`}>Eggs Log</p>
-                                        <p className="text-xs font-bold">View Details</p>
-                                      </button>
-                                      <button 
-                                        onClick={() => setLogFilter(logFilter === 'transaction' ? null : 'transaction')}
-                                        className={`p-4 rounded-2xl shadow-sm border transition-all text-left ${logFilter === 'transaction' ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-100 text-slate-900 hover:border-slate-300'}`}
-                                      >
-                                        <p className={`text-[9px] font-bold uppercase tracking-widest mb-1 ${logFilter === 'transaction' ? 'text-slate-300' : 'text-slate-400'}`}>Transaction Log</p>
-                                        <p className="text-xs font-bold">View Details</p>
-                                      </button>
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              )}
-                            </React.Fragment>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
+              <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 auto-rows-min">
+                <Card className="border-none shadow-sm bg-white rounded-[2rem] p-6 flex flex-col justify-between">
+                   <div className="flex justify-between items-start">
+                      <div className="bg-indigo-50 p-2.5 rounded-2xl text-indigo-600">
+                        <Package size={20} />
+                      </div>
+                      <TrendingUp size={16} className="text-emerald-500" />
+                   </div>
+                   <div className="mt-4">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Active Flocks</p>
+                      <h4 className="text-2xl font-black text-slate-900">{selectedFarmerStats.totalFlocks}</h4>
+                      <p className="text-[10px] text-emerald-600 font-bold mt-1 bg-emerald-50 px-2 py-0.5 rounded-md inline-block">Healthy Growth</p>
+                   </div>
                 </Card>
 
-                {/* Activity Logs */}
-                <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8">
-                  <div className="flex justify-between items-center mb-6">
-                    <div>
-                      <h4 className="font-bold text-slate-900">
-                        {logFilter === 'transaction' ? 'Transaction History' : 'Activity Logs'}
-                      </h4>
-                      {logFilter && (
-                        <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest mt-1">
-                          Filtered by: {logFilter}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      {logFilter && (
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="rounded-xl text-[10px] font-bold h-8 text-slate-400 hover:text-slate-900"
-                          onClick={() => setLogFilter(null)}
-                        >
-                          Clear Filter
-                        </Button>
-                      )}
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="rounded-xl text-[10px] font-bold h-8"
-                        onClick={handleDownloadLogs}
-                      >
-                        <Download size={14} className="mr-1" />
-                        Excel
-                      </Button>
-                      <Badge variant="outline" className="text-[10px] border-slate-100">
-                        {displayLogs.length} Total
-                      </Badge>
-                    </div>
-                  </div>
-                  <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                    {displayLogs.length === 0 ? (
-                      <div className="p-8 text-center text-slate-400 italic bg-slate-50 rounded-2xl">
-                        No logs found for this filter
+                <Card className="border-none shadow-sm bg-white rounded-[2rem] p-6 flex flex-col justify-between">
+                   <div className="flex justify-between items-start">
+                      <div className="bg-emerald-50 p-2.5 rounded-2xl text-emerald-600">
+                        <Users size={20} />
                       </div>
-                    ) : (
-                      displayLogs.map((log) => (
-                        <div key={log.id} className="flex gap-4 p-4 bg-slate-50/50 rounded-2xl border border-slate-100 hover:border-emerald-200 transition-colors">
-                          <div className={`w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm ${logFilter === 'transaction' ? 'text-amber-500' : 'text-emerald-500'}`}>
-                            {logFilter === 'transaction' ? <CreditCard size={18} /> : <Activity size={18} />}
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="text-sm font-bold text-slate-900">
-                                  {logFilter === 'transaction' ? log.description : 'Daily Log Update'}
-                                </p>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
-                                  {log.date ? format(new Date(log.date), 'MMM dd, yyyy') : 'N/A'}
-                                </p>
-                              </div>
-                              {logFilter !== 'transaction' && (
-                                <Badge className="bg-white text-slate-600 border-slate-100 text-[9px]">Day {log.age || '?'}</Badge>
-                              )}
-                              {logFilter === 'transaction' && (
-                                <p className={`font-bold ${log.type === 'Income' ? 'text-emerald-600' : 'text-red-600'}`}>
-                                  {log.type === 'Income' ? '+' : '-'} ₹{log.amount?.toLocaleString()}
-                                </p>
-                              )}
-                            </div>
-                            {logFilter !== 'transaction' && (
-                              <div className="mt-3 space-y-3">
-                                <div className="grid grid-cols-3 gap-2">
-                                  <div className="bg-white p-2 rounded-lg text-center border border-slate-50">
-                                    <p className="text-[8px] font-bold text-slate-400 uppercase">Mortality</p>
-                                    <p className="text-xs font-bold text-red-600">{log.health?.mortality || 0}</p>
-                                  </div>
-                                  <div className="bg-white p-2 rounded-lg text-center border border-slate-50">
-                                    <p className="text-[8px] font-bold text-slate-400 uppercase">Feed (kg)</p>
-                                    <p className="text-xs font-bold text-emerald-600">{log.consumption?.feedIntake || 0}</p>
-                                  </div>
-                                  <div className="bg-white p-2 rounded-lg text-center border border-slate-50">
-                                    <p className="text-[8px] font-bold text-slate-400 uppercase">Weight (g)</p>
-                                    <p className="text-xs font-bold text-indigo-600">{log.production?.avgWeight || 0}</p>
+                      <ArrowUpRight size={16} className="text-emerald-500" />
+                   </div>
+                   <div className="mt-4">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Birds</p>
+                      <h4 className="text-2xl font-black text-slate-900">{selectedFarmerStats.totalBirds.toLocaleString()}</h4>
+                      <p className="text-[10px] text-slate-400 font-bold mt-1 flex gap-2">
+                        <span>Max Cap: {selectedFarmer.birdCapacity?.toLocaleString() || 0}</span>
+                      </p>
+                   </div>
+                </Card>
+
+                <Card className="border-none shadow-sm bg-white rounded-[2rem] p-6 flex flex-col justify-between">
+                   <div className="flex justify-between items-start">
+                      <div className="bg-orange-50 p-2.5 rounded-2xl text-orange-600">
+                        <CreditCard size={20} />
+                      </div>
+                      <ArrowDownRight size={16} className="text-rose-500" />
+                   </div>
+                   <div className="mt-4">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Net Balance</p>
+                      <h4 className="text-2xl font-black text-slate-900">₹{selectedFarmerStats.balance.toLocaleString()}</h4>
+                      <p className="text-[10px] text-slate-400 font-bold mt-1">Updated Just Now</p>
+                   </div>
+                </Card>
+
+                {/* Sub-Detailed Stats */}
+                <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6">
+                   <Card className="border-none shadow-sm bg-[#122B21] text-white rounded-[2rem] p-8 overflow-hidden relative group">
+                      <div className="relative z-10 flex h-full items-center gap-6">
+                         <div className="w-16 h-16 rounded-[1.5rem] bg-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+                            <Activity size={32} />
+                         </div>
+                         <div>
+                            <p className="text-[10px] font-black text-emerald-300/60 uppercase tracking-widest mb-1">Batch Compliance</p>
+                            <h4 className="text-3xl font-black">{selectedFarmerStats.compliance}%</h4>
+                            <p className="text-xs text-emerald-200/80 font-medium mt-1">Excellent record keeping status</p>
+                         </div>
+                      </div>
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-emerald-500/20 transition-all duration-700"></div>
+                   </Card>
+
+                   <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8 border border-slate-50 flex items-center justify-between group">
+                      <div className="flex items-center gap-6">
+                         <div className="w-16 h-16 rounded-[1.5rem] bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-amber-100 group-hover:text-amber-600 transition-colors">
+                            <Package size={32} />
+                         </div>
+                         <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Feed Stock</p>
+                            <h4 className="text-2xl font-black text-slate-900">{selectedFarmerStats.feedStock.toLocaleString()} KG</h4>
+                            <p className="text-xs text-slate-500 font-medium mt-1">Inventory Value: ₹{selectedFarmerStats.feedValue.toLocaleString()}</p>
+                         </div>
+                      </div>
+                      <Download size={20} className="text-slate-200 group-hover:text-emerald-500 cursor-pointer transition-colors" />
+                   </Card>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              {/* Schedule Management UI */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Assignment & Configuration */}
+                <Card className="lg:col-span-1 border-none shadow-sm bg-white rounded-[2rem] p-8">
+                  <h4 className="font-bold text-slate-900 mb-6 flex items-center gap-2">
+                    <Calendar className="text-emerald-500" size={20} />
+                    Active Schedule
+                  </h4>
+                  
+                  {farmerSchedule ? (
+                    <div className="space-y-6">
+                      <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 relative overflow-hidden group">
+                        <div className="relative z-10">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Current Template</p>
+                          <h5 className="text-lg font-black text-slate-900">{farmerSchedule.templateName}</h5>
+                          <p className="text-xs text-slate-500 font-medium mt-2">Started: {format(new Date(farmerSchedule.startDate), 'MMM dd, yyyy')}</p>
+                        </div>
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-emerald-500/10 transition-colors"></div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Visible Duration (Days)</Label>
+                          <Select 
+                            value={String(selectedFarmer.scheduleDisplayDays || 2)} 
+                            onValueChange={async (v) => {
+                              try {
+                                await updateDoc(doc(db, 'users', selectedFarmerId), { scheduleDisplayDays: Number(v) });
+                                toast.success('Visibility duration updated');
+                              } catch (err) {
+                                toast.error('Failed to update visibility');
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold">
+                              <SelectValue placeholder="Display days" />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-2xl">
+                              <SelectItem value="1">1 Day</SelectItem>
+                              <SelectItem value="2">2 Days (Default)</SelectItem>
+                              <SelectItem value="3">3 Days</SelectItem>
+                              <SelectItem value="5">5 Days</SelectItem>
+                              <SelectItem value="7">1 Week</SelectItem>
+                              <SelectItem value="14">2 Weeks</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-[10px] text-slate-400 font-medium ml-1 italic">Farmer will only see tasks for the next {selectedFarmer.scheduleDisplayDays || 2} days</p>
+                        </div>
+
+                        <Button 
+                          variant="outline" 
+                          className="w-full h-14 rounded-2xl font-bold border-red-100 text-red-600 hover:bg-red-50 hover:border-red-200"
+                          onClick={async () => {
+                            if (!window.confirm('Delete this active schedule?')) return;
+                            try {
+                              await deleteDoc(doc(db, 'schedules', farmerSchedule.id));
+                              toast.success('Schedule removed');
+                            } catch (err) {
+                              toast.error('Failed to remove schedule');
+                            }
+                          }}
+                        >
+                          <Trash2 size={16} className="mr-2" />
+                          Remove Schedule
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 px-4 bg-slate-50/50 rounded-[2rem] border border-dashed border-slate-200">
+                      <Calendar size={48} className="mx-auto text-slate-200 mb-4" />
+                      <p className="font-bold text-slate-500 text-sm">No active schedule assigned</p>
+                      <Button 
+                        variant="default" 
+                        size="sm" 
+                        className="mt-6 rounded-xl bg-emerald-600 font-bold px-6 h-10"
+                        onClick={() => setShowApplyTemplateDialog(true)}
+                      >
+                        Assign Template
+                      </Button>
+                    </div>
+                  )}
+                </Card>
+
+                {/* Schedule Timeline / Tasks */}
+                <Card className="lg:col-span-2 border-none shadow-sm bg-white rounded-[2rem] p-8">
+                  <div className="flex justify-between items-center mb-8">
+                    <h4 className="font-bold text-slate-900 tracking-tight">Schedule Timeline</h4>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setShowTemplateDialog(true)}
+                      className="rounded-xl border-slate-200 font-bold h-10 px-4 flex items-center gap-2"
+                    >
+                      <Plus size={16} className="text-emerald-500" />
+                      Manage Templates
+                    </Button>
+                  </div>
+
+                  <div className="space-y-6">
+                    {farmerSchedule ? (
+                      <div className="relative pl-8 border-l-2 border-slate-100 space-y-8">
+                        {/* Calculate and render schedule dates based on template */}
+                        {(() => {
+                          const template = scheduleTemplates.find(t => t.id === farmerSchedule.templateId);
+                          if (!template) return <p className="text-slate-400 italic">Template no longer exists</p>;
+                          
+                          return template.days.sort((a: any, b: any) => a.day - b.day).map((dayTask: any, idx: number) => {
+                            const taskDate = new Date(farmerSchedule.startDate);
+                            taskDate.setDate(taskDate.getDate() + (dayTask.day - 1));
+                            const isToday = format(new Date(), 'yyyy-MM-dd') === format(taskDate, 'yyyy-MM-dd');
+                            const isPast = taskDate < new Date(new Date().setHours(0,0,0,0));
+                            
+                            return (
+                              <div key={idx} className="relative group">
+                                <div className={`absolute -left-[41px] top-0 w-4 h-4 rounded-full border-4 border-white shadow-sm transition-colors ${isToday ? 'bg-emerald-500 ring-4 ring-emerald-500/20' : isPast ? 'bg-slate-300' : 'bg-slate-100 group-hover:bg-emerald-200'}`}></div>
+                                <div className={`p-5 rounded-2xl border transition-all ${isToday ? 'bg-emerald-50/50 border-emerald-100 ring-1 ring-emerald-100 shadow-sm' : 'bg-slate-50/30 border-slate-50'}`}>
+                                  <div className="flex justify-between items-start">
+                                    <div>
+                                      <p className={`text-[10px] font-black uppercase tracking-widest ${isToday ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                        Day {dayTask.day} • {format(taskDate, 'MMM dd, yyyy')} {isToday ? '(TODAY)' : ''}
+                                      </p>
+                                      <h6 className="font-bold text-slate-900 mt-1">{dayTask.title}</h6>
+                                      <p className="text-xs text-slate-500 mt-1">{dayTask.description}</p>
+                                    </div>
+                                    <Badge className={`${
+                                      dayTask.category === 'Vaccination' ? 'bg-amber-100 text-amber-700' : 
+                                      dayTask.category === 'Medicine Plan' ? 'bg-indigo-100 text-indigo-700' : 
+                                      'bg-slate-100 text-slate-600'
+                                    } border-none font-bold text-[9px] rounded-lg`}>
+                                      {dayTask.category}
+                                    </Badge>
                                   </div>
                                 </div>
-
-                                {/* Detailed Info based on filter */}
-                                {(logFilter === 'feed' || !logFilter) && (log.consumption?.feedIntake || log.consumption?.waterIntake) && (
-                                  <div className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-100 text-[11px] space-y-1">
-                                    <p className="text-[9px] font-bold text-emerald-600 uppercase mb-1">Feed & Water Details</p>
-                                    <div className="flex justify-between">
-                                      <span className="text-slate-500 font-medium">Feed Type:</span>
-                                      <span className="font-bold text-emerald-700">{log.consumption?.feedType || 'N/A'}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-slate-500 font-medium">Feed Quantity:</span>
-                                      <span className="font-bold text-emerald-700">{log.consumption?.feedIntake || 0} kg</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-slate-500 font-medium">Water Intake:</span>
-                                      <span className="font-bold text-emerald-700">{log.consumption?.waterIntake || 0} Liters</span>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {(logFilter === 'medicine' || !logFilter) && log.health?.medicines && log.health?.medicines !== 'none' && (
-                                  <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 text-[11px] space-y-1">
-                                    <p className="text-[9px] font-bold text-indigo-600 uppercase mb-1">Medicine Details</p>
-                                    <div className="flex justify-between">
-                                      <span className="text-slate-500 font-medium">Medicine:</span>
-                                      <span className="font-bold text-indigo-700">{log.health?.medicines || 'N/A'}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-slate-500 font-medium">Doses:</span>
-                                      <span className="font-bold text-indigo-700">{log.health?.medicineDoses || 0} units</span>
-                                    </div>
-                                    <div className="flex flex-col gap-0.5 mt-1">
-                                      <span className="text-slate-500 font-medium">Reason/Notes:</span>
-                                      <span className="text-slate-700 italic">"{log.notes || 'No notes provided'}"</span>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {(logFilter === 'vaccine' || !logFilter) && log.health?.vaccines && log.health?.vaccines !== 'none' && (
-                                  <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-100 text-[11px] space-y-1">
-                                    <p className="text-[9px] font-bold text-amber-600 uppercase mb-1">Vaccination Details</p>
-                                    <div className="flex justify-between">
-                                      <span className="text-slate-500 font-medium">Vaccination:</span>
-                                      <span className="font-bold text-amber-700">{log.health?.vaccines || 'N/A'}</span>
-                                    </div>
-                                    <div className="flex flex-col gap-0.5 mt-1">
-                                      <span className="text-slate-500 font-medium">Notes:</span>
-                                      <span className="text-slate-700 italic">"{log.notes || 'No notes provided'}"</span>
-                                    </div>
-                                  </div>
-                                )}
-                                {logFilter === 'eggs' && (
-                                  <div className="bg-yellow-50/50 p-3 rounded-xl border border-yellow-100 text-[11px] space-y-1">
-                                    <p className="text-[9px] font-bold text-yellow-600 uppercase mb-1">Egg Collection Details</p>
-                                    <div className="flex justify-between">
-                                      <span className="text-slate-500 font-medium">Eggs Collected:</span>
-                                      <span className="font-bold text-yellow-700">{log.production?.eggsCollected || 0} Units</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-slate-500 font-medium">Damaged Eggs:</span>
-                                      <span className="font-bold text-red-700">{log.production?.damagedEggs || 0} Units</span>
-                                    </div>
-                                    <div className="flex flex-col gap-0.5 mt-1">
-                                      <span className="text-slate-500 font-medium">Notes:</span>
-                                      <span className="text-slate-700 italic">"{log.notes || 'No notes provided'}"</span>
-                                    </div>
-                                  </div>
-                                )}
                               </div>
-                            )}
-                          </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    ) : (
+                      <div className="py-20 text-center">
+                        <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-100">
+                          <ClipboardList size={32} className="text-slate-200" />
                         </div>
-                      ))
+                        <p className="text-slate-400 italic">No tasks to display. Assign a template to start scheduling.</p>
+                      </div>
                     )}
                   </div>
                 </Card>
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
+      {/* Template Management Dialog */}
+      <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
+        <DialogContent className="max-w-4xl rounded-[2.5rem] p-0 border-none shadow-2xl overflow-hidden max-h-[90vh]">
+          <div className="bg-slate-900 p-8 text-white">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-black italic tracking-tight">Schedule Templates</DialogTitle>
+              <DialogDescription className="text-slate-400 font-medium">Create batch-wide templates for feed, vaccination, and medicine plans.</DialogDescription>
+            </DialogHeader>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 h-[600px]">
+            {/* Existing Templates */}
+            <div className="p-8 border-r border-slate-50 overflow-y-auto space-y-4">
+              <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Saved Templates</h5>
+              {scheduleTemplates.map(t => (
+                <div key={t.id} className="p-5 bg-slate-50 rounded-2xl border border-slate-100 hover:border-emerald-200 transition-colors cursor-pointer group">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-bold text-slate-900">{t.name}</p>
+                      <p className="text-[10px] text-slate-500 mt-1">{t.days?.length} Tasks Defined</p>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="text-slate-300 hover:text-red-600 h-8 w-8"
+                      onClick={async () => {
+                        if (confirm('Delete template?')) await deleteDoc(doc(db, 'scheduleTemplates', t.id));
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {scheduleTemplates.length === 0 && <p className="text-xs text-slate-400 italic text-center py-8">No templates saved yet</p>}
+            </div>
+
+            {/* Create/Edit Template */}
+            <div className="p-8 bg-white overflow-y-auto space-y-6">
+              <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Create Template</h5>
+              <div className="space-y-4">
+                <Input 
+                  placeholder="Template Name (e.g., 40-Day Broiler Plan)" 
+                  className="h-12 rounded-xl bg-slate-50 border-slate-100 font-bold"
+                  value={newTemplate.name}
+                  onChange={e => setNewTemplate({...newTemplate, name: e.target.value})}
+                />
+                <div className="space-y-4 pt-4 border-t border-slate-50">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-600">Daily Tasks</span>
+                    <Button 
+                      size="sm" 
+                      variant="ghost" 
+                      className="text-emerald-600 font-bold h-8"
+                      onClick={() => setNewTemplate({...newTemplate, days: [...newTemplate.days, { day: 1, title: '', description: '', category: 'Other' }]})}
+                    >
+                      <Plus size={14} className="mr-1" /> Add Day Task
+                    </Button>
+                  </div>
+                  
+                  {newTemplate.days.map((d: any, i: number) => (
+                    <div key={i} className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-3 relative">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="absolute right-2 top-2 h-6 w-6 text-slate-300 hover:text-red-500"
+                        onClick={() => setNewTemplate({...newTemplate, days: newTemplate.days.filter((_: any, idx: number) => idx !== i)})}
+                      >
+                        <Trash2 size={12} />
+                      </Button>
+                      <div className="grid grid-cols-4 gap-2">
+                        <div className="col-span-1">
+                          <Label className="text-[9px] font-bold uppercase text-slate-400 ml-1">Day</Label>
+                          <Input 
+                            type="number" 
+                            className="h-10 rounded-lg bg-white border-slate-200 font-bold" 
+                            value={d.day}
+                            onChange={e => {
+                              const updatedDays = [...newTemplate.days];
+                              updatedDays[i].day = Number(e.target.value);
+                              setNewTemplate({...newTemplate, days: updatedDays});
+                            }}
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          <Label className="text-[9px] font-bold uppercase text-slate-400 ml-1">Task Title</Label>
+                          <Input 
+                            className="h-10 rounded-lg bg-white border-slate-200 font-bold" 
+                            value={d.title}
+                            onChange={e => {
+                              const updatedDays = [...newTemplate.days];
+                              updatedDays[i].title = e.target.value;
+                              setNewTemplate({...newTemplate, days: updatedDays});
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                         <Select value={d.category} onValueChange={v => {
+                            const updatedDays = [...newTemplate.days];
+                            updatedDays[i].category = v;
+                            setNewTemplate({...newTemplate, days: updatedDays});
+                         }}>
+                            <SelectTrigger className="h-10 rounded-lg bg-white border-slate-200 font-bold">
+                              <SelectValue placeholder="Category" />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl">
+                              <SelectItem value="Vaccination">Vaccination</SelectItem>
+                              <SelectItem value="Medicine Plan">Medicine Plan</SelectItem>
+                              <SelectItem value="Cleaning">Cleaning</SelectItem>
+                              <SelectItem value="Other">Other</SelectItem>
+                            </SelectContent>
+                         </Select>
+                         <Input 
+                            className="h-10 rounded-lg bg-white border-slate-200 font-bold placeholder:text-[10px]" 
+                            placeholder="Brief Instruction"
+                            value={d.description}
+                            onChange={e => {
+                              const updatedDays = [...newTemplate.days];
+                              updatedDays[i].description = e.target.value;
+                              setNewTemplate({...newTemplate, days: updatedDays});
+                            }}
+                          />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Button 
+                  className="w-full h-12 rounded-xl bg-emerald-600 font-bold transition-all hover:bg-emerald-700 shadow-lg shadow-emerald-100"
+                  onClick={async () => {
+                    if (!newTemplate.name) return toast.error('Template name required');
+                    try {
+                      await addDoc(collection(db, 'scheduleTemplates'), { ...newTemplate, createdAt: new Date().toISOString() });
+                      toast.success('Template saved');
+                      setNewTemplate({ name: '', description: '', days: [] });
+                    } catch (err) { toast.error('Failed to save template'); }
+                  }}
+                >
+                  Save Template
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Template Dialog */}
+      <Dialog open={showApplyTemplateDialog} onOpenChange={setShowApplyTemplateDialog}>
+        <DialogContent className="max-w-md rounded-[2.5rem] p-8 border-none shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black italic">Assign Batch Schedule</DialogTitle>
+            <DialogDescription className="font-medium">Apply a saved template to {selectedFarmer?.name}'s farm operations.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-6">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Select Template</Label>
+              <Select onValueChange={(v) => {
+                const t = scheduleTemplates.find(x => x.id === v);
+                setFarmerSchedule(prev => ({ ...prev, templateId: v, templateName: t.name }));
+              }}>
+                <SelectTrigger className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold">
+                  <SelectValue placeholder="Choose a plan..." />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl">
+                  {scheduleTemplates.map(t => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Start Date</Label>
+              <Input 
+                type="date" 
+                className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold"
+                value={farmerSchedule?.startDate || format(new Date(), 'yyyy-MM-dd')}
+                onChange={e => setFarmerSchedule({...farmerSchedule, startDate: e.target.value})}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-2xl h-14 px-8 border-slate-100 font-bold" onClick={() => setShowApplyTemplateDialog(false)}>Cancel</Button>
+            <Button 
+              className="rounded-2xl h-14 bg-emerald-600 font-bold px-10 hover:bg-emerald-700 shadow-lg shadow-emerald-100"
+              onClick={async () => {
+                if (!farmerSchedule?.templateId || !farmerSchedule?.startDate) return toast.error('Selection required');
+                try {
+                  const existingSchedules = await addDoc(collection(db, 'schedules'), {
+                    userId: selectedFarmerId,
+                    templateId: farmerSchedule.templateId,
+                    templateName: farmerSchedule.templateName,
+                    startDate: farmerSchedule.startDate,
+                    assignedBy: user?.uid,
+                    createdAt: new Date().toISOString()
+                  });
+                  toast.success('Schedule assigned successfully');
+                  setShowApplyTemplateDialog(false);
+                } catch (err) { toast.error('Failed to assign schedule'); }
+              }}
+            >
+              Confirm Assignment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* Floating Action Button with Dialog */}
       <Dialog open={isAddingFarmer} onOpenChange={setIsAddingFarmer}>
         <DialogTrigger render={

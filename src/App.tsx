@@ -30,6 +30,7 @@ import AdminPayments from './pages/AdminPayments';
 import AdminKeyPricing from './pages/AdminKeyPricing';
 import AdminAlerts from './pages/AdminAlerts';
 import AdminAutoAlerts from './pages/AdminAutoAlerts';
+import AdminSchedule from './pages/AdminSchedule';
 import ManagerLayout from './components/ManagerLayout';
 import ManagerDashboard from './pages/ManagerDashboard';
 import ManagerEarnings from './pages/ManagerEarnings';
@@ -84,6 +85,7 @@ export default function App() {
             <Route path="payments" element={<AdminPayments />} />
             <Route path="alerts" element={<AdminAlerts />} />
             <Route path="auto-alerts" element={<AdminAutoAlerts />} />
+            <Route path="schedule" element={<AdminSchedule />} />
             <Route path="keys" element={<KeyManagement />} />
             <Route path="keys/pricing" element={<AdminKeyPricing />} />
           </Route>
@@ -97,6 +99,7 @@ export default function App() {
             <Route path="orders" element={<AdminOrders />} />
             <Route path="inventory" element={<ManagerInventory />} />
             <Route path="flocks" element={<ManagerFlocks />} />
+            <Route path="schedule" element={<AdminSchedule />} />
             <Route path="earnings" element={<ManagerEarnings />} />
             <Route path="keys" element={<KeyManagement />} />
           </Route>

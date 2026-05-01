@@ -17,6 +17,7 @@ import {
   Package,
   CreditCard,
   Bird,
+  Calendar,
   Key,
   Home
 } from 'lucide-react';
@@ -52,6 +53,7 @@ const ManagerLayout: React.FC = () => {
         { icon: ShoppingBag, label: 'Orders', path: '/manager/orders' },
         { icon: Package, label: 'Farmer Inventory', path: '/manager/inventory' },
         { icon: Bird, label: 'Flock Management', path: '/manager/flocks' },
+        { icon: Calendar, label: 'Schedule', path: '/manager/schedule' },
         { icon: CreditCard, label: 'Commission & Payments', path: '/manager/earnings' }
       ]
     },

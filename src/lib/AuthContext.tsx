@@ -29,6 +29,7 @@ interface UserProfile {
   farmArea?: number;
   birdCapacity?: number;
   farmType?: string;
+  scheduleDisplayDays?: number;
   savedAddresses?: any[];
 }
 

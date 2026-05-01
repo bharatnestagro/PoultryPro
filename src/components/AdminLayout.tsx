@@ -113,6 +113,7 @@ const AdminLayout: React.FC = () => {
         { label: 'Health', path: '/admin/health' },
         { label: 'Operations', path: '/admin/operations' },
         { label: 'Daily Logs', path: '/admin/logs' },
+        { label: 'Schedule', path: '/admin/schedule' },
         { label: 'Farmer Transactions', path: '/admin/transactions?source=farmer' },
       ]
     },

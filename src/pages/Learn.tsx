@@ -6,10 +6,11 @@ import { handleFirestoreError, OperationType } from '@/src/lib/errorHandlers';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PlayCircle, Video, Search, Filter, X } from 'lucide-react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { AlertTriangle } from 'lucide-react';
 
 interface LearningVideo {
   id: string;
@@ -34,6 +35,7 @@ const Learn: React.FC = () => {
   const [selectedVideo, setSelectedVideo] = useState<LearningVideo | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   
   // Tracking
   const watchTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -149,6 +151,18 @@ const Learn: React.FC = () => {
     );
   }
 
+  const handleCloseAttempt = () => {
+    setShowCloseConfirm(true);
+  };
+
+  const confirmClose = () => {
+    if (selectedVideo) {
+      trackWatch(selectedVideo, true);
+    }
+    setSelectedVideo(null);
+    setShowCloseConfirm(false);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-20">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -244,12 +258,14 @@ const Learn: React.FC = () => {
       )}
 
       <Dialog open={!!selectedVideo} onOpenChange={(open) => {
-        if (!open && selectedVideo) {
-          trackWatch(selectedVideo, true);
+        if (!open) {
+          handleCloseAttempt();
         }
-        if (!open) setSelectedVideo(null);
       }}>
-        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black border-none rounded-[2rem]">
+        <DialogContent 
+          className="max-w-4xl p-0 overflow-hidden bg-black border-none rounded-[2rem]"
+          showCloseButton={false}
+        >
           <div className="relative pt-[56.25%] w-full h-0">
             {selectedVideo && (
               <iframe
@@ -257,10 +273,18 @@ const Learn: React.FC = () => {
                 src={getEmbedUrl(selectedVideo.videoUrl)}
                 title={selectedVideo.title}
                 frameBorder="0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+                allowFullScreen={true}
               ></iframe>
             )}
+            <Button 
+                variant="secondary" 
+                size="icon" 
+                onClick={handleCloseAttempt} 
+                className="absolute top-4 right-4 rounded-full bg-white/20 hover:bg-white/40 text-white border-none z-50 backdrop-blur-md"
+              >
+                 <X size={20} />
+              </Button>
           </div>
           {selectedVideo && (
             <div className="p-6 bg-white">
@@ -269,12 +293,40 @@ const Learn: React.FC = () => {
                     <h2 className="text-lg font-black italic text-slate-900 uppercase leading-none">{selectedVideo.title}</h2>
                     <p className="text-slate-500 font-bold italic mt-2 text-xs">{selectedVideo.description}</p>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => { trackWatch(selectedVideo, true); setSelectedVideo(null); }} className="rounded-full shrink-0">
-                     <X size={18} />
-                  </Button>
                </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Close Confirmation Dialog */}
+      <Dialog open={showCloseConfirm} onOpenChange={setShowCloseConfirm}>
+        <DialogContent className="max-w-xs rounded-3xl p-6">
+          <DialogHeader>
+            <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mb-4">
+              <AlertTriangle size={24} />
+            </div>
+            <DialogTitle className="text-xl font-black italic text-slate-900 uppercase">Want to Close?</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm font-bold text-slate-500 italic">Are you sure you want to stop watching this lesson?</p>
+          </div>
+          <DialogFooter className="flex gap-2 sm:justify-start">
+            <Button 
+              variant="default" 
+              className="flex-1 rounded-2xl bg-red-600 hover:bg-red-700 font-black italic uppercase text-xs"
+              onClick={confirmClose}
+            >
+              Yes, Close
+            </Button>
+            <Button 
+              variant="secondary" 
+              className="flex-1 rounded-2xl bg-slate-100 font-black italic uppercase text-xs"
+              onClick={() => setShowCloseConfirm(false)}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -906,6 +906,28 @@ const Profile: React.FC = () => {
         </div>
       </header>
 
+      {/* Mobile Switcher Buttons */}
+      {(profile?.role === 'admin' || profile?.role === 'manager') && (
+        <div className="sm:hidden flex gap-2 pt-2">
+          {profile?.role === 'admin' && (
+            <Button 
+              variant="default" 
+              className="flex-1 rounded-xl bg-slate-900 font-black italic uppercase text-[10px] h-10 shadow-sm"
+              onClick={() => navigate('/admin')}
+            >
+              Admin Dashboard
+            </Button>
+          )}
+          <Button 
+            variant="default" 
+            className="flex-1 rounded-xl bg-indigo-600 font-black italic uppercase text-[10px] h-10 shadow-sm"
+            onClick={() => navigate('/manager')}
+          >
+            Manager Dashboard
+          </Button>
+        </div>
+      )}
+
       {/* User Summary */}
       <div className="bg-white rounded-3xl p-6 flex items-center gap-4 shadow-sm border border-slate-100">
         <div className="w-20 h-20 bg-emerald-100 rounded-2xl flex items-center justify-center text-emerald-600 shadow-inner">

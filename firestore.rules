@@ -70,9 +70,48 @@ service cloud.firestore {
              data.description is string && data.description.size() < 1000;
     }
 
+    function isValidLearningVideo(data) {
+      return data.keys().hasAll(['title', 'videoUrl', 'createdAt']) &&
+             data.title is string && data.title.size() > 0 &&
+             data.videoUrl is string && data.videoUrl.size() > 0;
+    }
+
+    function isValidLearningCategory(data) {
+      return data.keys().hasAll(['name', 'createdAt']) &&
+             data.name is string && data.name.size() > 0;
+    }
+
+    function isValidVideoAnalytics(data) {
+      return data.keys().hasAll(['userId', 'videoId', 'watchTime']) &&
+             data.userId == request.auth.uid &&
+             data.watchTime is number;
+    }
+
     // ===============================================================
     // Rules (Pillar 1: Master Gate)
     // ===============================================================
+
+    // New: Learning Categories
+    match /learningCategories/{categoryId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isManager();
+    }
+
+    // New: Learning Videos
+    match /learningVideos/{videoId} {
+      allow read: if isSignedIn();
+      allow create: if (isAdmin() || isManager()) && isValidLearningVideo(incoming());
+      allow update: if (isAdmin() || isManager()) && isValidLearningVideo(incoming());
+      allow delete: if isAdmin() || isManager();
+    }
+
+    // New: Video Analytics
+    match /videoAnalytics/{analyticsId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidVideoAnalytics(incoming());
+      allow update: if isSignedIn() && isValidVideoAnalytics(incoming()) && (resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
 
     // 1. Users Collection
     match /users/{userId} {

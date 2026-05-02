@@ -10,6 +10,7 @@ import Shop from './pages/Shop';
 import Orders from './pages/Orders';
 import AdminPanel from './pages/AdminPanel';
 import AdminLayout from './components/AdminLayout';
+import AdminLearningVideos from './pages/AdminLearningVideos';
 import AdminFarmers from './pages/AdminFarmers';
 import AdminFlocks from './pages/AdminFlocks';
 import AdminHealth from './pages/AdminHealth';
@@ -40,6 +41,7 @@ import FlockManagement from './pages/FlockManagement';
 import Transactions from './pages/Transactions';
 import AddData from './pages/AddData';
 import KeyManagement from './pages/KeyManagement';
+import Learn from './pages/Learn';
 import Notifications from './pages/Notifications';
 import { Toaster } from 'sonner';
 
@@ -57,6 +59,7 @@ export default function App() {
             <Route path="/add" element={<AddData />} />
             <Route path="/shop" element={<Shop />} />
             <Route path="/notifications" element={<Notifications />} />
+            <Route path="/learn" element={<Learn />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/flocks" element={<FlockManagement />} />
             <Route path="/transactions" element={<Transactions />} />
@@ -86,6 +89,7 @@ export default function App() {
             <Route path="alerts" element={<AdminAlerts />} />
             <Route path="auto-alerts" element={<AdminAutoAlerts />} />
             <Route path="schedule" element={<AdminSchedule />} />
+            <Route path="learning-videos" element={<AdminLearningVideos />} />
             <Route path="keys" element={<KeyManagement />} />
             <Route path="keys/pricing" element={<AdminKeyPricing />} />
           </Route>

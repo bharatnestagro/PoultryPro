@@ -1231,6 +1231,7 @@ const AdminSchedule: React.FC = () => {
                               name: template.name,
                               description: template.description || "",
                               days: template.days || [],
+                              visibilityDaysBefore: template.visibilityDaysBefore || 7,
                             });
                             setViewMode("template-editor");
                           }}

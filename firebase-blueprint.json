@@ -430,9 +430,63 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "name", "phone", "role"]
+    },
+    "LearningCategory": {
+      "title": "Learning Category",
+      "description": "Categories for grouping educational videos",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "createdAt"]
+    },
+    "LearningVideo": {
+      "title": "Learning Video",
+      "description": "Educational video for farmers",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "categoryId": { "type": "string", "description": "ID of the category this video belongs to" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "videoUrl", "createdAt"]
+    },
+    "VideoAnalytics": {
+      "title": "Video Analytics",
+      "description": "Tracking how farmers watch educational videos",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "videoId": { "type": "string" },
+        "videoTitle": { "type": "string" },
+        "status": { "type": "string", "enum": ["Partial", "Completed"] },
+        "watchTime": { "type": "number", "description": "Total seconds watched" },
+        "totalDuration": { "type": "number", "description": "Total duration of video in seconds" },
+        "playCount": { "type": "number" },
+        "lastWatchedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "videoId", "watchTime"]
     }
   },
   "firestore": {
+    "/learningCategories/{categoryId}": {
+      "schema": "LearningCategory",
+      "description": "Categories for learning content"
+    },
+    "/learningVideos/{videoId}": {
+      "schema": "LearningVideo",
+      "description": "Educational videos"
+    },
+    "/videoAnalytics/{analyticsId}": {
+      "schema": "VideoAnalytics",
+      "description": "Farmer engagement records for videos"
+    },
     "/eggSales/{saleId}": {
       "schema": "EggSale",
       "description": "Egg sales records"

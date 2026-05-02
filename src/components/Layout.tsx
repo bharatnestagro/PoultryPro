@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, Outlet, Navigate } from 'react-router-dom';
-import { Home, PlusCircle, ShoppingBag, User, LayoutDashboard, LogOut, Package, Pill, FileText, ClipboardList, Menu, X as CloseIcon, Users, Bell } from 'lucide-react';
+import { Home, PlusCircle, ShoppingBag, User, LayoutDashboard, LogOut, Package, Pill, FileText, ClipboardList, Menu, X as CloseIcon, Users, Bell, PlayCircle } from 'lucide-react';
 import { useAuth } from '@/src/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -67,7 +67,7 @@ const Layout: React.FC = () => {
     { icon: Home, label: 'Home', path: '/dashboard' },
     { icon: PlusCircle, label: 'Add Data', path: '/add' },
     { icon: ShoppingBag, label: 'Shop', path: '/shop' },
-    { icon: Bell, label: 'Notification', path: '/notifications' },
+    { icon: PlayCircle, label: 'Learn', path: '/learn' },
     { icon: User, label: 'Profile', path: '/profile' },
   ];
 

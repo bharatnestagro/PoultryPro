@@ -39,7 +39,26 @@ const AddData: React.FC = () => {
   const [soldFlocks, setSoldFlocks] = useState<any[]>([]);
   const [selectedFlockId, setSelectedFlockId] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<string | null>(searchParams.get('tab'));
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'feed_stock') {
+      setActiveTab('stock');
+      setStockMode('feed');
+    } else if (tab === 'medicine_stock') {
+      setActiveTab('stock');
+      setStockMode('medicine');
+    } else if (tab) {
+      setActiveTab(tab);
+    }
+
+    const filter = searchParams.get('filter');
+    if (filter) {
+      setHistoryFilter(filter);
+    }
+  }, [searchParams]);
+
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [redirectToAlerts, setRedirectToAlerts] = useState(false);
   const toggleSection = (sectionId: string) => {
@@ -229,17 +248,6 @@ const AddData: React.FC = () => {
       toast.error('Failed to update schedule');
     }
   };
-
-  useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab) {
-      setActiveTab(tab);
-    }
-    const filter = searchParams.get('filter');
-    if (filter) {
-      setHistoryFilter(filter);
-    }
-  }, [searchParams]);
 
   // Handle direct edit from query params
   useEffect(() => {
@@ -518,8 +526,7 @@ const AddData: React.FC = () => {
     { id: 'daily_data', title: 'Add Daily Data', icon: FileText, color: 'bg-emerald-600', desc: 'Daily feed, growth, health & production' },
     { id: 'task', title: 'Farmer Task', icon: ClipboardCheck, color: 'bg-blue-500', desc: 'Schedule vaccination or medicine' },
     { id: 'flock', title: 'Flock Details', icon: Bird, color: 'bg-blue-600', desc: 'Register new batches' },
-    { id: 'feed_stock', title: 'Feed Stock', icon: Package, color: 'bg-orange-600', desc: 'Manage feed inventory' },
-    { id: 'medicine_stock', title: 'Medicine Stock', icon: Pill, color: 'bg-purple-600', desc: 'Manage medicines' },
+    { id: 'stock', title: 'Stock', icon: Package, color: 'bg-indigo-600', desc: 'Manage feed & medicine inventory' },
     { id: 'sold_flock', title: 'Selling Entry', icon: ShoppingBag, color: 'bg-amber-600', desc: 'Record flock & egg sales' },
     { id: 'contacts', title: 'Contact', icon: Users, color: 'bg-teal-600', desc: 'Buyers, Suppliers & Vets' },
     { id: 'alerts', title: 'Alerts', icon: AlertTriangle, color: 'bg-red-600', desc: 'Warning signals' },
@@ -620,7 +627,7 @@ const AddData: React.FC = () => {
     notes: ''
   });
   const [sellMode, setSellMode] = useState<'batch' | 'egg'>('batch');
-
+  const [stockMode, setStockMode] = useState<'feed' | 'medicine'>('feed');
   const [contactData, setContactData] = useState({
     name: '',
     phone: '',
@@ -4727,341 +4734,355 @@ const AddData: React.FC = () => {
             </DialogContent>
           </Dialog>
 
-          {/* Tab: Medicine Stock */}
-          {activeTab === 'medicine_stock' && (
+          {/* Tab: Stock Management */}
+          {activeTab === 'stock' && (
             <Card className="border-none shadow-sm rounded-3xl">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Pill className="text-indigo-600" />
-                  Medicine Stock Management
-                </CardTitle>
-                <CardDescription>Add medicines and vaccines to your inventory</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSaveMedicineStock} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="medName">Medicine/Vaccine Name</Label>
-                      <Input id="medName" required value={newMedicine.name} onChange={e => setNewMedicine({...newMedicine, name: e.target.value})} placeholder="e.g. Lasota" className="rounded-xl" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="medType">Type</Label>
-                      <Select value={newMedicine.type} onValueChange={v => setNewMedicine({...newMedicine, type: v})}>
-                        <SelectTrigger className="rounded-xl">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Medicine">Medicine</SelectItem>
-                          <SelectItem value="Vaccine">Vaccine</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="medQty">Quantity</Label>
-                      <Input id="medQty" type="number" required value={newMedicine.quantity} onChange={e => setNewMedicine({...newMedicine, quantity: e.target.value})} placeholder="0" className="rounded-xl" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="medUnit">Unit</Label>
-                      <Select value={newMedicine.unit} onValueChange={v => setNewMedicine({...newMedicine, unit: v})}>
-                        <SelectTrigger className="rounded-xl">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ml">ml</SelectItem>
-                          <SelectItem value="g">g</SelectItem>
-                          <SelectItem value="vial">vial</SelectItem>
-                          <SelectItem value="tablet">tablet</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="medExpiry">Expiry Date</Label>
-                      <Input id="medExpiry" type="date" value={newMedicine.expiryDate} onChange={e => setNewMedicine({...newMedicine, expiryDate: e.target.value})} className="rounded-xl" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="medCost">Purchase Cost (Optional)</Label>
-                      <Input id="medCost" type="number" value={newMedicine.purchaseCost} onChange={e => setNewMedicine({...newMedicine, purchaseCost: e.target.value})} placeholder="0" className="rounded-xl" />
-                      {Number(newMedicine.purchaseCost) > 0 && Number(newMedicine.quantity) > 0 && (
-                        <p className="text-[10px] font-bold text-emerald-600 ml-1">
-                          Auto-calculated: ₹{(Number(newMedicine.purchaseCost) / Number(newMedicine.quantity)).toFixed(2)} per {newMedicine.unit}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 rounded-xl py-6" disabled={loading}>
-                    <Plus className="mr-2" size={20} />
-                    Add to Medicine Stock
-                  </Button>
-                </form>
-
-                <div className="mt-8 space-y-6">
+              <CardHeader className="pb-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
-                    <h3 className="font-bold text-slate-700 mb-4">Current Medicine Stock</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {medicineStock.map(item => (
-                        <div key={item.id} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center border border-slate-100">
-                          <div>
-                            <p className="font-bold text-slate-800">{item.name}</p>
-                            <div className="flex items-center gap-2">
-                              <p className="text-xs text-slate-500">{item.type}</p>
-                              <span className="text-[10px] text-slate-400">•</span>
-                              <p className="text-[10px] text-slate-400">
-                                {(() => {
-                                  try {
-                                    return item.createdAt ? format(new Date(item.createdAt), 'dd MMM yyyy') : 'N/A';
-                                  } catch (e) {
-                                    return 'N/A';
-                                  }
-                                })()}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <div className="text-right">
-                              <p className="font-bold text-indigo-600">{item.quantity} {item.unit}</p>
-                              {item.purchaseCost > 0 && (
-                                <p className="text-[10px] text-slate-500">
-                                  ₹{item.purchaseCost} (₹{item.unitPrice ? item.unitPrice.toFixed(2) : (item.initialQuantity ? (item.purchaseCost / item.initialQuantity).toFixed(2) : 0)}/{item.unit})
-                                </p>
-                              )}
-                              {item.expiryDate && <p className="text-[10px] text-red-500">Exp: {item.expiryDate}</p>}
-                            </div>
-                            <Button variant="ghost" size="icon" onClick={() => handleDeleteMedicineStock(item.id)} className="h-8 w-8 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50">
-                              <Trash2 size={14} />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                      {medicineStock.length === 0 && <p className="text-sm text-slate-400">No stock recorded</p>}
-                    </div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Package className="text-indigo-600" />
+                      Stock Management
+                    </CardTitle>
+                    <CardDescription>Manage your feed, medicine and vaccine inventory</CardDescription>
                   </div>
-
-                  <div>
-                    <h3 className="font-bold text-slate-700 mb-4">Recent Medicine Use Data</h3>
-                    <div className="space-y-2">
-                      {logs
-                        .filter(log => log.health?.medicines || log.health?.vaccines)
-                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                        .slice(0, 10)
-                        .map(log => {
-                          const flock = flocks.find(f => f.id === log.flockId);
-                          return (
-                            <div key={log.id} className="p-3 bg-indigo-50/50 rounded-xl flex justify-between items-center border border-indigo-100/50">
-                              <div className="flex items-center gap-3">
-                                <div className="bg-indigo-100 p-2 rounded-lg">
-                                  <Pill className="text-indigo-600" size={16} />
-                                </div>
-                                <div>
-                                  <p className="text-sm font-semibold text-slate-800">
-                                    {log.health.medicines || log.health.vaccines}
-                                    {(log.health.medicineDoses || log.health.vaccineDoses) && (
-                                      <span className="ml-2 text-xs font-normal text-slate-500">
-                                        ({log.health.medicineDoses || log.health.vaccineDoses} doses)
-                                      </span>
-                                    )}
-                                  </p>
-                                  <p className="text-xs text-slate-500">
-                                    {(() => {
-                                      try {
-                                        return format(new Date(log.date), 'dd MMM yyyy');
-                                      } catch (e) {
-                                        return 'N/A';
-                                      }
-                                    })()} • {flock?.name || 'Unknown Batch'}
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-xs font-medium text-indigo-600">Applied</p>
-                                <p className="text-[10px] text-slate-400">Daily Health Record</p>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      {logs.filter(log => log.health?.medicines || log.health?.vaccines).length === 0 && (
-                        <p className="text-sm text-slate-400">No medicine usage recorded yet</p>
-                      )}
-                    </div>
+                  <div className="flex bg-slate-100 p-1 rounded-2xl w-fit">
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => setStockMode('feed')}
+                      className={`rounded-xl px-6 h-10 font-bold transition-all ${stockMode === 'feed' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      <Utensils size={16} className="mr-2" />
+                      Feed
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => setStockMode('medicine')}
+                      className={`rounded-xl px-6 h-10 font-bold transition-all ${stockMode === 'medicine' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      <Pill size={16} className="mr-2" />
+                      Medicine/Vaccine
+                    </Button>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Tab: Feed Stock */}
-          {activeTab === 'feed_stock' && (
-            <Card className="border-none shadow-sm rounded-3xl">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Package className="text-amber-600" />
-                  Feed Stock Management
-                </CardTitle>
-                <CardDescription>Manage your poultry feed inventory</CardDescription>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleSaveFeedStock} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="feedName">Feed Name/Brand</Label>
-                      <Input id="feedName" required value={newFeed.name} onChange={e => setNewFeed({...newFeed, name: e.target.value})} placeholder="e.g. Godrej Starter" className="rounded-xl" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="feedType">Feed Type</Label>
-                      <Select value={newFeed.type} onValueChange={v => setNewFeed({...newFeed, type: v})}>
-                        <SelectTrigger className="rounded-xl">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Pre-Starter">Pre-Starter</SelectItem>
-                          <SelectItem value="Starter">Starter</SelectItem>
-                          <SelectItem value="Grower">Grower</SelectItem>
-                          <SelectItem value="Finisher">Finisher</SelectItem>
-                          <SelectItem value="Layer Mash">Layer Mash</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="feedQty">Quantity (kg)</Label>
-                      <Input id="feedQty" type="number" required value={newFeed.quantity} onChange={e => setNewFeed({...newFeed, quantity: e.target.value})} placeholder="0" className="rounded-xl" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="purchaseCost">Purchase Cost (Optional)</Label>
-                      <Input id="purchaseCost" type="number" value={newFeed.purchaseCost} onChange={e => setNewFeed({...newFeed, purchaseCost: e.target.value})} placeholder="0" className="rounded-xl" />
-                      {Number(newFeed.purchaseCost) > 0 && Number(newFeed.quantity) > 0 && (
-                        <p className="text-[10px] font-bold text-emerald-600 ml-1">
-                          Auto-calculated: ₹{(Number(newFeed.purchaseCost) / Number(newFeed.quantity)).toFixed(2)} per kg
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <Button type="submit" className="w-full bg-amber-600 hover:bg-amber-700 rounded-xl py-6" disabled={loading}>
-                    <Plus className="mr-2" size={20} />
-                    Add to Feed Stock
-                  </Button>
-                </form>
+                {stockMode === 'medicine' ? (
+                  <>
+                    <form onSubmit={handleSaveMedicineStock} className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="medName">Medicine/Vaccine Name</Label>
+                          <Input id="medName" required value={newMedicine.name} onChange={e => setNewMedicine({...newMedicine, name: e.target.value})} placeholder="e.g. Lasota" className="rounded-xl" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="medType">Type</Label>
+                          <Select value={newMedicine.type} onValueChange={v => setNewMedicine({...newMedicine, type: v})}>
+                            <SelectTrigger className="rounded-xl">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Medicine">Medicine</SelectItem>
+                              <SelectItem value="Vaccine">Vaccine</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="medQty">Quantity</Label>
+                          <Input id="medQty" type="number" required value={newMedicine.quantity} onChange={e => setNewMedicine({...newMedicine, quantity: e.target.value})} placeholder="0" className="rounded-xl" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="medUnit">Unit</Label>
+                          <Select value={newMedicine.unit} onValueChange={v => setNewMedicine({...newMedicine, unit: v})}>
+                            <SelectTrigger className="rounded-xl">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="ml">ml</SelectItem>
+                              <SelectItem value="g">g</SelectItem>
+                              <SelectItem value="vial">vial</SelectItem>
+                              <SelectItem value="tablet">tablet</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="medExpiry">Expiry Date</Label>
+                          <Input id="medExpiry" type="date" value={newMedicine.expiryDate} onChange={e => setNewMedicine({...newMedicine, expiryDate: e.target.value})} className="rounded-xl" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="medCost">Purchase Cost (Optional)</Label>
+                          <Input id="medCost" type="number" value={newMedicine.purchaseCost} onChange={e => setNewMedicine({...newMedicine, purchaseCost: e.target.value})} placeholder="0" className="rounded-xl" />
+                          {Number(newMedicine.purchaseCost) > 0 && Number(newMedicine.quantity) > 0 && (
+                            <p className="text-[10px] font-bold text-emerald-600 ml-1">
+                              Auto-calculated: ₹{(Number(newMedicine.purchaseCost) / Number(newMedicine.quantity)).toFixed(2)} per {newMedicine.unit}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 rounded-xl py-6" disabled={loading}>
+                        <Plus className="mr-2" size={20} />
+                        Add to Medicine Stock
+                      </Button>
+                    </form>
 
-                <div className="mt-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-slate-700 mb-4">Current Feed Stock</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {Object.values(feedStock.reduce((acc: any, item) => {
-                        const key = `${item.name}-${item.type}`;
-                        if (!acc[key]) {
-                          acc[key] = { ...item, quantity: 0, ids: [], lastEntry: item.createdAt };
-                        }
-                        acc[key].quantity += Number(item.quantity) || 0;
-                        acc[key].ids.push(item.id);
-                        if (item.createdAt && (!acc[key].lastEntry || new Date(item.createdAt) > new Date(acc[key].lastEntry))) {
-                          acc[key].lastEntry = item.createdAt;
-                        }
-                        return acc;
-                      }, {})).map((item: any) => (
-                        <div key={`${item.name}-${item.type}`} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center border border-slate-100">
-                          <div>
-                            <p className="font-bold text-slate-800">{item.name}</p>
-                            <div className="flex items-center gap-2">
-                              <p className="text-xs text-slate-500">{item.type}</p>
-                              {item.lastEntry && (
-                                <>
+                    <div className="mt-8 space-y-6">
+                      <div>
+                        <h3 className="font-bold text-slate-700 mb-4">Current Medicine Stock</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {medicineStock.map(item => (
+                            <div key={item.id} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center border border-slate-100">
+                              <div>
+                                <p className="font-bold text-slate-800">{item.name}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs text-slate-500">{item.type}</p>
                                   <span className="text-[10px] text-slate-400">•</span>
                                   <p className="text-[10px] text-slate-400">
-                                    Last: {(() => {
+                                    {(() => {
                                       try {
-                                        return format(new Date(item.lastEntry), 'dd MMM');
+                                        return item.createdAt ? format(new Date(item.createdAt), 'dd MMM yyyy') : 'N/A';
                                       } catch (e) {
                                         return 'N/A';
                                       }
                                     })()}
                                   </p>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <div className="text-right">
-                              <p className="font-bold text-amber-600">{item.quantity} kg</p>
-                              {item.purchaseCost > 0 && (
-                                <p className="text-[10px] text-slate-500">
-                                  ₹{item.purchaseCost} (₹{item.unitPrice ? item.unitPrice.toFixed(2) : (item.initialQuantity ? (item.purchaseCost / item.initialQuantity).toFixed(2) : 0)}/kg)
-                                </p>
-                              )}
-                              <p className="text-[10px] text-slate-400">Total Available</p>
-                            </div>
-                            <div className="flex gap-1">
-                              {item.ids.map((id: string) => (
-                                <Button key={id} variant="ghost" size="icon" onClick={() => handleDeleteFeedStock(id)} className="h-8 w-8 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50">
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                  <p className="font-bold text-indigo-600">{item.quantity} {item.unit}</p>
+                                  {item.purchaseCost > 0 && (
+                                    <p className="text-[10px] text-slate-500">
+                                      ₹{item.purchaseCost} (₹{item.unitPrice ? item.unitPrice.toFixed(2) : (item.initialQuantity ? (item.purchaseCost / item.initialQuantity).toFixed(2) : 0)}/{item.unit})
+                                    </p>
+                                  )}
+                                  {item.expiryDate && <p className="text-[10px] text-red-500">Exp: {item.expiryDate}</p>}
+                                </div>
+                                <Button variant="ghost" size="icon" onClick={() => handleDeleteMedicineStock(item.id)} className="h-8 w-8 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50">
                                   <Trash2 size={14} />
                                 </Button>
-                              ))}
+                              </div>
                             </div>
-                          </div>
+                          ))}
+                          {medicineStock.length === 0 && <p className="text-sm text-slate-400">No stock recorded</p>}
                         </div>
-                      ))}
-                      {feedStock.length === 0 && <p className="text-sm text-slate-400">No stock recorded</p>}
-                    </div>
-                  </div>
+                      </div>
 
-                  <div>
-                    <h3 className="font-bold text-slate-700 mb-4">Feed Stock History (Additions & Deductions)</h3>
-                    <div className="space-y-2">
-                      {[
-                        ...feedStock.map(item => ({
-                          id: item.id,
-                          type: 'addition',
-                          name: item.name,
-                          feedType: item.type,
-                          quantity: item.quantity,
-                          date: item.createdAt || new Date().toISOString(),
-                          flockName: 'Stock Entry'
-                        })),
-                        ...logs
-                          .filter(log => Number(log.consumption?.feedIntake) > 0)
-                          .map(log => {
-                            const flock = flocks.find(f => f.id === log.flockId);
-                            return {
-                              id: log.id,
-                              type: 'deduction',
-                              name: log.consumption.feedType,
-                              feedType: log.consumption.feedType,
-                              quantity: log.consumption.feedIntake,
-                              date: log.date,
-                              flockName: flock?.name || 'Unknown Batch'
-                            };
-                          })
-                      ]
-                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                        .slice(0, 15)
-                        .map((entry, idx) => (
-                          <div key={`${entry.id}-${idx}`} className={`p-3 rounded-xl flex justify-between items-center border ${entry.type === 'addition' ? 'bg-emerald-50/50 border-emerald-100/50' : 'bg-red-50/50 border-red-100/50'}`}>
-                            <div className="flex items-center gap-3">
-                              <div className={`p-2 rounded-lg ${entry.type === 'addition' ? 'bg-emerald-100' : 'bg-red-100'}`}>
-                                {entry.type === 'addition' ? (
-                                  <Plus className="text-emerald-600" size={16} />
-                                ) : (
-                                  <ArrowDownRight className="text-red-600" size={16} />
-                                )}
-                              </div>
-                              <div>
-                                <p className="text-sm font-semibold text-slate-800">{entry.name}</p>
-                                <p className="text-xs text-slate-500">
-                                  {format(new Date(entry.date), 'dd MMM yyyy')} • {entry.flockName}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className={`font-bold ${entry.type === 'addition' ? 'text-emerald-600' : 'text-red-600'}`}>
-                                {entry.type === 'addition' ? '+' : '-'}{entry.quantity} kg
-                              </p>
-                              <p className="text-[10px] text-slate-400">{entry.type === 'addition' ? 'Added' : 'Deducted'}</p>
-                            </div>
-                          </div>
-                        ))}
-                      {feedStock.length === 0 && logs.filter(log => Number(log.consumption?.feedIntake) > 0).length === 0 && (
-                        <p className="text-sm text-slate-400">No history recorded yet</p>
-                      )}
+                      <div>
+                        <h3 className="font-bold text-slate-700 mb-4">Recent Medicine Use Data</h3>
+                        <div className="space-y-2">
+                          {logs
+                            .filter(log => log.health?.medicines || log.health?.vaccines)
+                            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                            .slice(0, 10)
+                            .map(log => {
+                              const flock = flocks.find(f => f.id === log.flockId);
+                              return (
+                                <div key={log.id} className="p-3 bg-indigo-50/50 rounded-xl flex justify-between items-center border border-indigo-100/50">
+                                  <div className="flex items-center gap-3">
+                                    <div className="bg-indigo-100 p-2 rounded-lg">
+                                      <Pill className="text-indigo-600" size={16} />
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-semibold text-slate-800">
+                                        {log.health.medicines || log.health.vaccines}
+                                        {(log.health.medicineDoses || log.health.vaccineDoses) && (
+                                          <span className="ml-2 text-xs font-normal text-slate-500">
+                                            ({log.health.medicineDoses || log.health.vaccineDoses} doses)
+                                          </span>
+                                        )}
+                                      </p>
+                                      <p className="text-xs text-slate-500">
+                                        {(() => {
+                                          try {
+                                            return format(new Date(log.date), 'dd MMM yyyy');
+                                          } catch (e) {
+                                            return 'N/A';
+                                          }
+                                        })()} • {flock?.name || 'Unknown Batch'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-xs font-medium text-indigo-600">Applied</p>
+                                    <p className="text-[10px] text-slate-400">Daily Health Record</p>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          {logs.filter(log => log.health?.medicines || log.health?.vaccines).length === 0 && (
+                            <p className="text-sm text-slate-400">No medicine usage recorded yet</p>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  </>
+                ) : (
+                  <>
+                    <form onSubmit={handleSaveFeedStock} className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="feedName">Feed Name/Brand</Label>
+                          <Input id="feedName" required value={newFeed.name} onChange={e => setNewFeed({...newFeed, name: e.target.value})} placeholder="e.g. Godrej Starter" className="rounded-xl" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="feedType">Feed Type</Label>
+                          <Select value={newFeed.type} onValueChange={v => setNewFeed({...newFeed, type: v})}>
+                            <SelectTrigger className="rounded-xl">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Pre-Starter">Pre-Starter</SelectItem>
+                              <SelectItem value="Starter">Starter</SelectItem>
+                              <SelectItem value="Grower">Grower</SelectItem>
+                              <SelectItem value="Finisher">Finisher</SelectItem>
+                              <SelectItem value="Layer Mash">Layer Mash</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="feedQty">Quantity (kg)</Label>
+                          <Input id="feedQty" type="number" required value={newFeed.quantity} onChange={e => setNewFeed({...newFeed, quantity: e.target.value})} placeholder="0" className="rounded-xl" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="purchaseCost">Purchase Cost (Optional)</Label>
+                          <Input id="purchaseCost" type="number" value={newFeed.purchaseCost} onChange={e => setNewFeed({...newFeed, purchaseCost: e.target.value})} placeholder="0" className="rounded-xl" />
+                          {Number(newFeed.purchaseCost) > 0 && Number(newFeed.quantity) > 0 && (
+                            <p className="text-[10px] font-bold text-emerald-600 ml-1">
+                              Auto-calculated: ₹{(Number(newFeed.purchaseCost) / Number(newFeed.quantity)).toFixed(2)} per kg
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <Button type="submit" className="w-full bg-amber-600 hover:bg-amber-700 rounded-xl py-6" disabled={loading}>
+                        <Plus className="mr-2" size={20} />
+                        Add to Feed Stock
+                      </Button>
+                    </form>
+
+                    <div className="mt-8 space-y-6">
+                      <div>
+                        <h3 className="font-bold text-slate-700 mb-4">Current Feed Stock</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {Object.values(feedStock.reduce((acc: any, item) => {
+                            const key = `${item.name}-${item.type}`;
+                            if (!acc[key]) {
+                              acc[key] = { ...item, quantity: 0, ids: [], lastEntry: item.createdAt };
+                            }
+                            acc[key].quantity += Number(item.quantity) || 0;
+                            acc[key].ids.push(item.id);
+                            if (item.createdAt && (!acc[key].lastEntry || new Date(item.createdAt) > new Date(acc[key].lastEntry))) {
+                              acc[key].lastEntry = item.createdAt;
+                            }
+                            return acc;
+                          }, {})).map((item: any) => (
+                            <div key={`${item.name}-${item.type}`} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center border border-slate-100">
+                              <div>
+                                <p className="font-bold text-slate-800">{item.name}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs text-slate-500">{item.type}</p>
+                                  {item.lastEntry && (
+                                    <>
+                                      <span className="text-[10px] text-slate-400">•</span>
+                                      <p className="text-[10px] text-slate-400">
+                                        Last: {(() => {
+                                          try {
+                                            return format(new Date(item.lastEntry), 'dd MMM');
+                                          } catch (e) {
+                                            return 'N/A';
+                                          }
+                                        })()}
+                                      </p>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                  <p className="font-bold text-amber-600">{item.quantity} kg</p>
+                                  {item.purchaseCost > 0 && (
+                                    <p className="text-[10px] text-slate-500">
+                                      ₹{item.purchaseCost} (₹{item.unitPrice ? item.unitPrice.toFixed(2) : (item.initialQuantity ? (item.purchaseCost / item.initialQuantity).toFixed(2) : 0)}/kg)
+                                    </p>
+                                  )}
+                                  <p className="text-[10px] text-slate-400">Total Available</p>
+                                </div>
+                                <div className="flex gap-1">
+                                  {item.ids.map((id: string) => (
+                                    <Button key={id} variant="ghost" size="icon" onClick={() => handleDeleteFeedStock(id)} className="h-8 w-8 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50">
+                                      <Trash2 size={14} />
+                                    </Button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {feedStock.length === 0 && <p className="text-sm text-slate-400">No stock recorded</p>}
+                        </div>
+                      </div>
+
+                      <div>
+                        <h3 className="font-bold text-slate-700 mb-4">Feed Stock History (Additions & Deductions)</h3>
+                        <div className="space-y-2">
+                          {[
+                            ...feedStock.map(item => ({
+                              id: item.id,
+                              type: 'addition',
+                              name: item.name,
+                              feedType: item.type,
+                              quantity: item.quantity,
+                              date: item.createdAt || new Date().toISOString(),
+                              flockName: 'Stock Entry'
+                            })),
+                            ...logs
+                              .filter(log => Number(log.consumption?.feedIntake) > 0)
+                              .map(log => {
+                                const flock = flocks.find(f => f.id === log.flockId);
+                                return {
+                                  id: log.id,
+                                  type: 'deduction',
+                                  name: log.consumption.feedType,
+                                  feedType: log.consumption.feedType,
+                                  quantity: log.consumption.feedIntake,
+                                  date: log.date,
+                                  flockName: flock?.name || 'Unknown Batch'
+                                };
+                              })
+                          ]
+                            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                            .slice(0, 15)
+                            .map((entry, idx) => (
+                              <div key={`${entry.id}-${idx}`} className={`p-3 rounded-xl flex justify-between items-center border ${entry.type === 'addition' ? 'bg-emerald-50/50 border-emerald-100/50' : 'bg-red-50/50 border-red-100/50'}`}>
+                                <div className="flex items-center gap-3">
+                                  <div className={`p-2 rounded-lg ${entry.type === 'addition' ? 'bg-emerald-100' : 'bg-red-100'}`}>
+                                    {entry.type === 'addition' ? (
+                                      <Plus className="text-emerald-600" size={16} />
+                                    ) : (
+                                      <ArrowDownRight className="text-red-600" size={16} />
+                                    )}
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-semibold text-slate-800">{entry.name}</p>
+                                    <p className="text-xs text-slate-500">
+                                      {format(new Date(entry.date), 'dd MMM yyyy')} • {entry.flockName}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className={`font-bold ${entry.type === 'addition' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                    {entry.type === 'addition' ? '+' : '-'}{entry.quantity} kg
+                                  </p>
+                                  <p className="text-[10px] text-slate-400">{entry.type === 'addition' ? 'Added' : 'Deducted'}</p>
+                                </div>
+                              </div>
+                            ))}
+                          {feedStock.length === 0 && logs.filter(log => Number(log.consumption?.feedIntake) > 0).length === 0 && (
+                            <p className="text-sm text-slate-400">No history recorded yet</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           )}

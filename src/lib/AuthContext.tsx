@@ -31,6 +31,8 @@ interface UserProfile {
   farmType?: string;
   scheduleDisplayDays?: number;
   savedAddresses?: any[];
+  walletBalance?: number;
+  rewardBalance?: number;
 }
 
 interface AuthContextType {

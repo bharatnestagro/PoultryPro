@@ -87,6 +87,42 @@ service cloud.firestore {
              data.watchTime is number;
     }
 
+    function isValidChallengePlan(data) {
+      return data.keys().hasAll(['title', 'cost', 'durationDays', 'dailyReward']) &&
+             data.title is string && data.title.size() > 0 &&
+             data.cost is number && data.cost >= 0 &&
+             data.durationDays is number && data.durationDays > 0 &&
+             data.dailyReward is number && data.dailyReward >= 0;
+    }
+
+    function isValidUserChallenge(data) {
+      return data.keys().hasAll(['userId', 'challengeId', 'startDate', 'status']) &&
+             data.userId == request.auth.uid &&
+             data.challengeId is string &&
+             data.status in ['Active', 'Completed', 'Failed'];
+    }
+
+    function isValidShopCategory(data) {
+      return data.keys().hasAll(['name', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 128;
+    }
+
+    function isValidShopItem(data) {
+      return data.keys().hasAll(['name', 'category', 'price', 'unit']) &&
+             data.name is string && data.name.size() > 0 &&
+             data.category is string &&
+             data.price is number && data.price >= 0 &&
+             data.unit is string;
+    }
+
+    function isValidWalletTransaction(data) {
+      return data.keys().hasAll(['userId', 'amount', 'type', 'source', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.amount is number &&
+             data.type in ['Credit', 'Debit'] &&
+             data.source in ['Challenge Reward', 'Bonus', 'Withdrawal', 'Order Payment'];
+    }
+
     // ===============================================================
     // Rules (Pillar 1: Master Gate)
     // ===============================================================
@@ -177,20 +213,33 @@ service cloud.firestore {
 
     // 6. Shop & Orders
     match /shopItems/{itemId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow get: if isSignedIn() && isValidId(itemId);
+      allow list: if isSignedIn();
+      allow create: if isAdmin() && isValidId(itemId) && isValidShopItem(incoming());
+      allow update: if isAdmin() && isValidId(itemId) && isValidShopItem(incoming());
+      allow delete: if isAdmin() && isValidId(itemId);
+    }
+
+    match /shopCategories/{categoryId} {
+      allow get: if isSignedIn() && isValidId(categoryId);
+      allow list: if isSignedIn();
+      allow create: if isAdmin() && isValidId(categoryId) && isValidShopCategory(incoming());
+      allow update: if (isAdmin() || (isManager() && incoming().diff(existing()).affectedKeys().hasOnly(['imageUrl', 'description']))) && isValidId(categoryId) && isValidShopCategory(incoming());
+      allow delete: if isAdmin() && isValidId(categoryId);
     }
 
     match /orders/{orderId} {
-      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow get: if (isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid)) && isValidId(orderId);
       allow list: if isAdmin() || isManager() || (isSignedIn());
-      allow create: if isSignedIn();
-      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow delete: if isAdmin();
+      allow create: if isSignedIn() && isValidId(orderId);
+      allow update: if (isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid)) && isValidId(orderId);
+      allow delete: if isAdmin() && isValidId(orderId);
     }
 
     match /carts/{userId} {
-      allow read, write: if isSignedIn() && (userId == request.auth.uid || isAdmin() || isManager());
+      allow get: if (isSignedIn() && (userId == request.auth.uid || isAdmin() || isManager())) && isValidId(userId);
+      allow list: if (isAdmin() || isManager());
+      allow write: if isSignedIn() && (userId == request.auth.uid || isAdmin() || isManager()) && isValidId(userId);
     }
 
     // 7. System & Settings
@@ -317,6 +366,30 @@ service cloud.firestore {
     match /alertRules/{ruleId} {
       allow read: if isAdmin() || isManager();
       allow write: if isAdmin();
+    }
+
+    // 16. Challenges & Wallet
+    match /challengePlans/{planId} {
+      allow read: if isSignedIn();
+      allow create: if (isAdmin() || isManager()) && isValidChallengePlan(incoming());
+      allow update: if (isAdmin() || isManager()) && isValidChallengePlan(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /userChallenges/{participationId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidUserChallenge(incoming());
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /walletTransactions/{transactionId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidWalletTransaction(incoming());
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
   }
 }

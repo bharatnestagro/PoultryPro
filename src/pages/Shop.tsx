@@ -32,9 +32,11 @@ import {
   History, 
   RotateCcw,
   CheckCircle2,
-  Truck
+  Truck,
+  Wallet
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from '@/components/ui/sheet';
+import { Switch } from '@/components/ui/switch';
 import { motion, AnimatePresence } from 'motion/react';
 
 const Shop: React.FC = () => {
@@ -42,6 +44,7 @@ const Shop: React.FC = () => {
   const { isSidebarOpen } = useOutletContext<{ isSidebarOpen: boolean }>();
   const navigate = useNavigate();
   const [items, setItems] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([{ id: 'All', name: 'All', icon: <LayoutGrid size={18} /> }]);
   const [loading, setLoading] = useState(true);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [countdown, setCountdown] = useState(3);
@@ -83,15 +86,7 @@ const Shop: React.FC = () => {
 
   const [isCartLoaded, setIsCartLoaded] = useState(false);
 
-  // Categories based on specs
-  const categories = [
-    { id: 'All', name: 'All', icon: <LayoutGrid size={18} /> },
-    { id: 'Feed', name: 'Feed', icon: <Wheat size={18} /> },
-    { id: 'Medicine', name: 'Medicine', icon: <Plus size={18} /> },
-    { id: 'Chicks', name: 'Chicks', icon: <Bird size={18} /> },
-    { id: 'Equipment', name: 'Equipments', icon: <Wrench size={18} /> },
-    { id: 'Other', name: 'Other', icon: <ShoppingBag size={18} /> },
-  ];
+  // Categories will be fetched from Firestore
 
   useEffect(() => {
     const q = query(collection(db, 'shopItems'), orderBy('createdAt', 'desc'));
@@ -103,7 +98,22 @@ const Shop: React.FC = () => {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    const qCats = query(collection(db, 'shopCategories'), orderBy('name', 'asc'));
+    const unsubscribeCats = onSnapshot(qCats, (snapshot) => {
+      const dbCats = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        name: doc.data().name, 
+        iconUrl: doc.data().imageUrl 
+      }));
+      setCategories([{ id: 'All', name: 'All', icon: <LayoutGrid size={18} /> }, ...dbCats]);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'shopCategories');
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeCats();
+    };
   }, []);
 
   useEffect(() => {
@@ -179,6 +189,12 @@ const Shop: React.FC = () => {
   };
 
   const [cartTotal, setCartTotal] = useState(0);
+  const [useWallet, setUseWallet] = useState(false);
+  const walletAmount = useMemo(() => {
+    const totalBalance = (profile?.walletBalance || 0) + (profile?.rewardBalance || 0);
+    if (!useWallet || totalBalance <= 0) return 0;
+    return Math.min(totalBalance, cartTotal);
+  }, [useWallet, profile?.walletBalance, profile?.rewardBalance, cartTotal]);
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'Online'>('COD');
   const [systemSettings, setSystemSettings] = useState<any>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -232,7 +248,15 @@ const Shop: React.FC = () => {
     }
 
     try {
-      await addDoc(collection(db, 'orders'), {
+      const { writeBatch, Timestamp, doc } = await import('firebase/firestore');
+      const batch = writeBatch(db);
+      
+      const orderId = `${Date.now()}`;
+      const orderRef = doc(db, 'orders', orderId);
+      
+      const finalAmount = cartTotal - (useWallet ? walletAmount : 0);
+
+      batch.set(orderRef, {
         userId: user.uid,
         userName: profile?.name || 'Customer',
         userMobile: profile?.mobile || address?.mobile || '',
@@ -246,6 +270,8 @@ const Shop: React.FC = () => {
         })),
         status: 'Received',
         totalAmount: cartTotal,
+        walletDiscount: useWallet ? walletAmount : 0,
+        paidAmount: finalAmount,
         deliveryAddress: address || null,
         paymentMethod: method === 'COD' ? 'Cash on Delivery' : 'Online Payment',
         paymentStatus: method === 'Online' ? 'Paid' : 'Pending',
@@ -253,7 +279,44 @@ const Shop: React.FC = () => {
         assignedManagerId: profile?.assignedManagerId || '',
         date: new Date().toISOString()
       });
+
+      // Update Wallet if used
+      if (useWallet && walletAmount > 0) {
+        const userRef = doc(db, 'users', user.uid);
+        let remainingToDeduct = walletAmount;
+        const currentReward = profile?.rewardBalance || 0;
+        const currentMain = profile?.walletBalance || 0;
+
+        let newReward = currentReward;
+        let newMain = currentMain;
+
+        if (currentReward >= remainingToDeduct) {
+          newReward -= remainingToDeduct;
+          remainingToDeduct = 0;
+        } else {
+          remainingToDeduct -= currentReward;
+          newReward = 0;
+          newMain -= remainingToDeduct;
+        }
+
+        batch.update(userRef, {
+          walletBalance: newMain,
+          rewardBalance: newReward
+        });
+
+        const walletTransId = `WITHDRAW-${Date.now()}`;
+        batch.set(doc(db, 'walletTransactions', walletTransId), {
+          userId: user.uid,
+          amount: -walletAmount,
+          type: 'Debit',
+          source: 'Order Payment',
+          description: `Used for Order: ${orderId}`,
+          referenceId: orderId,
+          createdAt: Timestamp.now()
+        });
+      }
       
+      await batch.commit();
       toast.success('Order placed successfully!');
       setCart([]);
       setIsCartOpen(false);
@@ -587,12 +650,34 @@ const Shop: React.FC = () => {
                       <span className="text-slate-500">Delivery</span>
                       <span className="text-emerald-600 font-bold">FREE</span>
                     </div>
-                    <div className="pt-2 border-t flex justify-between items-center">
-                      <span className="font-bold text-lg">Total</span>
-                      <span className="text-xl font-bold text-emerald-600 flex items-center">
-                        <IndianRupee size={18} />
-                        {cartTotal.toLocaleString()}
-                      </span>
+                    <div className="pt-2 border-t space-y-2">
+                       {profile?.walletBalance !== undefined && (profile.walletBalance > 0 || profile.rewardBalance > 0) && (
+                        <div className={`p-3 rounded-xl border flex items-center justify-between transition-colors ${useWallet ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-100 opacity-60 hover:opacity-100'}`} onClick={() => setUseWallet(!useWallet)}>
+                           <div className="flex items-center gap-2">
+                              <Wallet className={`h-4 w-4 ${useWallet ? 'text-emerald-600' : 'text-slate-400'}`} />
+                              <div className="text-left">
+                                 <p className="text-[10px] font-black italic uppercase text-slate-700">Use Wallet Balance</p>
+                                 <p className="text-[9px] font-bold italic text-slate-400">Available: ₹{profile.walletBalance}</p>
+                              </div>
+                           </div>
+                           <Switch checked={useWallet} onCheckedChange={setUseWallet} className="scale-75 data-[state=checked]:bg-emerald-600" />
+                        </div>
+                       )}
+
+                       {useWallet && walletAmount > 0 && (
+                        <div className="flex justify-between text-sm text-emerald-600 italic font-bold">
+                           <span>Wallet Discount</span>
+                           <span>- ₹{walletAmount.toLocaleString()}</span>
+                        </div>
+                       )}
+
+                      <div className="flex justify-between items-center pt-2">
+                        <span className="font-bold text-lg">Total</span>
+                        <span className="text-xl font-bold text-emerald-600 flex items-center">
+                          <IndianRupee size={18} />
+                          {(cartTotal - walletAmount).toLocaleString()}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   
@@ -655,17 +740,21 @@ const Shop: React.FC = () => {
               {categories.map(cat => (
                 <button
                   key={cat.id}
-                  onClick={() => setCategoryFilter(cat.id)}
+                  onClick={() => setCategoryFilter(cat.name)}
                   className={`flex flex-col items-center gap-2 min-w-[70px] p-2 rounded-2xl transition-all ${
-                    categoryFilter === cat.id ? 'bg-emerald-50 text-emerald-600' : 'text-slate-500'
+                    categoryFilter === cat.name ? 'bg-emerald-50 text-emerald-600' : 'text-slate-500'
                   }`}
                 >
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all ${
-                    categoryFilter === cat.id ? 'border-emerald-500 bg-emerald-100' : 'border-slate-100 bg-slate-50'
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all overflow-hidden ${
+                    categoryFilter === cat.name ? 'border-emerald-500 bg-emerald-100' : 'border-slate-100 bg-slate-50'
                   }`}>
-                    {cat.icon}
+                    {cat.iconUrl ? (
+                      <img src={cat.iconUrl} alt={cat.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      cat.icon || <Package size={18} />
+                    )}
                   </div>
-                  <span className="text-[10px] font-bold">{cat.name}</span>
+                  <span className="text-[10px] font-bold truncate max-w-[64px]">{cat.name}</span>
                 </button>
               ))}
             </div>
@@ -752,14 +841,42 @@ const Shop: React.FC = () => {
               animate={{ opacity: 1, x: 0 }}
               className="pb-32"
             >
-              <div className="relative aspect-square bg-slate-50 flex items-center justify-center">
-                <img src={fixImageUrl(selectedItem.imageUrl)} alt={selectedItem.name} className="w-full h-full object-contain p-8" />
+              <div className="relative aspect-square bg-slate-50">
+                <AnimatePresence mode="wait">
+                  <motion.img 
+                    key={selectedItem.currentImageUrl || selectedItem.imageUrl}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    src={fixImageUrl(selectedItem.currentImageUrl || selectedItem.imageUrl)} 
+                    alt={selectedItem.name} 
+                    className="w-full h-full object-contain p-8" 
+                    referrerPolicy="no-referrer"
+                  />
+                </AnimatePresence>
                 <button 
-                  className="absolute top-4 left-4 bg-white/80 backdrop-blur-md p-2 rounded-full shadow-lg" 
+                  className="absolute top-4 left-4 bg-white/80 backdrop-blur-md p-2 rounded-full shadow-lg z-10" 
                   onClick={() => setCurrentView('catalog')}
                 >
                   <ChevronRight size={24} className="rotate-180" />
                 </button>
+
+                {/* Multiple Images Indicator/Thumbnails */}
+                {selectedItem.imageUrls && selectedItem.imageUrls.length > 1 && (
+                  <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-2 px-4 overflow-x-auto no-scrollbar pb-1">
+                    {selectedItem.imageUrls.map((url: string, i: number) => (
+                      <button 
+                        key={i}
+                        className={`w-12 h-12 rounded-xl border-2 transition-all overflow-hidden flex-shrink-0 ${
+                          (selectedItem.currentImageUrl || selectedItem.imageUrl) === url ? 'border-emerald-500 bg-white' : 'border-white/50 bg-white/50'
+                        }`}
+                        onClick={() => setSelectedItem({...selectedItem, currentImageUrl: url})}
+                      >
+                        <img src={fixImageUrl(url)} alt={`View ${i}`} className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="p-6 space-y-6">

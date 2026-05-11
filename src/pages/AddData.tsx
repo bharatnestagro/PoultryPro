@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { collection, query, where, onSnapshot, addDoc, doc, updateDoc, getDoc, getDocs, deleteDoc, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, doc, updateDoc, getDoc, getDocs, deleteDoc, orderBy, limit, writeBatch, Timestamp } from 'firebase/firestore';
 import { db } from '@/src/lib/firebase';
 import { useAuth } from '@/src/lib/AuthContext';
 import { handleFirestoreError, OperationType } from '@/src/lib/errorHandlers';
@@ -1619,6 +1619,57 @@ const AddData: React.FC = () => {
           currentCount: Math.max(0, (Number(currentFlock.currentCount) || 0) - (mortalityValue + cullingValue)),
           daysCount: (Number(currentFlock.daysCount) || 0) + 1
         });
+
+        // 4.1 Update Challenge Progress
+        try {
+          const today = format(new Date(), 'yyyy-MM-dd');
+          const qChallenges = query(collection(db, 'userChallenges'), where('userId', '==', user.uid), where('status', '==', 'Active'));
+          const snapChallenges = await getDocs(qChallenges);
+          
+          if (!snapChallenges.empty) {
+            const batch = writeBatch(db);
+            const userRef = doc(db, 'users', user.uid);
+            
+            for (const challengeDoc of snapChallenges.docs) {
+              const ucData = challengeDoc.data();
+              const dailyEntries = ucData.dailyEntries || {};
+              
+              if (!dailyEntries[today]) {
+                const planSnap = await getDoc(doc(db, 'challengePlans', ucData.challengeId));
+                if (planSnap.exists()) {
+                  const plan = planSnap.data();
+                  const reward = plan.dailyReward || 30;
+                  
+                  // Update participation
+                  batch.update(challengeDoc.ref, {
+                    [`dailyEntries.${today}`]: true,
+                    totalEarned: (ucData.totalEarned || 0) + reward
+                  });
+                  
+                  // Credit Reward Wallet
+                  batch.update(userRef, {
+                    rewardBalance: (profile?.rewardBalance || 0) + reward
+                  });
+                  
+                  // Log Transaction
+                  const transId = `REWARD-${Date.now()}`;
+                  batch.set(doc(db, 'walletTransactions', transId), {
+                    userId: user.uid,
+                    amount: reward,
+                    type: 'Credit',
+                    source: 'Challenge Reward',
+                    description: `Daily Reward: ${plan.title}`,
+                    referenceId: challengeDoc.id,
+                    createdAt: Timestamp.now()
+                  });
+                }
+              }
+            }
+            await batch.commit();
+          }
+        } catch (challengeErr) {
+          console.error("Challenge update error:", challengeErr);
+        }
 
         toast.success(`Daily log saved successfully for Batch: ${currentFlock.name}`);
         setDailyLog({

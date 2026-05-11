@@ -15,6 +15,8 @@
         "farmArea": { "type": "number", "description": "In acres" },
         "birdCapacity": { "type": "number" },
         "farmType": { "type": "string", "enum": ["Gavthi Farm", "Sonali Farm", "Broiler Farm", "Layer Farm"] },
+        "walletBalance": { "type": "number", "description": "Current balance in farmer's main wallet (deposited)" },
+        "rewardBalance": { "type": "number", "description": "Balance earned from challenges" },
         "savedAddresses": {
           "type": "array",
           "items": {
@@ -38,6 +40,57 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "name", "email", "role"]
+    },
+    "ChallengePlan": {
+      "title": "Challenge Plan",
+      "description": "A challenge plan created by admin for farmers",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "cost": { "type": "number", "description": "Entrance fee for the challenge" },
+        "durationDays": { "type": "number", "description": "Total days of challenge (e.g., 90)" },
+        "dailyReward": { "type": "number", "description": "Reward amount per successful daily entry" },
+        "penaltyRule": { "type": "string", "description": "Rule description (e.g., miss 1 day in week, lose full week reward)" },
+        "minWithdrawalPerOrder": { "type": "number", "description": "Minimum wallet balance usage on a single order" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "cost", "durationDays", "dailyReward"]
+    },
+    "UserChallenge": {
+      "title": "User Challenge Participation",
+      "description": "Progress of a farmer in a challenge",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "challengeId": { "type": "string" },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["Active", "Completed", "Failed"] },
+        "dailyEntries": { 
+          "type": "object", 
+          "description": "Map of date string to boolean indicating if entry was made" 
+        },
+        "totalEarned": { "type": "number" },
+        "lastProcessedDate": { "type": "string", "format": "date" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "challengeId", "startDate", "status"]
+    },
+    "WalletTransaction": {
+      "title": "Wallet Transaction",
+      "description": "Credit or debit record for farmer's wallet",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "amount": { "type": "number", "description": "Positive for credit, negative for debit" },
+        "type": { "type": "string", "enum": ["Credit", "Debit"] },
+        "source": { "type": "string", "enum": ["Challenge Reward", "Bonus", "Withdrawal", "Order Payment"] },
+        "referenceId": { "type": "string", "description": "ID of related order or challenge record" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "type", "source", "createdAt"]
     },
     "Flock": {
       "title": "Bird Flock",
@@ -252,6 +305,18 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "category", "price", "unit"]
+    },
+    "ShopCategory": {
+      "title": "Shop Category",
+      "description": "Product categories for the shop",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "createdAt"]
     },
     "Cart": {
       "title": "User Cart",
@@ -539,6 +604,10 @@
       "schema": "ShopItem",
       "description": "Products for sale"
     },
+    "/shopCategories/{categoryId}": {
+      "schema": "ShopCategory",
+      "description": "Product categories for the marketplace"
+    },
     "/carts/{userId}": {
       "schema": "Cart",
       "description": "Active shopping carts"
@@ -558,6 +627,18 @@
     "/systemAlerts/{alertId}": {
       "schema": "SystemAlert",
       "description": "Smart alerts for farmers"
+    },
+    "/challengePlans/{planId}": {
+      "schema": "ChallengePlan",
+      "description": "Admin defined challenge plans"
+    },
+    "/userChallenges/{participationId}": {
+      "schema": "UserChallenge",
+      "description": "Farmer challenge progress records"
+    },
+    "/walletTransactions/{transactionId}": {
+      "schema": "WalletTransaction",
+      "description": "Wallet transaction history"
     }
   }
 }

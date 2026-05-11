@@ -9,8 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { User, LogOut, Save, Building2, MapPin, Maximize2, Users, Trash2, Phone, Edit2, Plus, ShieldCheck, Key, CreditCard, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ShoppingCart, Bell, MapPinned, Database, Cloud, RefreshCw, FileText, Lock } from 'lucide-react';
+import { User, LogOut, Save, Building2, MapPin, Maximize2, Users, Trash2, Phone, Edit2, Plus, ShieldCheck, Shield, Key, CreditCard, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ShoppingCart, Bell, MapPinned, Database, Cloud, RefreshCw, FileText, Lock, Wallet, Trophy, Minus, AlertCircle, ShoppingBag } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, addDays } from 'date-fns';
@@ -46,12 +47,48 @@ const Profile: React.FC = () => {
   const [isActivating, setIsActivating] = useState(false);
   const [keyPrice, setKeyPrice] = useState<number | null>(null);
   const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
+  const [showWithdrawDialog, setShowWithdrawDialog] = useState(false);
+  const [withdrawType, setWithdrawType] = useState<'main' | 'reward'>('main');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [activePurchaseTab, setActivePurchaseTab] = useState<'plans'|'challenges'>('plans');
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [purchaseSuccess, setPurchaseSuccess] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const [selectedPlanIndex, setSelectedPlanIndex] = useState(0);
   const [systemSettings, setSystemSettings] = useState<any>(null);
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
+  const [walletTransactions, setWalletTransactions] = useState<any[]>([]);
+  const [availableChallenges, setAvailableChallenges] = useState<any[]>([]);
+  const [userChallenges, setUserChallenges] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'walletTransactions'),
+      where('userId', '==', user.uid),
+      orderBy('createdAt', 'desc'),
+      limit(20)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setWalletTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, [user]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(query(collection(db, 'challengePlans'), where('active', '==', true)), (snap) => {
+      setAvailableChallenges(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(query(collection(db, 'userChallenges'), where('userId', '==', user.uid)), (snap) => {
+      setUserChallenges(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -156,76 +193,182 @@ const Profile: React.FC = () => {
 
   const finalizePurchase = async (selectedPlan: any, transactionId: string) => {
     try {
-      const { collection, writeBatch, Timestamp, doc } = await import('firebase/firestore');
+      const { writeBatch, Timestamp, doc } = await import('firebase/firestore');
+      const batch = writeBatch(db);
+      const isChallenge = !!selectedPlan.durationDays && !!selectedPlan.dailyReward;
+      const cost = isChallenge ? (selectedPlan.cost || 0) : (selectedPlan.price || 0);
 
+      // Handle Wallet Deduction if paid via wallet
+      if (transactionId === 'WALLET_PAYMENT') {
+        const userRef = doc(db, 'users', profile?.uid);
+        let remainingToDeduct = cost;
+        const currentReward = profile?.rewardBalance || 0;
+        const currentMain = profile?.walletBalance || 0;
+
+        let newReward = currentReward;
+        let newMain = currentMain;
+
+        if (currentReward >= remainingToDeduct) {
+          newReward -= remainingToDeduct;
+          remainingToDeduct = 0;
+        } else {
+          remainingToDeduct -= currentReward;
+          newReward = 0;
+          newMain -= remainingToDeduct;
+        }
+
+        batch.update(userRef, {
+          walletBalance: newMain,
+          rewardBalance: newReward
+        });
+      }
+      
+      if (isChallenge) {
+        // Handle Challenge Purchase
+        const participationId = `${profile?.uid}_${selectedPlan.id}`;
+        batch.set(doc(db, 'userChallenges', participationId), {
+          userId: profile?.uid,
+          userName: profile?.name || 'Unknown',
+          userPhone: profile?.phone || profile?.mobile || '',
+          challengeId: selectedPlan.id,
+          challengeTitle: selectedPlan.title,
+          startDate: format(new Date(), 'yyyy-MM-dd'),
+          endDate: format(addDays(new Date(), selectedPlan.durationDays), 'yyyy-MM-dd'),
+          status: 'Active',
+          dailyEntries: {},
+          totalEarned: 0,
+          createdAt: Timestamp.now()
+        });
+
+        const transId = Date.now().toString();
+        batch.set(doc(db, 'walletTransactions', transId), {
+          userId: profile?.uid,
+          amount: -selectedPlan.cost,
+          type: 'Debit',
+          source: 'Challenge Reward',
+          description: `Participated in Challenge: ${selectedPlan.title}`,
+          referenceId: participationId,
+          createdAt: Timestamp.now()
+        });
+
+        // Add to main transactions as well
+        batch.set(doc(db, 'transactions', transId), {
+          id: transId,
+          userId: profile?.uid,
+          amount: selectedPlan.cost,
+          type: 'Expense',
+          description: `Challenge Entry Fee: ${selectedPlan.title}`,
+          date: format(new Date(), 'yyyy-MM-dd'),
+          createdAt: Timestamp.now()
+        });
+
+        toast.success(`Challenge "${selectedPlan.title}" activated!`);
+      } else {
+        // Handle License Purchase
+        const newKey = `KEY-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+        const keyRef = doc(db, 'licenseKeys', newKey);
+        batch.set(keyRef, {
+          key: newKey,
+          status: 'Active',
+          createdAt: Timestamp.now(),
+          planId: selectedPlan.id,
+          planName: selectedPlan.name,
+          validityDays: selectedPlan.days || 365,
+          price: selectedPlan.price,
+          usedBy: profile?.uid,
+          usedByEmail: profile?.email,
+          activatedAt: Timestamp.now(),
+          source: 'Online Purchase',
+          transactionId: transactionId
+        });
+
+        const transId = Date.now().toString();
+        batch.set(doc(db, 'transactions', transId), {
+          id: transId,
+          userId: profile?.uid,
+          amount: selectedPlan.price,
+          type: 'Expense',
+          description: `License Purchase: ${selectedPlan.name}`,
+          date: format(new Date(), 'yyyy-MM-dd'),
+          createdAt: Timestamp.now()
+        });
+
+        batch.update(doc(db, 'users', profile?.uid as string), {
+          licenseActive: true,
+          licenseKey: newKey,
+          licenseActivatedAt: new Date().toISOString()
+        });
+
+        toast.success(`License "${selectedPlan.name}" activated!`);
+      }
+
+      await batch.commit();
+      setShowPurchaseDialog(false);
+      setPurchaseSuccess(true);
+      setCountdown(3);
+    } catch (e: any) {
+      console.error('Finalize Purchase Error:', e);
+      toast.error(`Failed to purchase: ${e.message}`);
+    } finally {
+      setIsPurchasing(false);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    if (!profile || !withdrawAmount) return;
+    const amount = Number(withdrawAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Invalid amount');
+      return;
+    }
+
+    const balance = withdrawType === 'main' ? (profile.walletBalance || 0) : (profile.rewardBalance || 0);
+    const minLimit = withdrawType === 'main' ? 0 : (systemSettings?.minRewardWithdraw || 500);
+
+    if (amount > balance) {
+      toast.error('Insufficient balance');
+      return;
+    }
+
+    if (amount < minLimit) {
+      toast.error(`Minimum withdrawal for rewards is ₹${minLimit}`);
+      return;
+    }
+
+    try {
+      setIsPurchasing(true); // Re-using loading state
+      const { writeBatch, Timestamp, doc } = await import('firebase/firestore');
       const batch = writeBatch(db);
       
-      // Generate secure unique key
-      const newKey = `KEY-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+      const userRef = doc(db, 'users', profile.uid);
+      const transId = `WD-${Date.now()}`;
+      
+      if (withdrawType === 'main') {
+        batch.update(userRef, {
+          walletBalance: (profile.walletBalance || 0) - amount
+        });
+      } else {
+        batch.update(userRef, {
+          rewardBalance: (profile.rewardBalance || 0) - amount
+        });
+      }
 
-      // 1. Create the key directly as Active
-      const keyRef = doc(db, 'licenseKeys', newKey);
-      batch.set(keyRef, {
-        key: newKey,
-        status: 'Active',
-        assignedTo: '',
-        createdAt: Timestamp.now(),
-        // Plan info
-        planId: selectedPlan.id,
-        planName: selectedPlan.name,
-        validityDays: selectedPlan.days || selectedPlan.durationDays || 365,
-        price: selectedPlan.price,
-        // Usage info
-        usedBy: profile?.uid,
-        usedByEmail: profile?.email,
-        activatedAt: Timestamp.now(),
-        source: 'Online Purchase',
-        transactionId: transactionId
-      });
-
-      // 2. Add transaction for the purchase
-      const transId = Date.now().toString();
-      batch.set(doc(db, 'transactions', transId), {
-        id: transId,
-        farmerId: profile?.uid,
-        amount: selectedPlan.price,
-        type: 'Expense',
-        category: 'License',
-        description: `Plan Purchase: ${selectedPlan.name} (${newKey})`,
-        date: Timestamp.now(),
-        status: 'Completed',
-        transactionId: transactionId
-      });
-
-      // 3. Update user profile to activate the license
-      batch.update(doc(db, 'users', profile?.uid as string), {
-        licenseActive: true,
-        licenseKey: newKey,
-        licenseActivatedAt: new Date().toISOString()
+      batch.set(doc(db, 'walletTransactions', transId), {
+        userId: profile.uid,
+        amount: -amount,
+        type: 'Debit',
+        source: 'Withdrawal',
+        status: 'Pending', // Common in apps
+        description: `Withdrawal from ${withdrawType === 'main' ? 'Main' : 'Reward'} Wallet`,
+        createdAt: Timestamp.now()
       });
 
       await batch.commit();
-      toast.success(`${selectedPlan.name} purchased and activated successfully!`);
-      setShowPurchaseDialog(false);
-      setLicenseKeyInput('');
-
-      // Start success countdown
-      setPurchaseSuccess(true);
-      setCountdown(3);
-      const timer = setInterval(() => {
-        setCountdown(prev => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            setPurchaseSuccess(false);
-            // Just refresh data or stay here as license is now active
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+      toast.success('Withdrawal request submitted!');
+      setShowWithdrawDialog(false);
+      setWithdrawAmount('');
     } catch (e: any) {
-      console.error('Finalize Purchase Error:', e);
-      toast.error(`Failed to purchase plan: ${e.message}`);
+      toast.error('Withdrawal failed: ' + e.message);
     } finally {
       setIsPurchasing(false);
     }
@@ -233,14 +376,17 @@ const Profile: React.FC = () => {
 
   const handlePurchaseKey = async () => {
     if (!profile) return;
-    const selectedPlan = plans[selectedPlanIndex] || plans[0];
+    const selectedPlan = activePurchaseTab === 'plans' ? plans[selectedPlanIndex] : availableChallenges[selectedPlanIndex];
+    
     if (!selectedPlan) {
-      toast.error('No plan available to purchase');
+      toast.error('No selection available to purchase');
       return;
     }
+
+    const price = activePurchaseTab === 'plans' ? (selectedPlan.price || 0) : (selectedPlan.cost || 0);
     
-    if (selectedPlan.price === 0) {
-      // Free plan - bypass payment gateway
+    if (price === 0) {
+      // Free plan/challenge - bypass payment gateway
       setIsPurchasing(true);
       await finalizePurchase(selectedPlan, 'FREE_PLAN');
       return;
@@ -265,11 +411,14 @@ const Profile: React.FC = () => {
     setIsPurchasing(true);
     
     try {
+      const price = activePurchaseTab === 'plans' ? selectedPlan.price : selectedPlan.cost;
+      const description = activePurchaseTab === 'plans' ? `License Plan: ${selectedPlan.name}` : `Challenge Entry: ${selectedPlan.title}`;
+      
       // 1. Create Order on Server
       const orderRes = await fetch("/api/create-razorpay-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: selectedPlan.price })
+        body: JSON.stringify({ amount: price })
       });
       
       const orderData = await orderRes.json();
@@ -280,7 +429,7 @@ const Profile: React.FC = () => {
         amount: orderData.amount,
         currency: orderData.currency,
         name: "Bharat Nest Agro",
-        description: `License Plan: ${selectedPlan.name}`,
+        description: description,
         order_id: orderData.id,
         image: "https://ais-dev-lebhqgu6cqvssmp5inx73h-837596617831.asia-southeast1.run.app/logo.png",
         handler: function (response: any) {
@@ -442,19 +591,16 @@ const Profile: React.FC = () => {
   const [plans, setPlans] = useState<any[]>([]);
 
   useEffect(() => {
-    const fetchPlans = async () => {
-      try {
-        const d = await getDoc(doc(db, 'settings', 'licensePlans'));
-        if (d.exists() && Array.isArray(d.data().plans)) {
-          setPlans(d.data().plans);
-        } else {
-          setPlans([]);
-        }
-      } catch (e) {
-        handleFirestoreError(e, OperationType.GET, 'settings/licensePlans');
+    const unsub = onSnapshot(doc(db, 'settings', 'licensePlans'), (d) => {
+      if (d.exists() && Array.isArray(d.data().plans)) {
+        setPlans(d.data().plans);
+      } else {
+        setPlans([]);
       }
-    };
-    fetchPlans();
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'settings/licensePlans');
+    });
+    return () => unsub();
   }, []);
 
   useEffect(() => {
@@ -1101,6 +1247,155 @@ const Profile: React.FC = () => {
         )}
       </CollapsibleSection>
 
+      {/* Unified Wallet Section */}
+      <CollapsibleSection 
+        title="Wallet & Earnings" 
+        icon={Wallet} 
+        isOpen={openSection === 'wallet'} 
+        onToggle={() => toggleSection('wallet')}
+        extraHeader={
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 rounded-full border border-emerald-100">
+            <span className="text-[10px] font-black text-emerald-600 uppercase italic">₹{(profile?.walletBalance || 0) + (profile?.rewardBalance || 0)}</span>
+          </div>
+        }
+      >
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card className="p-6 rounded-[2rem] bg-indigo-600 text-white border-none shadow-lg shadow-indigo-950/20 relative overflow-hidden group">
+              <div className="relative z-10 space-y-4">
+                <div>
+                  <p className="text-[10px] font-black italic uppercase text-indigo-100 tracking-widest opacity-80">Main Wallet Balance</p>
+                  <h2 className="text-4xl font-black italic mt-1">₹{profile?.walletBalance || 0}</h2>
+                </div>
+                <div className="flex gap-2">
+                  <Button 
+                    className="flex-1 bg-white/20 hover:bg-white/30 rounded-xl h-10 font-bold italic uppercase text-[10px] backdrop-blur-md"
+                    onClick={() => {
+                      setWithdrawType('main');
+                      setShowWithdrawDialog(true);
+                    }}
+                  >
+                    Withdraw
+                  </Button>
+                  <Button 
+                    variant="link"
+                    className="text-white font-black italic uppercase text-[10px]"
+                    onClick={() => {
+                        // Trigger add cash (logic pending or via top-up)
+                        toast.info('Top-up via payment gateway');
+                    }}
+                  >
+                    + Top Up
+                  </Button>
+                </div>
+              </div>
+              <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-white/10 rounded-full blur-2xl group-hover:bg-white/20 transition-all" />
+            </Card>
+
+            <Card className="p-6 rounded-[2rem] bg-[#FACC15] text-[#122B21] border-none shadow-lg shadow-amber-950/20 relative overflow-hidden group">
+              <div className="relative z-10 space-y-4">
+                <div>
+                  <p className="text-[10px] font-black italic uppercase text-amber-900 tracking-widest opacity-80">Reward Earnings</p>
+                  <h2 className="text-4xl font-black italic mt-1">₹{profile?.rewardBalance || 0}</h2>
+                </div>
+                <div className="flex gap-2">
+                  <Button 
+                    disabled={(profile?.rewardBalance || 0) < (systemSettings?.minRewardWithdraw || 500)}
+                    className="flex-1 bg-[#122B21] hover:bg-[#1a3d2e] text-white rounded-xl h-10 font-bold italic uppercase text-[10px] disabled:opacity-30"
+                    onClick={() => {
+                      setWithdrawType('reward');
+                      setShowWithdrawDialog(true);
+                    }}
+                  >
+                    { (profile?.rewardBalance || 0) < (systemSettings?.minRewardWithdraw || 500) ? `Min ₹${systemSettings?.minRewardWithdraw || 500}` : 'Withdraw Reward' }
+                  </Button>
+                </div>
+              </div>
+              <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-white/30 rounded-full blur-2xl group-hover:bg-white/40 transition-all" />
+            </Card>
+          </div>
+
+          <Tabs defaultValue="challenges" className="w-full">
+            <TabsList className="bg-slate-100 p-1 rounded-2xl w-full">
+              <TabsTrigger value="challenges" className="flex-1 rounded-xl font-black italic uppercase text-[10px]">Active Challenges</TabsTrigger>
+              <TabsTrigger value="transactions" className="flex-1 rounded-xl font-black italic uppercase text-[10px]">History</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="challenges" className="pt-4 space-y-4">
+              {userChallenges.length === 0 ? (
+                <Card className="border-none shadow-none bg-slate-50 rounded-[2rem] p-8 text-center">
+                   <Trophy className="mx-auto text-slate-200 mb-2" size={32} />
+                   <p className="text-xs font-bold italic text-slate-400 uppercase">No active challenges</p>
+                   <Button 
+                    variant="link" 
+                    className="text-indigo-600 font-black italic uppercase text-[10px]"
+                    onClick={() => {
+                        document.getElementById('license-section')?.scrollIntoView({ behavior: 'smooth' });
+                        setTimeout(() => toggleSection('license'), 300);
+                    }}
+                   >
+                     Browse Challenges
+                   </Button>
+                </Card>
+              ) : (
+                userChallenges.map(uc => {
+                  const plan = availableChallenges.find(p => p.id === uc.challengeId);
+                  return (
+                    <div key={uc.id} className="p-4 bg-white border border-slate-100 rounded-3xl space-y-3">
+                       <div className="flex justify-between items-start">
+                          <div className="text-left">
+                             <h4 className="font-black italic uppercase text-sm text-slate-900">{plan?.title || 'Unknown Challenge'}</h4>
+                             <p className="text-[10px] font-bold italic text-slate-400 uppercase">Started: {safeFormatDate(uc.startDate)}</p>
+                          </div>
+                          <Badge className="bg-emerald-100 text-emerald-600 font-black italic uppercase text-[8px]">{uc.status}</Badge>
+                       </div>
+                       
+                       <div className="space-y-1">
+                          <div className="flex justify-between text-[8px] font-black italic uppercase">
+                             <span className="text-slate-400">Progress</span>
+                             <span className="text-indigo-600">Earnings: ₹{uc.totalEarned || 0}</span>
+                          </div>
+                          <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                             <div 
+                               className="h-full bg-indigo-600 rounded-full"
+                               style={{ width: `${Math.min(100, (Object.keys(uc.dailyEntries || {}).length / (plan?.durationDays || 90)) * 100)}%` }}
+                             />
+                          </div>
+                       </div>
+                    </div>
+                  );
+                })
+              )}
+            </TabsContent>
+            
+            <TabsContent value="transactions" className="pt-4">
+               <div className="space-y-2">
+                  {walletTransactions.length === 0 ? (
+                    <p className="text-center py-8 text-[10px] font-bold italic text-slate-400 uppercase text-slate-300">No transactions yet</p>
+                  ) : (
+                    walletTransactions.map(vt => (
+                      <div key={vt.id} className="flex items-center justify-between p-3 bg-slate-50/50 rounded-2xl border border-slate-100/50">
+                         <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-xl ${vt.type === 'Credit' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
+                               {vt.type === 'Credit' ? <Plus size={14} /> : <Database size={14} />}
+                            </div>
+                            <div className="text-left">
+                               <p className="text-[11px] font-black italic uppercase text-slate-700">{vt.source}</p>
+                               <p className="text-[9px] font-bold italic text-slate-400">{safeFormatDate(vt.createdAt)}</p>
+                            </div>
+                         </div>
+                         <p className={`text-xs font-black italic ${vt.type === 'Credit' ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {vt.type === 'Credit' ? '+' : '-'}₹{Math.abs(vt.amount)}
+                         </p>
+                      </div>
+                    ))
+                  )}
+               </div>
+            </TabsContent>
+          </Tabs>
+        </div>
+      </CollapsibleSection>
+
       {/* Collapsible: License & Activation */}
       <CollapsibleSection 
         title="License & Activation" 
@@ -1108,108 +1403,183 @@ const Profile: React.FC = () => {
         isOpen={openSection === 'license'} 
         onToggle={() => toggleSection('license')}
       >
-        {profile?.licenseActive ? (
-          <div className="space-y-4 text-left">
-            <div className="flex items-center gap-4 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-2 opacity-5">
-                <ShieldCheck size={80} />
-              </div>
-              <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-emerald-600 shadow-sm shrink-0">
-                <ShieldCheck size={28} />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-bold text-emerald-900">License Active</p>
-                  <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[8px] uppercase font-bold">Verified</Badge>
+        <div className="space-y-6">
+          {profile?.licenseActive ? (
+            <div className="space-y-4 text-left">
+              <div className="flex items-center gap-4 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl relative overflow-hidden group">
+                <div className="absolute top-0 right-0 p-2 opacity-5">
+                  <ShieldCheck size={80} />
                 </div>
-                <p className="text-xs font-mono font-bold text-emerald-600 bg-emerald-100/30 px-2 py-0.5 rounded inline-block">
-                  {profile.licenseKey}
-                </p>
-              </div>
-            </div>
-
-            {licenseData && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Activated On</p>
-                  <p className="text-xs font-bold text-slate-700">
-                    {licenseData.activatedAt ? safeFormatDate(licenseData.activatedAt) : safeFormatDate(profile.licenseActivatedAt)}
+                <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-emerald-600 shadow-sm shrink-0">
+                  <ShieldCheck size={28} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-sm font-bold text-emerald-900">License Active</p>
+                    <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[8px] uppercase font-bold">Verified</Badge>
+                  </div>
+                  <p className="text-xs font-mono font-bold text-emerald-600 bg-emerald-100/30 px-2 py-0.5 rounded inline-block">
+                    {profile.licenseKey}
                   </p>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Validity</p>
-                  <p className="text-xs font-bold text-slate-700">{licenseData.validityDays || 365} Days</p>
-                </div>
-                <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-2xl col-span-2 flex justify-between items-center">
-                  <div>
-                    <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">Status</p>
-                    <p className="text-sm font-black text-indigo-600 uppercase">Premium Access</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">Remaining</p>
-                    <p className="text-sm font-black text-indigo-600">
-                      {(() => {
-                        if (!licenseData.activatedAt?.toDate || !licenseData.validityDays) return '---';
-                        const expiryDate = addDays(licenseData.activatedAt.toDate(), licenseData.validityDays);
-                        const diff = Math.ceil((expiryDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                        return diff > 0 ? `${diff} Days` : 'Expired';
-                      })()}
+              </div>
+
+              {licenseData && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Activated On</p>
+                    <p className="text-xs font-bold text-slate-700">
+                      {licenseData.activatedAt ? safeFormatDate(licenseData.activatedAt) : safeFormatDate(profile.licenseActivatedAt)}
                     </p>
                   </div>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              <Input 
-                placeholder="Enter License Key" 
-                value={licenseKeyInput}
-                onChange={e => setLicenseKeyInput(e.target.value.toUpperCase())}
-                className="rounded-xl font-mono uppercase h-12"
-              />
-              <Button 
-                onClick={handleActivateLicense} 
-                disabled={isActivating || !licenseKeyInput.trim()}
-                className="bg-indigo-600 hover:bg-indigo-700 rounded-xl h-12 px-6 shadow-md shadow-indigo-100"
-              >
-                {isActivating ? '...' : 'Activate'}
-              </Button>
-            </div>
-            
-            <div className="relative py-2">
-              <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-100" /></div>
-              <div className="relative flex justify-center text-[10px] uppercase font-bold tracking-widest"><span className="bg-white px-2 text-slate-300">OR BUY ONLINE</span></div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 text-left">
-              {plans.map((plan, idx) => (
-                <div key={idx} className={`p-4 rounded-2xl border ${idx === 0 ? 'bg-indigo-50/30 border-indigo-100' : 'bg-white border-slate-100'} transition-all`}>
-                  <div className="flex justify-between items-start mb-2">
+                  <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Validity</p>
+                    <p className="text-xs font-bold text-slate-700">{licenseData.validityDays || 365} Days</p>
+                  </div>
+                  <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-2xl col-span-2 flex justify-between items-center">
                     <div>
-                      <p className="font-bold text-slate-900">{plan.name}</p>
-                      <p className="text-[10px] text-slate-500">{plan.days || plan.durationDays || 365} Days Validity</p>
+                      <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">Status</p>
+                      <p className="text-sm font-black text-indigo-600 uppercase">Premium Access</p>
                     </div>
                     <div className="text-right">
-                      <p className="font-black text-indigo-600 text-lg">₹{plan.price}</p>
+                      <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">Remaining</p>
+                      <p className="text-sm font-black text-indigo-600">
+                        {(() => {
+                          if (!licenseData.activatedAt?.toDate || !licenseData.validityDays) return '---';
+                          const expiryDate = addDays(licenseData.activatedAt.toDate(), licenseData.validityDays);
+                          const diff = Math.ceil((expiryDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                          return diff > 0 ? `${diff} Days` : 'Expired';
+                        })()}
+                      </p>
                     </div>
                   </div>
-                  <Button 
-                    className="w-full mt-2 rounded-xl text-xs h-9 bg-indigo-600 hover:bg-indigo-700 font-bold"
-                    onClick={() => {
-                      setSelectedPlanIndex(idx);
-                      setShowPurchaseDialog(true);
-                    }}
-                  >
-                    Buy & Activate
-                  </Button>
                 </div>
-              ))}
+              )}
             </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <Input 
+                  placeholder="Enter License Key" 
+                  value={licenseKeyInput}
+                  onChange={e => setLicenseKeyInput(e.target.value.toUpperCase())}
+                  className="rounded-xl font-mono uppercase h-12"
+                />
+                <Button 
+                  onClick={handleActivateLicense} 
+                  disabled={isActivating || !licenseKeyInput.trim()}
+                  className="bg-indigo-600 hover:bg-indigo-700 rounded-xl h-12 px-6 shadow-md shadow-indigo-100"
+                >
+                  {isActivating ? '...' : 'Activate'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {profile?.licenseActive && (
+            <div className="border-t border-slate-100 mt-8 pt-8 px-2">
+              <div className="flex flex-col items-center text-center mb-6">
+                <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 mb-2">
+                   <ShoppingBag size={24} />
+                </div>
+                <h4 className="text-lg font-black italic uppercase text-slate-900">Explore New Opportunities</h4>
+                <p className="text-[10px] font-black text-slate-400 uppercase italic">Upgrade license or take new challenges below</p>
+              </div>
+            </div>
+          )}
+
+          {/* Available Offers / Store Section */}
+          <div className="space-y-4 pt-6 border-t border-slate-100">
+            <div className="flex items-center justify-between px-2">
+               <div className="text-left">
+                  <h3 className="text-sm font-black italic uppercase text-indigo-600">Upgrade or Join Challenges</h3>
+                  <p className="text-[10px] font-bold italic text-slate-400 uppercase">Available plans and daily rewards</p>
+               </div>
+               <Badge className="bg-indigo-50 text-indigo-600 border-none font-black italic uppercase text-[8px]">New Offers</Badge>
+            </div>
+
+            <Tabs defaultValue="plans" className="w-full">
+              <TabsList className="bg-slate-100 p-1 rounded-2xl w-full mb-4">
+                <TabsTrigger value="plans" className="flex-1 rounded-xl font-black italic uppercase text-[10px]">License Plans</TabsTrigger>
+                <TabsTrigger value="item_challenges" className="flex-1 rounded-xl font-black italic uppercase text-[10px]">Daily Rewards</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="plans">
+                <div className="grid grid-cols-1 gap-3 text-left">
+                  {plans.map((plan, idx) => (
+                    <div key={idx} className={`p-4 rounded-3xl border border-slate-100 bg-white transition-all hover:border-indigo-200 group`}>
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="text-left">
+                          <p className="font-black italic uppercase text-slate-900 text-sm">{plan.name}</p>
+                          <p className="text-[10px] font-bold italic text-slate-400 uppercase">{plan.days || plan.durationDays || 365} Days Validity</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-black italic text-indigo-600 text-xl">₹{plan.price}</p>
+                        </div>
+                      </div>
+                      <Button 
+                        className="w-full rounded-2xl text-[10px] h-10 bg-indigo-600 hover:bg-indigo-700 font-black italic uppercase gap-2 transition-all group-hover:shadow-lg group-hover:shadow-indigo-100"
+                        onClick={() => {
+                          setSelectedPlanIndex(idx);
+                          setActivePurchaseTab('plans');
+                          setShowPurchaseDialog(true);
+                        }}
+                      >
+                        <ShoppingCart size={14} />
+                        Buy & Activate
+                      </Button>
+                    </div>
+                  ))}
+                  {plans.length === 0 && <p className="text-center py-4 text-[10px] font-bold italic text-slate-400 uppercase">No plans available</p>}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="item_challenges">
+                <div className="grid grid-cols-1 gap-3 text-left">
+                  {availableChallenges.map((challenge, idx) => {
+                    const isJoined = userChallenges.some(uc => uc.challengeId === challenge.id && uc.status === 'Active');
+                    return (
+                      <div key={challenge.id} className={`p-4 rounded-3xl border ${isJoined ? 'bg-emerald-50/50 border-emerald-100' : 'bg-white border-slate-100'} transition-all group`}>
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="text-left">
+                            <p className="font-black italic uppercase text-slate-900 text-sm">{challenge.title}</p>
+                            <p className="text-[10px] font-bold italic text-slate-400 uppercase">{challenge.durationDays} Days • Reward ₹{challenge.dailyReward}/Day</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-black italic text-amber-500 text-xl">₹{challenge.cost}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex gap-2">
+                          <Button 
+                            className={`flex-1 rounded-2xl text-[10px] h-10 font-black italic uppercase gap-2 transition-all ${isJoined ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200 shadow-none' : 'bg-amber-500 text-white hover:bg-amber-600'}`}
+                            onClick={() => {
+                              if (isJoined) {
+                                toggleSection('wallet');
+                              } else {
+                                // Find index in availableChallenges
+                                const aIdx = availableChallenges.findIndex(c => c.id === challenge.id);
+                                setSelectedPlanIndex(aIdx);
+                                setActivePurchaseTab('challenges');
+                                setShowPurchaseDialog(true);
+                              }
+                            }}
+                          >
+                            <Trophy size={14} />
+                            {isJoined ? 'View Progress' : 'Join Challenge'}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {availableChallenges.length === 0 && <p className="text-center py-4 text-[10px] font-bold italic text-slate-400 uppercase">No active challenges</p>}
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
-        )}
+        </div>
       </CollapsibleSection>
+
 
       {/* Collapsible: Saved Delivery Addresses */}
       <CollapsibleSection 
@@ -1329,41 +1699,169 @@ const Profile: React.FC = () => {
         </div>
       </CollapsibleSection>
 
-      {/* Plan Purchase Dialog - Re-used from existing logic */}
-      <Dialog open={showPurchaseDialog} onOpenChange={setShowPurchaseDialog}>
-        <DialogContent className="rounded-3xl max-w-sm w-[95vw]">
+      {/* Withdrawal Dialog */}
+      <Dialog open={showWithdrawDialog} onOpenChange={setShowWithdrawDialog}>
+        <DialogContent className="rounded-3xl max-w-md w-[95vw]">
           <DialogHeader>
-            <DialogTitle>Unlock Full Access</DialogTitle>
-            <CardDescription>Instant activation after secure purchase</CardDescription>
+            <DialogTitle className="text-2xl font-black italic uppercase">Withdraw Funds</DialogTitle>
           </DialogHeader>
-          <div className="py-2 space-y-6 text-left">
-            <div className="flex items-center justify-between px-2">
-               <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 text-slate-400 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-full" onClick={() => setSelectedPlanIndex(prev => Math.max(0, prev - 1))} disabled={selectedPlanIndex === 0}>
-                 <ChevronLeft size={18} />
-               </Button>
-               <div className="text-center flex-1 px-2">
-                  <p className="text-sm font-bold text-slate-900">{plans[selectedPlanIndex]?.name || 'Standard Plan'}</p>
-                  <p className="text-[10px] text-slate-500 font-medium">{plans[selectedPlanIndex]?.days || plans[selectedPlanIndex]?.durationDays || 365} Days Validity</p>
-               </div>
-               <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 text-slate-400 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-full" onClick={() => setSelectedPlanIndex(prev => Math.min(plans.length - 1, prev + 1))} disabled={selectedPlanIndex === plans.length - 1 || plans.length === 0}>
-                 <ChevronRight size={18} />
-               </Button>
+          <div className="space-y-6 pt-4">
+            <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 text-center space-y-1">
+              <p className="text-[10px] font-black italic text-slate-400 uppercase tracking-widest">
+                {withdrawType === 'main' ? 'Main' : 'Reward'} Balance
+              </p>
+              <p className="text-4xl font-black italic text-slate-900">
+                ₹{withdrawType === 'main' ? (profile?.walletBalance || 0) : (profile?.rewardBalance || 0)}
+              </p>
             </div>
-            
-            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 text-center space-y-2">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Amount to Pay</p>
-              <p className="text-4xl font-bold text-slate-900">₹{plans[selectedPlanIndex]?.price || 0}</p>
+
+            <div className="space-y-4">
+              <div className="space-y-2 text-left">
+                <Label className="text-[10px] font-black italic uppercase text-slate-500 pl-1">Amount to Withdraw</Label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black italic text-slate-400">₹</span>
+                  <Input 
+                    type="number"
+                    value={withdrawAmount}
+                    onChange={e => setWithdrawAmount(e.target.value)}
+                    placeholder="Enter amount"
+                    className="rounded-2xl h-14 pl-8 border-slate-100 font-black italic text-lg"
+                  />
+                </div>
+                {withdrawType === 'reward' && (
+                  <p className="text-[9px] font-bold italic text-amber-600 uppercase pl-1">* Minimum ₹{systemSettings?.minRewardWithdraw || 500} required for rewards withdrawal.</p>
+                )}
+              </div>
+              
+              <Button 
+                className="w-full bg-slate-900 hover:bg-black rounded-2xl py-7 font-black italic uppercase text-[10px] tracking-widest shadow-xl"
+                onClick={handleWithdraw}
+                disabled={isPurchasing || !withdrawAmount}
+              >
+                {isPurchasing ? 'Processing...' : 'Confirm Withdrawal'}
+              </Button>
             </div>
           </div>
-          <DialogFooter>
-            <Button 
-              className="w-full bg-indigo-600 hover:bg-indigo-700 rounded-xl py-6 font-bold gap-2 shadow-lg shadow-indigo-900/20"
-              onClick={handlePurchaseKey}
-              disabled={isPurchasing}
-            >
-              {isPurchasing ? 'Processing...' : `Pay ₹${plans[selectedPlanIndex]?.price || 0} & Activate`}
-            </Button>
-          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Plan Purchase Dialog - Re-used from existing store */}
+      <Dialog open={showPurchaseDialog} onOpenChange={setShowPurchaseDialog}>
+        <DialogContent className="rounded-3xl max-w-md w-[95vw]">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black italic uppercase">Store</DialogTitle>
+            <CardDescription className="font-bold italic text-slate-500 uppercase text-[10px]">Activate your license or participate in rewards challenges</CardDescription>
+          </DialogHeader>
+          
+          <Tabs value={activePurchaseTab} onValueChange={(v: any) => { setActivePurchaseTab(v); setSelectedPlanIndex(0); }} className="w-full">
+            <TabsList className="bg-slate-100 p-1 rounded-2xl w-full mb-6">
+              <TabsTrigger value="plans" className="flex-1 rounded-xl font-black italic uppercase text-[10px]">License Keys</TabsTrigger>
+              <TabsTrigger value="challenges" className="flex-1 rounded-xl font-black italic uppercase text-[10px]">Challenges</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="plans">
+              <div className="space-y-6">
+                <div className="flex items-center justify-between px-2">
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 text-slate-400 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-full" onClick={() => setSelectedPlanIndex(prev => Math.max(0, prev - 1))} disabled={selectedPlanIndex === 0}>
+                    <ChevronLeft size={18} />
+                  </Button>
+                  <div className="text-center flex-1 px-2">
+                      <p className="text-sm font-black italic uppercase text-slate-900">{plans[selectedPlanIndex]?.name || 'Standard Plan'}</p>
+                      <p className="text-[10px] italic font-bold text-slate-500 uppercase tracking-tight">{plans[selectedPlanIndex]?.days || 365} Days Validity</p>
+                  </div>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 text-slate-400 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-full" onClick={() => setSelectedPlanIndex(prev => Math.min(plans.length - 1, prev + 1))} disabled={selectedPlanIndex === plans.length - 1 || plans.length === 0}>
+                    <ChevronRight size={18} />
+                  </Button>
+                </div>
+                
+                <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 text-center space-y-2 border-l-4 border-l-indigo-600">
+                  <p className="text-xs font-black italic text-slate-400 uppercase tracking-widest">Amount to Pay</p>
+                  <p className="text-4xl font-black italic text-slate-900">₹{plans[selectedPlanIndex]?.price || 0}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Button 
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 rounded-2xl py-6 font-black italic uppercase text-[10px] gap-2 shadow-lg shadow-indigo-900/20"
+                    onClick={handlePurchaseKey}
+                    disabled={isPurchasing || plans.length === 0}
+                  >
+                    {isPurchasing ? 'Processing...' : `Pay ₹${plans[selectedPlanIndex]?.price || 0} via Online`}
+                  </Button>
+
+                  {((profile?.walletBalance || 0) + (profile?.rewardBalance || 0)) >= (plans[selectedPlanIndex]?.price || 0) && (
+                    <Button 
+                      variant="outline"
+                      className="w-full border-indigo-100 bg-indigo-50/30 hover:bg-indigo-50 text-indigo-600 rounded-2xl py-6 font-black italic uppercase text-[10px]"
+                      onClick={() => finalizePurchase(plans[selectedPlanIndex], 'WALLET_PAYMENT')}
+                      disabled={isPurchasing}
+                    >
+                      Pay using Wallet Balance
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="challenges">
+              <div className="space-y-6">
+                {availableChallenges.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400 font-bold italic uppercase text-[10px]">No active challenges at the moment</div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between px-2">
+                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 text-slate-400 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-full" onClick={() => setSelectedPlanIndex(prev => Math.max(0, prev - 1))} disabled={selectedPlanIndex === 0}>
+                         <ChevronLeft size={18} />
+                       </Button>
+                       <div className="text-center flex-1 px-2">
+                          <p className="text-sm font-black italic uppercase text-slate-900">{availableChallenges[selectedPlanIndex]?.title}</p>
+                          <p className="text-[10px] italic font-bold text-slate-500 uppercase tracking-tight">{availableChallenges[selectedPlanIndex]?.durationDays} Days Duration</p>
+                       </div>
+                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 text-slate-400 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-full" onClick={() => setSelectedPlanIndex(prev => Math.min(availableChallenges.length - 1, prev + 1))} disabled={selectedPlanIndex === availableChallenges.length - 1}>
+                         <ChevronRight size={18} />
+                       </Button>
+                    </div>
+
+                    <div className="p-6 bg-amber-50 rounded-[2rem] border border-amber-100 text-center space-y-2 border-l-4 border-l-amber-500">
+                      <p className="text-xs font-black italic text-amber-500 uppercase tracking-widest">Entry Fee</p>
+                      <p className="text-4xl font-black italic text-slate-900">₹{availableChallenges[selectedPlanIndex]?.cost}</p>
+                      <p className="text-[10px] font-bold italic text-amber-600 uppercase">Daily Reward: ₹{availableChallenges[selectedPlanIndex]?.dailyReward}</p>
+                    </div>
+
+                    <div className="p-4 bg-slate-50 rounded-2xl space-y-2">
+                      <p className="text-[10px] font-black italic uppercase text-slate-400 flex items-center gap-1">
+                        <AlertCircle size={12} className="text-slate-300" />
+                        Penalty Rule
+                      </p>
+                      <p className="text-xs font-bold italic text-slate-600 leading-tight">
+                        {availableChallenges[selectedPlanIndex]?.penaltyRule}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Button 
+                        className="w-full bg-amber-500 hover:bg-amber-600 rounded-2xl py-6 font-black italic uppercase text-[10px] gap-2 shadow-lg shadow-amber-900/10 text-white"
+                        onClick={handlePurchaseKey}
+                        disabled={isPurchasing}
+                      >
+                        {isPurchasing ? 'Processing...' : `Pay ₹${availableChallenges[selectedPlanIndex]?.cost || 0} via Online`}
+                      </Button>
+
+                      {((profile?.walletBalance || 0) + (profile?.rewardBalance || 0)) >= (availableChallenges[selectedPlanIndex]?.cost || 0) && (
+                        <Button 
+                          variant="outline"
+                          className="w-full border-amber-100 bg-amber-50 text-amber-600 rounded-2xl py-6 font-black italic uppercase text-[10px]"
+                          onClick={() => finalizePurchase(availableChallenges[selectedPlanIndex], 'WALLET_PAYMENT')}
+                          disabled={isPurchasing}
+                        >
+                          Pay using Wallet Balance
+                        </Button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
       {/* Collapsible: Terms & Conditions */}

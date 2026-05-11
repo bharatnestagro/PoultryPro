@@ -49,6 +49,7 @@ const AdminSettings: React.FC = () => {
     smsNotifications: false,
     inAppAlerts: true,
     timezone: 'Asia/Kolkata (IST)',
+    minRewardWithdraw: 500,
     termsAndConditions: '',
     termsList: [],
     paymentGateways: {
@@ -683,6 +684,55 @@ const AdminSettings: React.FC = () => {
                     </div>
                   </div>
                   <Badge className="bg-slate-100 text-slate-500 border-none">ACTIVE</Badge>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {/* Wallet & Rewards Config */}
+          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'wallet_settings' ? 'p-8' : 'p-0'}`}>
+            <div 
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveSection(activeSection === 'wallet_settings' ? null : 'wallet_settings')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveSection(activeSection === 'wallet_settings' ? null : 'wallet_settings'); }}
+              className={`w-full flex items-center justify-between transition-all duration-300 cursor-pointer ${activeSection === 'wallet_settings' ? 'mb-8' : 'p-8 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="bg-emerald-50 p-3 rounded-2xl text-emerald-600">
+                  <DollarSign size={24} />
+                </div>
+                <div className="text-left">
+                  <h3 className="text-xl font-bold text-slate-900">Wallet & Withdrawals</h3>
+                  <p className="text-xs text-slate-400 font-medium">Configure withdrawal limits and reward settings.</p>
+                </div>
+              </div>
+              {activeSection === 'wallet_settings' ? <ChevronUp className="text-slate-400" /> : <ChevronDown className="text-slate-400" />}
+            </div>
+
+            {activeSection === 'wallet_settings' && (
+              <div className="space-y-6">
+                <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">MINIMUM REWARD WITHDRAWAL (₹)</Label>
+                    <Input 
+                      type="number"
+                      placeholder="e.g. 500"
+                      className="rounded-xl h-12 bg-white"
+                      value={settings.minRewardWithdraw || ''}
+                      onChange={(e) => setSettings(prev => ({ ...prev, minRewardWithdraw: Number(e.target.value) }))}
+                    />
+                    <p className="text-[10px] text-slate-400 font-medium">Minimum amount required in reward wallet to request a withdrawal.</p>
+                  </div>
+                </div>
+
+                <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">WALLET WITHDRAWAL POLICY</Label>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Main wallet withdrawal has no lower limit (₹0+) if balance is available. Reward wallet withdrawals are subject to the limit set above.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}

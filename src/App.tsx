@@ -29,7 +29,10 @@ import AdminManagers from './pages/AdminManagers';
 import AdminManagerAnalytics from './pages/AdminManagerAnalytics';
 import AdminPayments from './pages/AdminPayments';
 import AdminKeyPricing from './pages/AdminKeyPricing';
+import AdminChallenges from './pages/AdminChallenges';
 import AdminAlerts from './pages/AdminAlerts';
+import AdminDeliveryPartners from './pages/AdminDeliveryPartners';
+import AdminDeliverySettings from './pages/AdminDeliverySettings';
 import AdminAutoAlerts from './pages/AdminAutoAlerts';
 import AdminSchedule from './pages/AdminSchedule';
 import ManagerLayout from './components/ManagerLayout';
@@ -92,6 +95,9 @@ export default function App() {
             <Route path="learning-videos" element={<AdminLearningVideos />} />
             <Route path="keys" element={<KeyManagement />} />
             <Route path="keys/pricing" element={<AdminKeyPricing />} />
+            <Route path="challenges" element={<AdminChallenges />} />
+            <Route path="delivery/partners" element={<AdminDeliveryPartners />} />
+            <Route path="delivery/settings" element={<AdminDeliverySettings />} />
           </Route>
 
           {/* Manager Suite Routes */}

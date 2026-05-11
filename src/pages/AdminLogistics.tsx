@@ -30,15 +30,25 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from '@/components/ui/label';
+
 interface Order {
   id: string;
   farmerId: string;
   farmerName: string;
+  userName?: string;
   items: any[];
   total: number;
   status: string;
   createdAt: any;
   deliveryDate?: any;
+  totalAmount?: number;
 }
 
 interface Flock {
@@ -56,6 +66,14 @@ const AdminLogistics: React.FC = () => {
   const [farmers, setFarmers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showScheduleDialog, setShowScheduleDialog] = useState(false);
+  const [partners, setPartners] = useState<any[]>([]);
+  const [schedulingData, setSchedulingData] = useState({
+    orderId: '',
+    deliveryDate: format(new Date(), 'yyyy-MM-dd'),
+    partnerId: '',
+    notes: ''
+  });
 
   useEffect(() => {
     // Fetch Orders
@@ -66,6 +84,11 @@ const AdminLogistics: React.FC = () => {
         setOrders(ordersData);
       }
     );
+
+    // Fetch Partners
+    const unsubPartners = onSnapshot(collection(db, 'deliveryPartners'), (snap) => {
+      setPartners(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
 
     // Fetch Flocks for placements
     const unsubFlocks = onSnapshot(
@@ -128,6 +151,35 @@ const AdminLogistics: React.FC = () => {
     }
   };
 
+  const handleScheduleDelivery = async () => {
+    if (!schedulingData.orderId) {
+      toast.error('Please select an order');
+      return;
+    }
+
+    try {
+      const partner = partners.find(p => p.id === schedulingData.partnerId);
+      await updateDoc(doc(db, 'orders', schedulingData.orderId), {
+        deliveryDate: schedulingData.deliveryDate,
+        logisticsNotes: schedulingData.notes,
+        partnerId: schedulingData.partnerId || '',
+        partnerName: partner?.name || '',
+        status: 'Processing',
+        updatedAt: new Date()
+      });
+      toast.success('Delivery scheduled successfully');
+      setShowScheduleDialog(false);
+      setSchedulingData({
+        orderId: '',
+        deliveryDate: format(new Date(), 'yyyy-MM-dd'),
+        partnerId: '',
+        notes: ''
+      });
+    } catch (error) {
+      toast.error('Failed to schedule delivery');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -149,7 +201,10 @@ const AdminLogistics: React.FC = () => {
             <Download size={18} className="mr-2" />
             Export Report
           </Button>
-          <Button className="bg-[#122B21] hover:bg-[#1a3d2e] text-white rounded-2xl font-bold h-12 px-8 shadow-lg shadow-emerald-900/10">
+          <Button 
+            className="bg-[#122B21] hover:bg-[#1a3d2e] text-white rounded-2xl font-bold h-12 px-8 shadow-lg shadow-emerald-900/10"
+            onClick={() => setShowScheduleDialog(true)}
+          >
             Schedule Delivery
           </Button>
         </div>
@@ -424,6 +479,82 @@ const AdminLogistics: React.FC = () => {
           </Card>
         </div>
       </div>
+
+      {/* Schedule Delivery Dialog */}
+      <Dialog open={showScheduleDialog} onOpenChange={setShowScheduleDialog}>
+        <DialogContent className="rounded-[2rem] max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold">Schedule New Delivery</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label>Select Order</Label>
+              <select 
+                className="w-full h-12 rounded-xl border border-slate-200 bg-white px-3 font-medium text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                value={schedulingData.orderId}
+                onChange={e => setSchedulingData({...schedulingData, orderId: e.target.value})}
+              >
+                <option value="">Choose an order...</option>
+                {orders.filter(o => o.status === 'Pending' || o.status === 'Received').map(order => (
+                  <option key={order.id} value={order.id}>
+                    #{order.id.slice(-6).toUpperCase()} - {order.farmerName || order.userName} ({order.totalAmount || order.total ? `₹${order.totalAmount || order.total}` : 'No Amount'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Delivery Partner (Optional)</Label>
+              <select 
+                className="w-full h-12 rounded-xl border border-slate-200 bg-white px-3 font-medium text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                value={schedulingData.partnerId}
+                onChange={e => setSchedulingData({...schedulingData, partnerId: e.target.value})}
+              >
+                <option value="">Select Delivery Partner...</option>
+                {partners.map(p => (
+                  <option key={p.id} value={p.id}>{p.name} ({p.vehicleType})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Delivery Date</Label>
+              <Input 
+                type="date"
+                value={schedulingData.deliveryDate}
+                onChange={e => setSchedulingData({...schedulingData, deliveryDate: e.target.value})}
+                className="rounded-xl border-slate-200 h-12"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Logistics Notes (Optional)</Label>
+              <textarea 
+                className="w-full rounded-xl border border-slate-200 bg-white p-3 font-medium text-sm focus:ring-2 focus:ring-emerald-500 outline-none min-h-[100px]"
+                placeholder="e.g. Special handling, preferred time..."
+                value={schedulingData.notes}
+                onChange={e => setSchedulingData({...schedulingData, notes: e.target.value})}
+              />
+            </div>
+
+            <div className="pt-4 flex gap-3">
+              <Button 
+                variant="outline" 
+                className="flex-1 rounded-xl h-12 font-bold"
+                onClick={() => setShowScheduleDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button 
+                className="flex-1 bg-[#122B21] hover:bg-[#1a3d2e] h-12 rounded-xl font-bold text-white shadow-lg shadow-emerald-950/20"
+                onClick={handleScheduleDelivery}
+              >
+                Confirm Schedule
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

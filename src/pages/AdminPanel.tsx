@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 import { 
   Table, 
   TableBody, 
@@ -396,13 +397,18 @@ const AdminPanel: React.FC = () => {
   const ordersCount = filteredOrders.length;
   const pendingOrders = filteredOrders.filter(o => o.status === 'Pending').length;
   const deliveredOrders = filteredOrders.filter(o => o.status === 'Delivered').length;
-  const abandonedCarts = getFilteredData(carts, sectionFilters.shop, 'updatedAt').filter(c => {
-    if (!c.updatedAt) return false;
-    const cartDate = new Date(c.updatedAt);
-    if (isNaN(cartDate.getTime())) return false;
-    const hoursOld = (new Date().getTime() - cartDate.getTime()) / (1000 * 60 * 60);
-    return hoursOld > 2;
-  }).length;
+  const abandonedCartsList = React.useMemo(() => {
+    return carts.filter(c => {
+      if (!c.items || c.items.length === 0) return false;
+      if (!c.updatedAt) return false;
+      const cartDate = new Date(c.updatedAt);
+      if (isNaN(cartDate.getTime())) return false;
+      const hoursOld = (new Date().getTime() - cartDate.getTime()) / (1000 * 60 * 60);
+      return hoursOld > 2; // Abandoned if older than 2 hours
+    }).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }, [carts]);
+
+  const abandonedCartsCount = abandonedCartsList.length;
   const lowStock = shopItems.filter(i => i.stockQuantity > 0 && i.stockQuantity <= 10).length;
   const outOfStock = shopItems.filter(i => (i.stockQuantity || 0) === 0).length;
 
@@ -656,25 +662,84 @@ const AdminPanel: React.FC = () => {
         case 'shop_stats':
           return (
             <div className="space-y-6">
-              <h4 className="text-sm font-black italic text-slate-400 uppercase">Abandoned Carts & Potential Conversion</h4>
+              <h4 className="text-sm font-black italic text-slate-400 uppercase">Abandoned Carts ({abandonedCartsList.length})</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {carts.filter(c => c.items?.length > 0).map(cart => (
-                  <div key={cart.id} className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
-                    <p className="text-[10px] font-black italic text-slate-400 uppercase mb-2">Customer: {usersMap[cart.userId]?.name || 'Guest'}</p>
-                    <div className="space-y-2 mb-4">
-                      {cart.items.map((it: any, i: number) => (
-                        <div key={i} className="flex justify-between text-xs">
-                          <span className="text-slate-600 italic font-bold">{shopItems.find(si => si.id === it.id)?.name || 'Item'} x{it.quantity}</span>
-                          <span className="font-black">₹{it.price * it.quantity}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="pt-4 border-t border-slate-200 flex justify-between items-center">
-                      <span className="text-[10px] font-black text-slate-400 uppercase">Last Updated</span>
-                      <span className="text-xs font-bold">{safeFormat(cart.updatedAt, 'MMM dd, HH:mm')}</span>
-                    </div>
+                {abandonedCartsList.length === 0 ? (
+                  <div className="col-span-full py-20 text-center bg-slate-50 rounded-[2rem] text-slate-400 italic font-bold">
+                    No abandoned carts detected in this period
                   </div>
-                ))}
+                ) : (
+                  abandonedCartsList.map(cart => {
+                    const customer = usersMap[cart.userId];
+                    const cartTotal = cart.items.reduce((sum: number, it: any) => sum + (it.price * it.quantity), 0);
+                    return (
+                      <div key={cart.id} className="p-6 bg-white rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
+                        <div>
+                          <div className="flex justify-between items-start mb-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                                <Users size={18} />
+                              </div>
+                              <div>
+                                <p className="text-xs font-black text-slate-900 uppercase">{customer?.name || 'Guest User'}</p>
+                                <p className="text-[10px] text-slate-400 font-bold">{customer?.phone || 'No phone'}</p>
+                              </div>
+                            </div>
+                            <Badge className="bg-red-50 text-red-600 border-none font-bold text-[9px] uppercase">Abandoned</Badge>
+                          </div>
+
+                          <div className="space-y-2 mb-6 max-h-[150px] overflow-y-auto pr-2 scrollbar-hide">
+                            {cart.items.map((it: any, i: number) => {
+                              const shopItem = shopItems.find(si => si.id === it.id);
+                              return (
+                                <div key={i} className="flex justify-between items-center text-xs p-2 bg-slate-50 rounded-xl">
+                                  <div className="flex flex-col">
+                                    <span className="text-slate-900 font-bold">{shopItem?.name || it.name || 'Item'}</span>
+                                    <span className="text-[10px] text-slate-400">Qty: {it.quantity} • {it.variant || 'Standard'}</span>
+                                  </div>
+                                  <span className="font-black text-slate-700">₹{(it.price * it.quantity).toLocaleString()}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="pt-4 border-t border-slate-100">
+                          <div className="flex justify-between items-end">
+                            <div>
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Potential Loss</p>
+                              <h5 className="text-xl font-black text-red-600 leading-none">₹{cartTotal.toLocaleString()}</h5>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Inactive Since</p>
+                              <p className="text-xs font-bold text-slate-600">{safeFormat(cart.updatedAt, 'MMM dd, HH:mm')}</p>
+                            </div>
+                          </div>
+                          
+                          <div className="mt-6 flex gap-2">
+                            <Button 
+                              className="flex-1 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold text-[10px] h-10 uppercase"
+                              onClick={() => {
+                                if (customer?.phone) {
+                                  window.open(`https://wa.me/91${customer.phone}?text=Hi ${customer.name}, we noticed you left some items in your cart. Need any help with your order?`, '_blank');
+                                } else {
+                                  toast.error('Customer phone number not available');
+                                }
+                              }}
+                            >
+                              Follow up
+                            </Button>
+                            {customer?.phone && (
+                              <a href={`tel:${customer.phone}`} className="p-2 border border-slate-200 rounded-xl text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all flex items-center justify-center aspect-square h-10 w-10">
+                                <Phone size={16} />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           );
@@ -986,6 +1051,67 @@ const AdminPanel: React.FC = () => {
                   </div>
                 ))}
               </div>
+            </div>
+          );
+        case 'abandoned_carts':
+          return (
+            <div className="space-y-6">
+              <h4 className="text-sm font-black italic text-slate-400 uppercase">Potential Customers / Recovery Queue</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {abandonedCartsList.map((cart, idx) => {
+                  const customer = usersMap[cart.userId];
+                  const cartTotal = (cart.items || []).reduce((sum: number, it: any) => sum + (Number(it.price) * (Number(it.quantity) || 1)), 0);
+                  const lastTouched = new Date(cart.updatedAt);
+                  
+                  return (
+                    <div key={idx} className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 flex flex-col justify-between group hover:border-amber-200 transition-all">
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="text-xs font-black uppercase text-slate-900">{customer?.name || 'Guest/Unknown'}</p>
+                            <p className="text-[10px] text-slate-400 font-bold">{customer?.phone || 'No phone'}</p>
+                          </div>
+                          <Badge className="bg-amber-100 text-amber-700 border-none font-bold italic uppercase text-[9px] px-2">
+                            {Math.floor((new Date().getTime() - lastTouched.getTime()) / (1000 * 60 * 60))}h Idle
+                          </Badge>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          {(cart.items || []).map((it: any, i: number) => (
+                            <div key={i} className="flex justify-between text-[10px] font-bold text-slate-500 italic">
+                              <span>{it.name} x {it.quantity}</span>
+                              <span>₹{it.price}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      <div className="mt-6 pt-4 border-t border-slate-200/50 flex justify-between items-center">
+                        <p className="text-sm font-black italic text-slate-900">Total Opt: ₹{cartTotal.toLocaleString()}</p>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-8 rounded-xl text-[9px] font-black uppercase text-indigo-600 hover:bg-slate-900 hover:text-white"
+                          onClick={() => {
+                            if (customer?.phone) {
+                              window.open(`https://wa.me/91${customer.phone}?text=Hi ${customer.name}, we noticed you have items in your cart. Do you need help finishing your order?`, '_blank');
+                            } else {
+                              toast.error('No phone number available for recovery');
+                            }
+                          }}
+                        >
+                          Recover via WA
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {abandonedCartsList.length === 0 && (
+                <div className="py-20 text-center bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-100 italic font-bold text-slate-400">
+                  NO ABANDONED CARTS FOUND
+                </div>
+              )}
             </div>
           );
         case 'growth_700':
@@ -1319,7 +1445,7 @@ const AdminPanel: React.FC = () => {
         <StatMiniCard title="Total Orders" value={ordersCount} icon={TrendingUp} color="bg-indigo-600" id="orders" />
         <StatMiniCard title="Pending" value={pendingOrders} icon={AlertTriangle} color="bg-amber-500" id="orders" />
         <StatMiniCard title="Delivered" value={deliveredOrders} icon={Activity} color="bg-emerald-600" id="orders" />
-        <StatMiniCard title="Abandoned" value={abandonedCarts} unit="Carts" icon={AlertTriangle} color="bg-red-400" id="shop_stats" />
+        <StatMiniCard title="Abandoned" value={abandonedCartsCount} unit="Carts" icon={AlertTriangle} color="bg-red-400" id="shop_stats" />
         <StatMiniCard title="Low Stock" value={lowStock} unit="Items" icon={AlertTriangle} color="bg-orange-400" id="shop_items" />
         <StatMiniCard title="Out of Stock" value={outOfStock} unit="Items" icon={AlertTriangle} color="bg-red-600" id="shop_items" />
       </div>

@@ -159,7 +159,17 @@ const AdminLayout: React.FC = () => {
       path: '/admin/keys',
       children: [
         { label: 'Key management', path: '/admin/keys' },
-        { label: 'Key Pricing', path: '/admin/keys/pricing' }
+        { label: 'Key Pricing', path: '/admin/keys/pricing' },
+        { label: 'Challenge Management', path: '/admin/challenges' }
+      ]
+    },
+    {
+      icon: Truck,
+      label: 'Delivery',
+      path: '/admin/delivery/partners',
+      children: [
+        { label: 'Delivery Partner', path: '/admin/delivery/partners' },
+        { label: 'Delivery Related Setting', path: '/admin/delivery/settings' },
       ]
     },
     { icon: Settings, label: 'Settings', path: '/admin/settings' },

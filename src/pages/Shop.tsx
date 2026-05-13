@@ -500,9 +500,14 @@ const Shop: React.FC = () => {
       }
 
       // 2. Initialize checkout
+      const mode = systemSettings?.paymentGateways?.cashfree?.mode === "production" ? "production" : "sandbox";
       const cashfree = new Cashfree({
-        mode: "sandbox", // TODO: Make this dynamic from settings if needed
+        mode: mode,
       });
+
+      if (!data.payment_session_id) {
+        throw new Error("No payment session ID received from server");
+      }
 
       cashfree.checkout({
         paymentSessionId: data.payment_session_id,
@@ -973,7 +978,7 @@ const Shop: React.FC = () => {
                     <p className="text-[11px] text-slate-500">All transactions are secure and encrypted.</p>
                     
                     <div className="border border-slate-200 divide-y divide-slate-100 rounded-2xl overflow-hidden shadow-sm">
-                      {systemSettings?.paymentGateways?.cashOnDelivery?.enabled !== false && (
+                      {systemSettings?.paymentGateways?.cashOnDelivery?.enabled === true && (
                         <button 
                           onClick={() => setPaymentMethod('COD')}
                           className={`w-full flex items-center justify-between p-6 transition-all text-left ${
@@ -992,9 +997,9 @@ const Shop: React.FC = () => {
                         </button>
                       )}
 
-                      {(systemSettings?.paymentGateways?.razorpay?.enabled || 
-                        systemSettings?.paymentGateways?.cashfree?.enabled || 
-                        systemSettings?.paymentGateways?.payu?.enabled) && (
+                      {(systemSettings?.paymentGateways?.razorpay?.enabled === true || 
+                        systemSettings?.paymentGateways?.cashfree?.enabled === true || 
+                        systemSettings?.paymentGateways?.payu?.enabled === true) && (
                         <button 
                           onClick={() => setPaymentMethod('Online')}
                           className={`w-full flex items-center justify-between p-6 transition-all text-left ${

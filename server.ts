@@ -212,21 +212,26 @@ async function startServer() {
 
       console.log(`Creating Cashfree session in ${cashfreeConfig.mode} mode...`);
 
+      const payload = {
+        order_id: orderId || `order_${Date.now()}`,
+        order_amount: parseFloat(amount),
+        order_currency: "INR",
+        customer_details: {
+          customer_id: String(customerId || `cust_${Date.now()}`),
+          customer_phone: String(customerPhone || "9999999999"),
+          customer_email: customerEmail || "customer@example.com",
+          customer_name: "Customer" // Added fallback name
+        },
+        order_meta: {
+           return_url: `${req.headers.origin}/transactions`
+        }
+      };
+
+      console.log("Cashfree Payload:", JSON.stringify(payload, null, 2));
+
       const response = await axios.post(
         cashfreeUrl,
-        {
-          order_id: orderId || `order_${Date.now()}`,
-          order_amount: parseFloat(amount),
-          order_currency: "INR",
-          customer_details: {
-            customer_id: customerId,
-            customer_phone: customerPhone,
-            customer_email: customerEmail,
-          },
-          order_meta: {
-             return_url: `${req.headers.origin}/transactions`
-          }
-        },
+        payload,
         {
           headers: {
             "x-client-id": cashfreeConfig.appId,

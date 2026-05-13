@@ -839,7 +839,7 @@ const Profile: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <Dialog open={isPasswordModalOpen} onOpenChange={setIsPasswordModalOpen}>
-            <DialogTrigger render={
+            <DialogTrigger nativeButton={true} render={
               <Button 
                 variant="outline" 
                 className="border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl gap-2 shadow-sm h-10"
@@ -912,7 +912,7 @@ const Profile: React.FC = () => {
           </Dialog>
 
           <Dialog open={isEditProfileOpen} onOpenChange={setIsEditProfileOpen}>
-            <DialogTrigger render={
+            <DialogTrigger nativeButton={true} render={
               <Button 
                 variant="outline" 
                 className="border-indigo-100 text-indigo-600 hover:bg-indigo-50 rounded-xl gap-2 shadow-sm h-10"
@@ -1633,7 +1633,7 @@ const Profile: React.FC = () => {
           </div>
 
           <Dialog open={isAddressModalOpen} onOpenChange={setIsAddressModalOpen}>
-            <DialogTrigger render={
+            <DialogTrigger nativeButton={true} render={
               <Button variant="outline" className="w-full rounded-2xl border-dashed border-2 border-slate-200 h-14 bg-slate-50/50 hover:bg-slate-50 text-slate-500 font-bold gap-2" onClick={() => {
                 setEditingAddressId(null);
                 setAddressFormData({ name: '', type: 'Farm', line1: '', locality: '', district: '', state: '', pincode: '', mobile: profile?.phone || '' });
@@ -1876,7 +1876,7 @@ const Profile: React.FC = () => {
             <div className="grid gap-3">
               {systemSettings.termsList.map((term: any) => (
                 <Dialog key={term.id}>
-                  <DialogTrigger render={
+                  <DialogTrigger nativeButton={false} render={
                     <div className="flex items-center justify-between p-5 bg-white border border-slate-100 rounded-3xl hover:border-indigo-200 hover:bg-slate-50 transition-all cursor-pointer group shadow-sm">
                       <div className="flex items-center gap-4">
                         <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-slate-400 group-hover:text-indigo-500 transition-colors">

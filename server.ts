@@ -23,33 +23,43 @@ if (admin.apps.length === 0) {
 // In AI Studio, we must use the database ID from the config
 const db = getFirestore(firebaseConfig.firestoreDatabaseId);
 
+let _cachedSettings: any = null;
+
 async function getSystemSettings() {
-  // Try local cache first
+  // Try memory cache first
+  if (_cachedSettings) return _cachedSettings;
+
+  // Try local disk cache
   try {
     const cachePath = path.join(process.cwd(), 'settings-cache.json');
     if (fs.existsSync(cachePath)) {
-      return JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+      const data = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+      _cachedSettings = data;
+      return data;
     }
   } catch (e) {
     console.error("Cache read failed");
   }
 
-  const debug: any = {};
+  const debug: any = { source: "admin_sdk" };
   try {
     const settingsRef = db.collection('system').doc('settings');
     const settingsSnap = await settingsRef.get();
     
     if (settingsSnap.exists) {
-      return settingsSnap.data();
+      const data = settingsSnap.data();
+      _cachedSettings = data;
+      return data;
     } else {
-      console.error("Settings document does not exist");
+      console.error("Settings document does not exist in Firestore");
       return null;
     }
   } catch (e: any) {
     debug.admin_error = e.message;
     debug.admin_code = e.code;
-    console.error("Admin SDK Error:", e.message);
+    console.warn("Admin SDK Firestore Read Failed (Expected in some environments):", e.message);
     
+    // REST API Fallback
     try {
       const projectId = firebaseConfig.projectId;
       const databaseId = firebaseConfig.firestoreDatabaseId;
@@ -81,11 +91,14 @@ async function getSystemSettings() {
       for (const key in fields) {
         result[key] = unmarshal(fields[key]);
       }
+      _cachedSettings = result;
       return result;
     } catch (restErr: any) {
       debug.rest_error = restErr.response?.data || restErr.message;
       debug.rest_status = restErr.response?.status;
-      // Throw the debug info so the router can see it
+      console.error("RESt API Fallback also failed.");
+      
+      // If we have nothing, throw a helpful error
       throw new Error(JSON.stringify(debug));
     }
   }
@@ -99,16 +112,23 @@ async function startServer() {
 
   // API routes
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+    res.json({ 
+      status: "ok", 
+      has_settings: !!_cachedSettings,
+      env: process.env.NODE_ENV 
+    });
   });
 
   // Sync settings from client (workaround for Firestore Admin permissions)
   app.post("/api/sync-settings", async (req, res) => {
     try {
       const settings = req.body;
+      _cachedSettings = settings;
       fs.writeFileSync(path.join(process.cwd(), 'settings-cache.json'), JSON.stringify(settings, null, 2));
+      console.log("System settings synced from client successfully");
       res.json({ status: "success" });
     } catch (error: any) {
+      console.error("Sync settings failed:", error.message);
       res.status(500).json({ error: error.message });
     }
   });
@@ -175,13 +195,25 @@ async function startServer() {
       const cashfreeConfig = settings?.paymentGateways?.cashfree;
 
       if (!cashfreeConfig?.enabled || !cashfreeConfig?.appId || !cashfreeConfig?.secretKey) {
+        console.error("Cashfree configuration missing:", { 
+          enabled: cashfreeConfig?.enabled, 
+          hasAppId: !!cashfreeConfig?.appId, 
+          hasSecret: !!cashfreeConfig?.secretKey 
+        });
         return res.status(400).json({ error: "Cashfree is not properly configured" });
       }
 
       // 2. Call Cashfree API to create order/session
       // Using Cashfree V3 API: https://docs.cashfree.com/reference/pgcreateorder
+      const isProduction = cashfreeConfig.mode === "production";
+      const cashfreeUrl = isProduction 
+        ? "https://api.cashfree.com/pg/orders" 
+        : "https://sandbox.cashfree.com/pg/orders";
+
+      console.log(`Creating Cashfree session in ${cashfreeConfig.mode} mode...`);
+
       const response = await axios.post(
-        "https://sandbox.cashfree.com/pg/orders",
+        cashfreeUrl,
         {
           order_id: orderId || `order_${Date.now()}`,
           order_amount: parseFloat(amount),
@@ -231,8 +263,13 @@ async function startServer() {
         return res.status(400).json({ error: "Cashfree not configured" });
       }
 
+      const isProduction = cashfreeConfig.mode === "production";
+      const cashfreeUrl = isProduction 
+        ? `https://api.cashfree.com/pg/orders/${orderId}`
+        : `https://sandbox.cashfree.com/pg/orders/${orderId}`;
+
       const response = await axios.get(
-        `https://sandbox.cashfree.com/pg/orders/${orderId}`,
+        cashfreeUrl,
         {
           headers: {
             "x-client-id": cashfreeConfig.appId,

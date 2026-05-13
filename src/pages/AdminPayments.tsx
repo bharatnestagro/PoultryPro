@@ -420,7 +420,7 @@ const AdminPayments: React.FC = () => {
           <p className="text-slate-500 font-medium mt-1">Manage field manager earnings and payout history</p>
         </div>
         <Dialog open={isAddPaymentOpen} onOpenChange={setIsAddPaymentOpen}>
-          <DialogTrigger render={
+          <DialogTrigger nativeButton={true} render={
             <Button className="bg-[#122B21] hover:bg-[#122B21]/90 text-white rounded-2xl px-6 py-6 h-auto transition-all shadow-lg hover:shadow-emerald-900/20 group">
               <Plus className="mr-2 group-hover:rotate-90 transition-transform" />
               Record New Payment

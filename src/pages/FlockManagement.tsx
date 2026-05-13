@@ -126,7 +126,7 @@ const FlockManagement: React.FC = () => {
           <p className="text-slate-500">Manage your bird batches</p>
         </div>
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogTrigger render={
+          <DialogTrigger nativeButton={true} render={
             <Button className="bg-emerald-600 hover:bg-emerald-700 rounded-xl gap-2">
               <Plus size={20} />
               <span>Add Flock</span>

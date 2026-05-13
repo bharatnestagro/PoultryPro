@@ -273,6 +273,10 @@
         "mrp": { "type": "number", "description": "Maximum Retail Price" },
         "discountPercentage": { "type": "number" },
         "unit": { "type": "string" },
+        "purchaseCost": { "type": "number", "description": "Cost price for the admin/manager" },
+        "managerId": { "type": "string", "description": "UID of the manager who owns this product instance. Null for admin products." },
+        "isHeavy": { "type": "boolean", "description": "If true, item is too heavy/big for standard bike delivery" },
+        "isLiveStock": { "type": "boolean", "description": "If true, item requires special transport like Railways" },
         "variants": { 
           "type": "array", 
           "items": { 

@@ -153,8 +153,8 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidUser(incoming());
-      allow update: if isSignedIn() && (userId == request.auth.uid || isAdmin());
-      allow delete: if isAdmin();
+      allow update: if isSignedIn() && (userId == request.auth.uid || isAdmin() || isManager());
+      allow delete: if isAdmin() || isManager();
     }
 
     // 2. Flocks Collection
@@ -215,17 +215,27 @@ service cloud.firestore {
     match /shopItems/{itemId} {
       allow get: if isSignedIn() && isValidId(itemId);
       allow list: if isSignedIn();
-      allow create: if isAdmin() && isValidId(itemId) && isValidShopItem(incoming());
-      allow update: if isAdmin() && isValidId(itemId) && isValidShopItem(incoming());
-      allow delete: if isAdmin() && isValidId(itemId);
+      allow create: if (isAdmin() || isManager()) && isValidId(itemId) && isValidShopItem(incoming());
+      allow update: if (isAdmin() || isManager()) && isValidId(itemId) && isValidShopItem(incoming());
+      allow delete: if isAdmin() || isManager() && isValidId(itemId);
     }
 
     match /shopCategories/{categoryId} {
       allow get: if isSignedIn() && isValidId(categoryId);
       allow list: if isSignedIn();
-      allow create: if isAdmin() && isValidId(categoryId) && isValidShopCategory(incoming());
-      allow update: if (isAdmin() || (isManager() && incoming().diff(existing()).affectedKeys().hasOnly(['imageUrl', 'description']))) && isValidId(categoryId) && isValidShopCategory(incoming());
-      allow delete: if isAdmin() && isValidId(categoryId);
+      allow create: if (isAdmin() || isManager()) && isValidId(categoryId) && isValidShopCategory(incoming());
+      allow update: if (isAdmin() || isManager()) && isValidId(categoryId) && isValidShopCategory(incoming());
+      allow delete: if isAdmin() || isManager() && isValidId(categoryId);
+    }
+
+    match /coupons/{couponId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isManager();
+    }
+
+    match /deliveryPartners/{partnerId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isManager();
     }
 
     match /orders/{orderId} {
@@ -234,6 +244,11 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidId(orderId);
       allow update: if (isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid)) && isValidId(orderId);
       allow delete: if isAdmin() && isValidId(orderId);
+    }
+
+    match /counters/{counterId} {
+      allow get: if isSignedIn();
+      allow write: if isSignedIn();
     }
 
     match /carts/{userId} {

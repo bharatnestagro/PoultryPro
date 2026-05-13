@@ -39,6 +39,7 @@ import ManagerLayout from './components/ManagerLayout';
 import ManagerDashboard from './pages/ManagerDashboard';
 import ManagerEarnings from './pages/ManagerEarnings';
 import ManagerInventory from './pages/ManagerInventory';
+import ManagerShop from './pages/ManagerShop';
 import ManagerFlocks from './pages/ManagerFlocks';
 import FlockManagement from './pages/FlockManagement';
 import Transactions from './pages/Transactions';
@@ -107,7 +108,13 @@ export default function App() {
             <Route path="logs" element={<AdminLogs />} />
             <Route path="operations" element={<AdminOperations />} />
             <Route path="orders" element={<AdminOrders />} />
-            <Route path="inventory" element={<ManagerInventory />} />
+            <Route path="shop" element={<ManagerShop />} />
+            <Route path="inventory" element={<ManagerShop />} />
+            <Route path="farmer-inventory" element={<ManagerInventory />} />
+            <Route path="customers" element={<AdminCustomers />} />
+            <Route path="offers" element={<AdminOffers />} />
+            <Route path="logistics" element={<AdminLogistics />} />
+            <Route path="settings" element={<AdminSettings />} />
             <Route path="flocks" element={<ManagerFlocks />} />
             <Route path="schedule" element={<AdminSchedule />} />
             <Route path="earnings" element={<ManagerEarnings />} />

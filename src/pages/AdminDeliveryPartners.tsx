@@ -99,7 +99,7 @@ const AdminDeliveryPartners: React.FC = () => {
           <p className="text-slate-500 font-medium mt-1">Manage logistics providers and delivery personnel</p>
         </div>
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-          <DialogTrigger render={
+          <DialogTrigger nativeButton={true} render={
             <Button className="bg-[#122B21] hover:bg-[#1a3d2e] text-white rounded-2xl font-bold h-12 px-8 shadow-lg shadow-emerald-900/10">
               <Plus size={18} className="mr-2" />
               Add Partner

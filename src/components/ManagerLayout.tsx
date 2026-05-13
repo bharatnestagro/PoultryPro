@@ -19,7 +19,10 @@ import {
   Bird,
   Calendar,
   Key,
-  Home
+  Home,
+  ShoppingCart,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { useAuth } from '@/src/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -28,6 +31,7 @@ const ManagerLayout: React.FC = () => {
   const location = useLocation();
   const { user, profile, loading, signOut, isManager } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -39,6 +43,12 @@ const ManagerLayout: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  const toggleMenu = (label: string) => {
+    setExpandedMenus(prev => 
+      prev.includes(label) ? [] : [label]
+    );
+  };
+
   if (loading) return null;
   if (!user || !isManager) return <Navigate to="/dashboard" replace />;
 
@@ -49,12 +59,26 @@ const ManagerLayout: React.FC = () => {
       icon: Users, 
       label: 'My Farmers', 
       path: '/manager/farmers',
-      submenu: [
-        { icon: ShoppingBag, label: 'Orders', path: '/manager/orders' },
-        { icon: Package, label: 'Farmer Inventory', path: '/manager/inventory' },
+      children: [
+        { icon: ShoppingBag, label: 'Sales Orders', path: '/manager/orders' },
+        { icon: Package, label: 'Farmer Stock', path: '/manager/farmer-inventory' },
         { icon: Bird, label: 'Flock Management', path: '/manager/flocks' },
         { icon: Calendar, label: 'Schedule', path: '/manager/schedule' },
         { icon: CreditCard, label: 'Commission & Payments', path: '/manager/earnings' }
+      ]
+    },
+    { 
+      icon: ShoppingCart, 
+      label: 'Shop Management', 
+      path: '/manager/shop',
+      children: [
+        { icon: ShoppingCart, label: 'Shop Dashboard', path: '/manager/shop' },
+        { icon: Package, label: 'Product Catalog', path: '/manager/inventory' },
+        { icon: ShoppingBag, label: 'Customer Orders', path: '/manager/orders' },
+        { icon: Users, label: 'Customers', path: '/manager/customers' },
+        { icon: Activity, label: 'Offers', path: '/manager/offers' },
+        { icon: Activity, label: 'Logistics', path: '/manager/logistics' },
+        { icon: Settings, label: 'Shop Settings', path: '/manager/settings' },
       ]
     },
     { icon: ClipboardList, label: 'Farmer Logs', path: '/manager/logs' },
@@ -62,7 +86,7 @@ const ManagerLayout: React.FC = () => {
       icon: Key,
       label: 'License Key',
       path: '/manager/keys',
-      submenu: [
+      children: [
         { icon: Activity, label: 'Key management', path: '/manager/keys' }
       ]
     },
@@ -90,46 +114,69 @@ const ManagerLayout: React.FC = () => {
         </div>
 
         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto no-scrollbar">
-          {navItems.map((item) => (
-            <div key={item.label} className="space-y-1">
-              <Link
-                to={item.path}
-                onClick={() => {
-                  if (window.innerWidth < 1024) setIsSidebarOpen(false);
-                }}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                  location.pathname === item.path 
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
-                    : 'hover:bg-slate-800 hover:text-white'
-                }`}
-              >
-                <item.icon size={20} />
-                <span className="font-medium">{item.label}</span>
-              </Link>
-              
-              {item.submenu && isSidebarOpen && (
-                <div className="pl-10 space-y-1">
-                  {item.submenu.map((sub) => (
-                    <Link
-                      key={sub.label}
-                      to={sub.path}
-                      onClick={() => {
-                        if (window.innerWidth < 1024) setIsSidebarOpen(false);
-                      }}
-                      className={`flex items-center gap-3 px-4 py-2 rounded-lg text-sm transition-all ${
-                        location.pathname === sub.path
-                          ? 'text-white font-bold'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-                      }`}
-                    >
-                      <sub.icon size={16} />
-                      <span>{sub.label}</span>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+          {navItems.map((item) => {
+            const hasChildren = item.children && item.children.length > 0;
+            const isExpanded = expandedMenus.includes(item.label);
+            const isActive = location.pathname === item.path || (hasChildren && item.children?.some(child => location.pathname === child.path));
+
+            return (
+              <div key={item.label} className="space-y-1">
+                {hasChildren ? (
+                  <button
+                    onClick={() => toggleMenu(item.label)}
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
+                      isActive && !isExpanded
+                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
+                        : 'hover:bg-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <item.icon size={20} />
+                      <span className="font-medium">{item.label}</span>
+                    </div>
+                    {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  </button>
+                ) : (
+                  <Link
+                    to={item.path}
+                    onClick={() => {
+                      if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                    }}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                      isActive 
+                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
+                        : 'hover:bg-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <item.icon size={20} />
+                    <span className="font-medium">{item.label}</span>
+                  </Link>
+                )}
+                
+                {hasChildren && isExpanded && (
+                  <div className="pl-6 space-y-1 border-l border-slate-700 ml-6">
+                    {item.children?.map((sub) => (
+                      <Link
+                        key={sub.label}
+                        to={sub.path}
+                        onClick={() => {
+                          if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                        }}
+                        className={`flex items-center gap-3 px-4 py-2 rounded-lg text-sm transition-all ${
+                          location.pathname === sub.path
+                            ? 'text-white font-bold bg-slate-800/50'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800/30'
+                        }`}
+                      >
+                        <sub.icon size={16} />
+                        <span>{sub.label}</span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         <div className="p-4 border-t border-slate-800">

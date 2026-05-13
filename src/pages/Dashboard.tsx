@@ -1787,7 +1787,7 @@ const Dashboard: React.FC = () => {
 
                           {/* 8. Lifting Rate (Market Rate) */}
                           <Dialog>
-                            <DialogTrigger nativeButton={false} render={
+                            <DialogTrigger nativeButton={true} render={
                               <button className="w-full text-left bg-white p-4 rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md cursor-pointer hover:bg-slate-50 group">
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Market Rate (Lifting)</p>
                                 <p className="text-lg font-black text-indigo-600">₹{selectedReportFlock.liftingStrategy?.liftingRate || '--'}</p>

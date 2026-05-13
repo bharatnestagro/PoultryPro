@@ -9,7 +9,9 @@ import {
   Plus, 
   X,
   CreditCard,
-  Package
+  Package,
+  AlertTriangle,
+  TrainFront
 } from 'lucide-react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/src/lib/firebase';
@@ -32,7 +34,13 @@ const AdminDeliverySettings: React.FC = () => {
     ],
     codEnabled: true,
     expressDeliveryEnabled: false,
-    expressCharge: 150
+    expressCharge: 150,
+    specialHandling: {
+      heavyFreight: { enabled: true, note: 'Cost calculated after order based on weight/volume. No bike delivery.' },
+      liveStock: { enabled: true, note: 'Transported via Railways. Cost varies by distance to nearest junction.' },
+      byRoad: { enabled: true, note: 'Shipment cost based on truck/tempo load. Calculated after order verification.' },
+      variableDates: true
+    }
   });
   const [loading, setLoading] = useState(true);
   const [newArea, setNewArea] = useState('');
@@ -270,6 +278,137 @@ const AdminDeliverySettings: React.FC = () => {
           </div>
         </Card>
       </div>
+
+      {/* Special Handling Rules */}
+      <Card className="p-8 border-none shadow-sm rounded-[2.5rem] bg-white space-y-8">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-rose-50 rounded-xl text-rose-600">
+            <AlertTriangle size={20} />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold">Special Handling Rules</h3>
+            <p className="text-[10px] font-bold text-slate-400 uppercase italic">Configure logistics for non-standard products</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="p-6 bg-slate-50 rounded-[2rem] space-y-4 border border-slate-100">
+             <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Package className="text-slate-400" size={18} />
+                  <p className="text-sm font-black italic uppercase">Heavy & Bulk Items</p>
+                </div>
+                <Switch 
+                  checked={settings.specialHandling?.heavyFreight?.enabled}
+                  onCheckedChange={val => setSettings({
+                    ...settings, 
+                    specialHandling: { 
+                      ...settings.specialHandling, 
+                      heavyFreight: { ...settings.specialHandling?.heavyFreight, enabled: val } 
+                    }
+                  })}
+                />
+             </div>
+             <div className="space-y-2">
+                <Label className="text-[10px] font-bold uppercase text-slate-400 ml-1">Customer Message / Policy</Label>
+                <Input 
+                  value={settings.specialHandling?.heavyFreight?.note}
+                  onChange={e => setSettings({
+                    ...settings, 
+                    specialHandling: { 
+                      ...settings.specialHandling, 
+                      heavyFreight: { ...settings.specialHandling?.heavyFreight, note: e.target.value } 
+                    }
+                  })}
+                  className="rounded-xl border-slate-100 bg-white h-12 font-medium text-xs italic"
+                />
+             </div>
+          </div>
+
+          <div className="p-6 bg-slate-50 rounded-[2rem] space-y-4 border border-slate-100">
+             <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <TrainFront className="text-slate-400" size={18} />
+                  <p className="text-sm font-black italic uppercase">Live Stock (Chicks)</p>
+                </div>
+                <Switch 
+                  checked={settings.specialHandling?.liveStock?.enabled}
+                  onCheckedChange={val => setSettings({
+                    ...settings, 
+                    specialHandling: { 
+                      ...settings.specialHandling, 
+                      liveStock: { ...settings.specialHandling?.liveStock, enabled: val } 
+                    }
+                  })}
+                />
+             </div>
+             <div className="space-y-2">
+                <Label className="text-[10px] font-bold uppercase text-slate-400 ml-1">Railway Transport Note</Label>
+                <Input 
+                  value={settings.specialHandling?.liveStock?.note}
+                  onChange={e => setSettings({
+                    ...settings, 
+                    specialHandling: { 
+                      ...settings.specialHandling, 
+                      liveStock: { ...settings.specialHandling?.liveStock, note: e.target.value } 
+                    }
+                  })}
+                  className="rounded-xl border-slate-100 bg-white h-12 font-medium text-xs italic"
+                />
+             </div>
+          </div>
+          <div className="p-6 bg-slate-50 rounded-[2rem] space-y-4 border border-slate-100">
+             <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Truck className="text-slate-400" size={18} />
+                  <p className="text-sm font-black italic uppercase">By Road Shipment</p>
+                </div>
+                <Switch 
+                  checked={settings.specialHandling?.byRoad?.enabled}
+                  onCheckedChange={val => setSettings({
+                    ...settings, 
+                    specialHandling: { 
+                      ...settings.specialHandling, 
+                      byRoad: { ...settings.specialHandling?.byRoad, enabled: val } 
+                    }
+                  })}
+                />
+             </div>
+             <div className="space-y-2">
+                <Label className="text-[10px] font-bold uppercase text-slate-400 ml-1">By Road Policy Note</Label>
+                <Input 
+                  value={settings.specialHandling?.byRoad?.note}
+                  onChange={e => setSettings({
+                    ...settings, 
+                    specialHandling: { 
+                      ...settings.specialHandling, 
+                      byRoad: { ...settings.specialHandling?.byRoad, note: e.target.value } 
+                    }
+                  })}
+                  className="rounded-xl border-slate-100 bg-white h-12 font-medium text-xs italic"
+                />
+             </div>
+          </div>
+        </div>
+
+        <div className="p-6 bg-blue-900 rounded-[2rem] text-white flex flex-col md:flex-row items-center justify-between gap-6 overflow-hidden relative">
+           <div className="relative z-10 flex-1">
+              <h4 className="text-xl font-black italic uppercase mb-2">Dynamic Logistics Mode</h4>
+              <p className="text-xs opacity-80 font-medium leading-relaxed italic max-w-xl">When enabled, orders containing special items will skip automatic shipping calculation. Admins/Managers will manually provide shipping costs and dates after reviewing the order distance and requirements.</p>
+           </div>
+           <div className="relative z-10 flex items-center gap-4 bg-white/10 p-4 rounded-3xl backdrop-blur-md border border-white/20">
+              <span className="text-xs font-black italic uppercase tracking-widest">{settings.specialHandling?.variableDates ? 'Active' : 'Disabled'}</span>
+              <Switch 
+                checked={settings.specialHandling?.variableDates}
+                onCheckedChange={val => setSettings({
+                  ...settings, 
+                  specialHandling: { ...settings.specialHandling, variableDates: val } 
+                })}
+              />
+           </div>
+           <Clock className="absolute -bottom-4 -left-4 text-white/5 w-32 h-32 -rotate-12" />
+        </div>
+      </Card>
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, doc, onSnapshot, setDoc, getDocs, query, where, updateDoc } from 'firebase/firestore';
 import { db } from '@/src/lib/firebase';
+import { useAuth } from '@/src/lib/AuthContext';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,6 +43,7 @@ import {
 const ADMIN_UID = "OQb1NF7095Qep0tLoijpSZNZRcl2";
 
 const AdminSettings: React.FC = () => {
+  const { profile, user: currentUser } = useAuth();
   const [settings, setSettings] = useState({
     maintenanceMode: false,
     registrationOpen: true,
@@ -53,9 +55,10 @@ const AdminSettings: React.FC = () => {
     termsAndConditions: '',
     termsList: [],
     paymentGateways: {
-      razorpay: { enabled: false, apiKey: '', apiSecret: '' },
-      cashfree: { enabled: false, appId: '', secretKey: '' },
-      payu: { enabled: false, merchantKey: '', merchantSalt: '' }
+      razorpay: { enabled: false, apiKey: '', apiSecret: '', mode: 'sandbox' },
+      cashfree: { enabled: false, appId: '', secretKey: '', mode: 'sandbox' },
+      payu: { enabled: false, merchantKey: '', merchantSalt: '', mode: 'sandbox' },
+      cashOnDelivery: { enabled: true }
     },
     googleApis: {
       maps: { enabled: false, apiKey: '' },
@@ -400,98 +403,109 @@ const AdminSettings: React.FC = () => {
           </Card>
 
           {/* System Configuration (Google APIs) */}
-          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'system' ? 'p-8' : 'p-0'}`}>
-            <div 
-              role="button"
-              tabIndex={0}
-              onClick={() => setActiveSection(activeSection === 'system' ? null : 'system')}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveSection(activeSection === 'system' ? null : 'system'); }}
-              className={`w-full flex items-center justify-between transition-all duration-300 cursor-pointer ${activeSection === 'system' ? 'mb-8' : 'p-8 hover:bg-slate-50'}`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">
-                  <Cpu size={24} />
-                </div>
-                <div className="text-left">
-                  <h3 className="text-xl font-bold text-slate-900">System Configuration</h3>
-                  <p className="text-xs text-slate-400 font-medium">Manage Google Cloud & AI service integrations.</p>
-                </div>
-              </div>
-              {activeSection === 'system' ? <ChevronUp className="text-slate-400" /> : <ChevronDown className="text-slate-400" />}
-            </div>
-
-            {activeSection === 'system' && (
-              <div className="space-y-8">
-                {Object.entries(settings.googleApis || {}).map(([key, config]: [string, any]) => (
-                  <div key={key} className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600">
-                          <Box size={16} />
-                        </div>
-                        <Label className="font-bold text-slate-900 capitalize">{key} API</Label>
-                      </div>
-                      <Switch 
-                        checked={config.enabled} 
-                        onCheckedChange={(checked) => setSettings(prev => ({ 
-                          ...prev, 
-                          googleApis: { 
-                            ...prev.googleApis, 
-                            [key]: { ...prev.googleApis[key as keyof typeof prev.googleApis], enabled: checked } 
-                          } 
-                        }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">API KEY / CREDENTIALS</Label>
-                      <Input 
-                        placeholder={`Enter ${key} API Key`}
-                        type="password"
-                        className="rounded-xl h-12 bg-white"
-                        value={config.apiKey}
-                        onChange={(e) => setSettings(prev => ({ 
-                          ...prev, 
-                          googleApis: { 
-                            ...prev.googleApis, 
-                            [key]: { ...prev.googleApis[key as keyof typeof prev.googleApis], apiKey: e.target.value } 
-                          } 
-                        }))}
-                      />
-                    </div>
+          {profile?.role === 'admin' && (
+            <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'system' ? 'p-8' : 'p-0'}`}>
+              <div 
+                role="button"
+                tabIndex={0}
+                onClick={() => setActiveSection(activeSection === 'system' ? null : 'system')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveSection(activeSection === 'system' ? null : 'system'); }}
+                className={`w-full flex items-center justify-between transition-all duration-300 cursor-pointer ${activeSection === 'system' ? 'mb-8' : 'p-8 hover:bg-slate-50'}`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">
+                    <Cpu size={24} />
                   </div>
-                ))}
+                  <div className="text-left">
+                    <h3 className="text-xl font-bold text-slate-900">System Configuration</h3>
+                    <p className="text-xs text-slate-400 font-medium">Manage Google Cloud & AI service integrations.</p>
+                  </div>
+                </div>
+                {activeSection === 'system' ? <ChevronUp className="text-slate-400" /> : <ChevronDown className="text-slate-400" />}
               </div>
-            )}
-          </Card>
+
+              {activeSection === 'system' && (
+                <div className="space-y-8">
+                  {Object.entries(settings.googleApis || {}).map(([key, config]: [string, any]) => (
+                    <div key={key} className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600">
+                            <Box size={16} />
+                          </div>
+                          <Label className="font-bold text-slate-900 capitalize">{key} API</Label>
+                        </div>
+                        <Switch 
+                          checked={config.enabled} 
+                          onCheckedChange={(checked) => setSettings(prev => ({ 
+                            ...prev, 
+                            googleApis: { 
+                              ...prev.googleApis, 
+                              [key]: { ...prev.googleApis[key as keyof typeof prev.googleApis], enabled: checked } 
+                            } 
+                          }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">API KEY / CREDENTIALS</Label>
+                        <Input 
+                          placeholder={`Enter ${key} API Key`}
+                          type="password"
+                          className="rounded-xl h-12 bg-white"
+                          value={config.apiKey}
+                          onChange={(e) => setSettings(prev => ({ 
+                            ...prev, 
+                            googleApis: { 
+                              ...prev.googleApis, 
+                              [key]: { ...prev.googleApis[key as keyof typeof prev.googleApis], apiKey: e.target.value } 
+                            } 
+                          }))}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
 
           {/* Manage Terms & Conditions */}
           <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'terms' ? 'p-8' : 'p-0'}`}>
-            <div 
-              role="button"
-              tabIndex={0}
-              onClick={() => setActiveSection(activeSection === 'terms' ? null : 'terms')}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveSection(activeSection === 'terms' ? null : 'terms'); }}
-              className={`w-full flex items-center justify-between transition-all duration-300 cursor-pointer ${activeSection === 'terms' ? 'mb-8' : 'p-8 hover:bg-slate-50'}`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="bg-amber-50 p-3 rounded-2xl text-amber-600">
-                  <FileText size={24} />
+            <div className={`transition-all duration-300 ${activeSection === 'terms' ? '' : 'hover:bg-slate-50'}`}>
+              <div 
+                role="button"
+                tabIndex={0}
+                onClick={() => setActiveSection(activeSection === 'terms' ? null : 'terms')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveSection(activeSection === 'terms' ? null : 'terms'); }}
+                className={`w-full flex items-center justify-between cursor-pointer ${activeSection === 'terms' ? 'mb-8' : 'p-8'}`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="bg-amber-50 p-3 rounded-2xl text-amber-600">
+                    <FileText size={24} />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="text-xl font-bold text-slate-900">Terms & Conditions</h3>
+                    <p className="text-xs text-slate-400 font-medium">Manage legal agreements for farmers.</p>
+                  </div>
                 </div>
-                <div className="text-left">
-                  <h3 className="text-xl font-bold text-slate-900">Terms & Conditions</h3>
-                  <p className="text-xs text-slate-400 font-medium">Manage legal agreements for farmers.</p>
+                <div className="flex items-center gap-4">
+                  {activeSection === 'terms' ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
                 </div>
               </div>
-              <div className="flex items-center gap-4">
-                {activeSection === 'terms' && (
-                  <Dialog>
-                    <DialogTrigger nativeButton={false} render={
-                      <Button className="bg-[#122B21] hover:bg-[#1a3d2e] rounded-xl font-bold gap-2" onClick={(e) => e.stopPropagation()}>
-                        <Plus size={18} />
-                        <span>Create New</span>
-                      </Button>
-                    } />
-                    <DialogContent className="rounded-[2rem] sm:max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden">
+
+              {activeSection === 'terms' && (
+                <div className="space-y-6">
+                  <div className="flex justify-end">
+                    <Dialog>
+                      <DialogTrigger nativeButton={true} render={
+                        <Button 
+                          className="bg-[#122B21] hover:bg-[#1a3d2e] rounded-xl font-bold gap-2"
+                        >
+                          <Plus size={18} />
+                          <span>Create New</span>
+                        </Button>
+                      } />
+                      <DialogContent className="rounded-[2rem] sm:max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden">
                       <DialogHeader className="p-8 pb-4">
                         <DialogTitle className="text-2xl font-black italic">New Agreement</DialogTitle>
                         <DialogDescription>Create a new terms and conditions document for your farmers.</DialogDescription>
@@ -540,13 +554,9 @@ const AdminSettings: React.FC = () => {
                       </div>
                     </DialogContent>
                   </Dialog>
-                )}
-                {activeSection === 'terms' ? <ChevronUp className="text-slate-400" /> : <ChevronDown className="text-slate-400" />}
-              </div>
-            </div>
+                </div>
 
-            {activeSection === 'terms' && (
-              <div className="space-y-4">
+                <div className="space-y-4">
                 {Array.isArray(settings.termsList) && settings.termsList.length > 0 ? (
                   <div className="grid gap-3">
                     {settings.termsList.map((term: any) => (
@@ -578,8 +588,10 @@ const AdminSettings: React.FC = () => {
                   </div>
                 )}
               </div>
-            )}
-          </Card>
+            </div>
+          )}
+        </div>
+      </Card>
 
           {/* Role Management */}
           <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'roles' ? 'p-8' : 'p-0'}`}>
@@ -627,11 +639,12 @@ const AdminSettings: React.FC = () => {
                       <p className="text-xs text-slate-500">Manage user access levels.</p>
                     </div>
                   </div>
-                  <Dialog>
-                    <DialogTrigger render={
-                      <Button variant="ghost" size="sm" className="text-indigo-600 font-bold text-xs">MANAGE</Button>
-                    } />
-                    <DialogContent className="max-w-2xl rounded-[2rem]">
+                  <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                    <Dialog>
+                      <DialogTrigger nativeButton={true} render={
+                        <Button variant="ghost" size="sm" className="text-indigo-600 font-bold text-xs">MANAGE</Button>
+                      } />
+                      <DialogContent className="max-w-2xl rounded-[2rem]">
                       <DialogHeader>
                         <DialogTitle>User Role Management</DialogTitle>
                       </DialogHeader>
@@ -658,9 +671,17 @@ const AdminSettings: React.FC = () => {
                                   </Button>
                                   <Button 
                                     size="sm" 
+                                    variant={user.role === 'manager' ? 'default' : 'outline'}
+                                    onClick={() => handleUpdateRole(user.id, 'manager')}
+                                    className="text-[10px] h-8 transition-all hover:bg-slate-900 hover:text-white"
+                                  >
+                                    Manager
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
                                     variant={user.role === 'farmer' ? 'default' : 'outline'}
                                     onClick={() => handleUpdateRole(user.id, 'farmer')}
-                                    className="text-[10px] h-8"
+                                    className="text-[10px] h-8 transition-all hover:bg-slate-900 hover:text-white"
                                   >
                                     Farmer
                                   </Button>
@@ -669,8 +690,9 @@ const AdminSettings: React.FC = () => {
                           </div>
                         ))}
                       </div>
-                    </DialogContent>
-                  </Dialog>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100">
@@ -739,162 +761,216 @@ const AdminSettings: React.FC = () => {
           </Card>
 
           {/* Payment Gateways */}
-          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'payments' ? 'p-8' : 'p-0'}`}>
-            <div 
-              role="button"
-              tabIndex={0}
-              onClick={() => setActiveSection(activeSection === 'payments' ? null : 'payments')}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveSection(activeSection === 'payments' ? null : 'payments'); }}
-              className={`w-full flex items-center justify-between transition-all duration-300 cursor-pointer ${activeSection === 'payments' ? 'mb-8' : 'p-8 hover:bg-slate-50'}`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="bg-emerald-50 p-3 rounded-2xl text-emerald-600">
-                  <DollarSign size={24} />
+          {profile?.role === 'admin' && (
+            <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'payments' ? 'p-8' : 'p-0'}`}>
+              <div 
+                role="button"
+                tabIndex={0}
+                onClick={() => setActiveSection(activeSection === 'payments' ? null : 'payments')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveSection(activeSection === 'payments' ? null : 'payments'); }}
+                className={`w-full flex items-center justify-between transition-all duration-300 cursor-pointer ${activeSection === 'payments' ? 'mb-8' : 'p-8 hover:bg-slate-50'}`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="bg-emerald-50 p-3 rounded-2xl text-emerald-600">
+                    <DollarSign size={24} />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="text-xl font-bold text-slate-900">Payment Gateways</h3>
+                    <p className="text-xs text-slate-400 font-medium">Configure payment integration for shop transactions.</p>
+                  </div>
                 </div>
-                <div className="text-left">
-                  <h3 className="text-xl font-bold text-slate-900">Payment Gateways</h3>
-                  <p className="text-xs text-slate-400 font-medium">Configure payment integration for shop transactions.</p>
-                </div>
+                {activeSection === 'payments' ? <ChevronUp className="text-slate-400" /> : <ChevronDown className="text-slate-400" />}
               </div>
-              {activeSection === 'payments' ? <ChevronUp className="text-slate-400" /> : <ChevronDown className="text-slate-400" />}
-            </div>
 
-            {activeSection === 'payments' && (
-              <div className="space-y-8">
-                {/* Razorpay */}
-                <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">RZ</div>
-                      <Label className="font-bold text-slate-900">Razorpay</Label>
+              {activeSection === 'payments' && (
+                <div className="space-y-8">
+                  {/* Razorpay */}
+                  <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">RZ</div>
+                        <div className="text-left">
+                          <Label className="font-bold text-slate-900 block">Razorpay</Label>
+                          <p className="text-[10px] text-slate-500 font-medium">Standard Indian payment gateway.</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <select 
+                          className="bg-white border border-slate-200 rounded-lg text-[10px] font-bold px-2 h-7 focus:ring-0"
+                          value={settings.paymentGateways?.razorpay?.mode || 'sandbox'}
+                          onChange={(e) => setSettings(prev => ({ 
+                            ...prev, 
+                            paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, mode: e.target.value } } 
+                          }))}
+                        >
+                          <option value="sandbox">SANDBOX</option>
+                          <option value="production">PRODUCTION</option>
+                        </select>
+                        <Switch 
+                          checked={settings.paymentGateways?.razorpay?.enabled} 
+                          onCheckedChange={(checked) => setSettings(prev => ({ 
+                            ...prev, 
+                            paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, enabled: checked } } 
+                          }))}
+                        />
+                      </div>
                     </div>
-                    <Switch 
-                      checked={settings.paymentGateways?.razorpay?.enabled} 
-                      onCheckedChange={(checked) => setSettings(prev => ({ 
-                        ...prev, 
-                        paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, enabled: checked } } 
-                      }))}
-                    />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">API KEY</Label>
+                        <Input 
+                          placeholder="rzp_test_..." 
+                          className="rounded-xl"
+                          value={settings.paymentGateways?.razorpay?.apiKey}
+                          onChange={(e) => setSettings(prev => ({ 
+                            ...prev, 
+                            paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, apiKey: e.target.value } } 
+                          }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">API SECRET</Label>
+                        <Input 
+                          type="password" 
+                          placeholder="••••••••" 
+                          className="rounded-xl"
+                          value={settings.paymentGateways?.razorpay?.apiSecret}
+                          onChange={(e) => setSettings(prev => ({ 
+                            ...prev, 
+                            paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, apiSecret: e.target.value } } 
+                          }))}
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">API KEY</Label>
-                      <Input 
-                        placeholder="rzp_test_..." 
-                        className="rounded-xl"
-                        value={settings.paymentGateways?.razorpay?.apiKey}
-                        onChange={(e) => setSettings(prev => ({ 
+
+                  {/* Cashfree */}
+                  <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-sky-500 flex items-center justify-center text-white text-[10px] font-bold">CF</div>
+                        <div className="text-left">
+                          <Label className="font-bold text-slate-900 block">Cashfree</Label>
+                          <p className="text-[10px] text-slate-500 font-medium">Fast settlements and wide range of payments.</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <select 
+                          className="bg-white border border-slate-200 rounded-lg text-[10px] font-bold px-2 h-7 focus:ring-0"
+                          value={settings.paymentGateways?.cashfree?.mode || 'sandbox'}
+                          onChange={(e) => setSettings(prev => ({ 
+                            ...prev, 
+                            paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, mode: e.target.value } } 
+                          }))}
+                        >
+                          <option value="sandbox">SANDBOX</option>
+                          <option value="production">PRODUCTION</option>
+                        </select>
+                        <Switch 
+                          checked={settings.paymentGateways?.cashfree?.enabled} 
+                          onCheckedChange={(checked) => setSettings(prev => ({ 
+                            ...prev, 
+                            paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, enabled: checked } } 
+                          }))}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">APP ID</Label>
+                        <Input 
+                          placeholder="Enter App ID" 
+                          className="rounded-xl"
+                          value={settings.paymentGateways?.cashfree?.appId}
+                          onChange={(e) => setSettings(prev => ({ 
+                            ...prev, 
+                            paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, appId: e.target.value } } 
+                          }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">SECRET KEY</Label>
+                        <Input 
+                          type="password" 
+                          placeholder="••••••••" 
+                          className="rounded-xl"
+                          value={settings.paymentGateways?.cashfree?.secretKey}
+                          onChange={(e) => setSettings(prev => ({ 
+                            ...prev, 
+                            paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, secretKey: e.target.value } } 
+                          }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PayU */}
+                  <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-[10px] font-bold">PU</div>
+                        <Label className="font-bold text-slate-900">PayU</Label>
+                      </div>
+                      <Switch 
+                        checked={settings.paymentGateways?.payu?.enabled} 
+                        onCheckedChange={(checked) => setSettings(prev => ({ 
                           ...prev, 
-                          paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, apiKey: e.target.value } } 
+                          paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, enabled: checked } } 
                         }))}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">API SECRET</Label>
-                      <Input 
-                        type="password" 
-                        placeholder="••••••••" 
-                        className="rounded-xl"
-                        value={settings.paymentGateways?.razorpay?.apiSecret}
-                        onChange={(e) => setSettings(prev => ({ 
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">MERCHANT KEY</Label>
+                        <Input 
+                          placeholder="Enter Key" 
+                          className="rounded-xl"
+                          value={settings.paymentGateways?.payu?.merchantKey}
+                          onChange={(e) => setSettings(prev => ({ 
+                            ...prev, 
+                            paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, merchantKey: e.target.value } } 
+                          }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">MERCHANT SALT</Label>
+                        <Input 
+                          type="password" 
+                          placeholder="••••••••" 
+                          className="rounded-xl"
+                          value={settings.paymentGateways?.payu?.merchantSalt}
+                          onChange={(e) => setSettings(prev => ({ 
+                            ...prev, 
+                            paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, merchantSalt: e.target.value } } 
+                          }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Cash on Delivery */}
+                  <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-white text-[10px] font-bold">COD</div>
+                        <div className="text-left">
+                          <Label className="font-bold text-slate-900 block">Cash on Delivery (COD)</Label>
+                          <p className="text-[10px] text-slate-500 font-medium tracking-tight">Allow farmers to pay upon delivery.</p>
+                        </div>
+                      </div>
+                      <Switch 
+                        checked={settings.paymentGateways?.cashOnDelivery?.enabled} 
+                        onCheckedChange={(checked) => setSettings(prev => ({ 
                           ...prev, 
-                          paymentGateways: { ...prev.paymentGateways, razorpay: { ...prev.paymentGateways.razorpay, apiSecret: e.target.value } } 
+                          paymentGateways: { ...prev.paymentGateways, cashOnDelivery: { ...prev.paymentGateways.cashOnDelivery, enabled: checked } } 
                         }))}
                       />
                     </div>
                   </div>
                 </div>
-
-                {/* Cashfree */}
-                <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-sky-500 flex items-center justify-center text-white text-[10px] font-bold">CF</div>
-                      <Label className="font-bold text-slate-900">Cashfree</Label>
-                    </div>
-                    <Switch 
-                      checked={settings.paymentGateways?.cashfree?.enabled} 
-                      onCheckedChange={(checked) => setSettings(prev => ({ 
-                        ...prev, 
-                        paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, enabled: checked } } 
-                      }))}
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">APP ID</Label>
-                      <Input 
-                        placeholder="Enter App ID" 
-                        className="rounded-xl"
-                        value={settings.paymentGateways?.cashfree?.appId}
-                        onChange={(e) => setSettings(prev => ({ 
-                          ...prev, 
-                          paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, appId: e.target.value } } 
-                        }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">SECRET KEY</Label>
-                      <Input 
-                        type="password" 
-                        placeholder="••••••••" 
-                        className="rounded-xl"
-                        value={settings.paymentGateways?.cashfree?.secretKey}
-                        onChange={(e) => setSettings(prev => ({ 
-                          ...prev, 
-                          paymentGateways: { ...prev.paymentGateways, cashfree: { ...prev.paymentGateways.cashfree, secretKey: e.target.value } } 
-                        }))}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* PayU */}
-                <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-[10px] font-bold">PU</div>
-                      <Label className="font-bold text-slate-900">PayU</Label>
-                    </div>
-                    <Switch 
-                      checked={settings.paymentGateways?.payu?.enabled} 
-                      onCheckedChange={(checked) => setSettings(prev => ({ 
-                        ...prev, 
-                        paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, enabled: checked } } 
-                      }))}
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">MERCHANT KEY</Label>
-                      <Input 
-                        placeholder="Enter Key" 
-                        className="rounded-xl"
-                        value={settings.paymentGateways?.payu?.merchantKey}
-                        onChange={(e) => setSettings(prev => ({ 
-                          ...prev, 
-                          paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, merchantKey: e.target.value } } 
-                        }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">MERCHANT SALT</Label>
-                      <Input 
-                        type="password" 
-                        placeholder="••••••••" 
-                        className="rounded-xl"
-                        value={settings.paymentGateways?.payu?.merchantSalt}
-                        onChange={(e) => setSettings(prev => ({ 
-                          ...prev, 
-                          paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, merchantSalt: e.target.value } } 
-                        }))}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </Card>
+              )}
+            </Card>
+          )}
         </div>
 
         <div className="space-y-4">
@@ -940,72 +1016,76 @@ const AdminSettings: React.FC = () => {
           </Card>
 
           {/* Backup */}
-          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'backup' ? 'p-8' : 'p-0'}`}>
-            <button 
-              onClick={() => setActiveSection(activeSection === 'backup' ? null : 'backup')}
-              className={`w-full flex items-center justify-between transition-all duration-300 ${activeSection === 'backup' ? 'mb-6' : 'p-8 hover:bg-slate-50'}`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">
-                  <Database size={24} />
+          {profile?.role === 'admin' && (
+            <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'backup' ? 'p-8' : 'p-0'}`}>
+              <button 
+                onClick={() => setActiveSection(activeSection === 'backup' ? null : 'backup')}
+                className={`w-full flex items-center justify-between transition-all duration-300 ${activeSection === 'backup' ? 'mb-6' : 'p-8 hover:bg-slate-50'}`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">
+                    <Database size={24} />
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-900">Data Backup</h3>
                 </div>
-                <h3 className="text-lg font-bold text-slate-900">Data Backup</h3>
-              </div>
-              {activeSection === 'backup' ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
-            </button>
-            {activeSection === 'backup' && (
-              <div className="space-y-4">
-                <p className="text-xs text-slate-500 mb-6 leading-relaxed">
-                  Last backup performed: <span className="font-bold">Just now</span>. Automatic backups are scheduled daily at 02:00 AM.
-                </p>
-                <div className="grid grid-cols-2 gap-4">
-                  <Button variant="outline" className="rounded-xl flex items-center gap-2">
-                    <RefreshCw size={16} />
-                    <span>Sync</span>
-                  </Button>
-                  <Button 
-                    className="bg-[#122B21] text-white rounded-xl"
-                    onClick={handleBackup}
-                    disabled={isBackupLoading}
-                  >
-                    {isBackupLoading ? 'Backing up...' : 'Backup Now'}
-                  </Button>
+                {activeSection === 'backup' ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+              </button>
+              {activeSection === 'backup' && (
+                <div className="space-y-4">
+                  <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                    Last backup performed: <span className="font-bold">Just now</span>. Automatic backups are scheduled daily at 02:00 AM.
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Button variant="outline" className="rounded-xl flex items-center gap-2">
+                      <RefreshCw size={16} />
+                      <span>Sync</span>
+                    </Button>
+                    <Button 
+                      className="bg-[#122B21] text-white rounded-xl"
+                      onClick={handleBackup}
+                      disabled={isBackupLoading}
+                    >
+                      {isBackupLoading ? 'Backing up...' : 'Backup Now'}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </Card>
+              )}
+            </Card>
+          )}
 
           {/* System Maintenance */}
-          <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'maintenance' ? 'p-8' : 'p-0'}`}>
-            <button 
-              onClick={() => setActiveSection(activeSection === 'maintenance' ? null : 'maintenance')}
-              className={`w-full flex items-center justify-between transition-all duration-300 ${activeSection === 'maintenance' ? 'mb-6' : 'p-8 hover:bg-slate-50'}`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="bg-red-50 p-3 rounded-2xl text-red-600">
-                  <Activity size={24} />
+          {profile?.role === 'admin' && (
+            <Card className={`border-none shadow-sm bg-white rounded-[2rem] overflow-hidden transition-all duration-300 ${activeSection === 'maintenance' ? 'p-8' : 'p-0'}`}>
+              <button 
+                onClick={() => setActiveSection(activeSection === 'maintenance' ? null : 'maintenance')}
+                className={`w-full flex items-center justify-between transition-all duration-300 ${activeSection === 'maintenance' ? 'mb-6' : 'p-8 hover:bg-slate-50'}`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="bg-red-50 p-3 rounded-2xl text-red-600">
+                    <Activity size={24} />
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-900">System Maintenance</h3>
                 </div>
-                <h3 className="text-lg font-bold text-slate-900">System Maintenance</h3>
-              </div>
-              {activeSection === 'maintenance' ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
-            </button>
-            {activeSection === 'maintenance' && (
-              <div className="space-y-4 px-8 pb-8">
-                <p className="text-xs text-slate-500 mb-6 leading-relaxed">
-                  Recalculate and update the <span className="font-bold italic">Cost per Bird</span> for all flocks across all users using the new formula.
-                </p>
-                <Button 
-                  variant="destructive"
-                  className="w-full rounded-xl flex items-center justify-center gap-2"
-                  onClick={handleRecalculateAllCosts}
-                  disabled={isRecalculating}
-                >
-                  <RefreshCw className={isRecalculating ? "animate-spin" : ""} size={16} />
-                  {isRecalculating ? 'Recalculating...' : 'Recalculate All costs'}
-                </Button>
-              </div>
-            )}
-          </Card>
+                {activeSection === 'maintenance' ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+              </button>
+              {activeSection === 'maintenance' && (
+                <div className="space-y-4 px-8 pb-8">
+                  <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                    Recalculate and update the <span className="font-bold italic">Cost per Bird</span> for all flocks across all users using the new formula.
+                  </p>
+                  <Button 
+                    variant="destructive"
+                    className="w-full rounded-xl flex items-center justify-center gap-2"
+                    onClick={handleRecalculateAllCosts}
+                    disabled={isRecalculating}
+                  >
+                    <RefreshCw className={isRecalculating ? "animate-spin" : ""} size={16} />
+                    {isRecalculating ? 'Recalculating...' : 'Recalculate All costs'}
+                  </Button>
+                </div>
+              )}
+            </Card>
+          )}
 
           <Button 
             className="w-full h-16 rounded-2xl bg-[#122B21] hover:bg-[#1a3d2e] text-white font-bold text-lg flex items-center justify-center gap-3 shadow-xl"

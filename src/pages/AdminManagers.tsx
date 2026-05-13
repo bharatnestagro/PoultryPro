@@ -195,7 +195,7 @@ const AdminManagers: React.FC = () => {
         </div>
         <div className="flex gap-2">
           <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-          <DialogTrigger render={
+          <DialogTrigger nativeButton={true} render={
             <Button className="bg-indigo-600 hover:bg-indigo-700 rounded-xl gap-2 h-11 px-6">
               <Plus size={20} />
               Add New Manager

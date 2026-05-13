@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { 
   ShoppingCart, 
@@ -33,7 +33,11 @@ import {
   RotateCcw,
   CheckCircle2,
   Truck,
-  Wallet
+  Wallet,
+  AlertTriangle,
+  Info,
+  PlusCircle,
+  CreditCard
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
@@ -50,7 +54,10 @@ const Shop: React.FC = () => {
   const [countdown, setCountdown] = useState(3);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
-  const [currentView, setCurrentView] = useState<'catalog' | 'details'>('catalog');
+  const [currentView, setCurrentView] = useState<'catalog' | 'details' | 'cart' | 'checkout'>('catalog');
+  const [checkoutStep, setCheckoutStep] = useState<'information' | 'payment'>('information');
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedDiscount, setAppliedDiscount] = useState(0);
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [selectedVariant, setSelectedVariant] = useState<any>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -89,9 +96,33 @@ const Shop: React.FC = () => {
   // Categories will be fetched from Firestore
 
   useEffect(() => {
-    const q = query(collection(db, 'shopItems'), orderBy('createdAt', 'desc'));
+    if (!profile) return;
+
+    const q = query(
+      collection(db, 'shopItems'), 
+      orderBy('createdAt', 'desc')
+    );
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const allItems = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) })) as any[];
+      let filtered;
+      if (profile.assignedManagerId) {
+        // Show manager's items
+        const managerItems = allItems.filter(item => item.managerId === profile.assignedManagerId);
+        
+        // Track which admin items have been imported/personalized by this manager
+        const importedAdminIds = new Set(managerItems.map(m => (m as any).originalAdminProductId).filter(id => id));
+        
+        // Find admin items that HAVEN'T been imported by this manager yet
+        const adminItems = allItems.filter(item => (!item.managerId || item.managerId === 'admin' || item.managerId === '') && !importedAdminIds.has(item.id));
+        
+        // Combine them - prioritizing manager's custom pricing/items
+        filtered = [...managerItems, ...adminItems];
+      } else {
+        // Show products added by admin
+        filtered = allItems.filter(item => !item.managerId || item.managerId === 'admin' || item.managerId === '');
+      }
+      setItems(filtered);
       setLoading(false);
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, 'shopItems');
@@ -189,6 +220,10 @@ const Shop: React.FC = () => {
   };
 
   const [cartTotal, setCartTotal] = useState(0);
+  const hasSpecialItems = useMemo(() => cart.some(item => item.isHeavy || item.isLiveStock || item.isByRoad), [cart]);
+  const hasHeavyItems = useMemo(() => cart.some(item => item.isHeavy), [cart]);
+  const hasLiveStock = useMemo(() => cart.some(item => item.isLiveStock), [cart]);
+  const hasByRoadItems = useMemo(() => cart.some(item => item.isByRoad), [cart]);
   const [useWallet, setUseWallet] = useState(false);
   const walletAmount = useMemo(() => {
     const totalBalance = (profile?.walletBalance || 0) + (profile?.rewardBalance || 0);
@@ -197,6 +232,7 @@ const Shop: React.FC = () => {
   }, [useWallet, profile?.walletBalance, profile?.rewardBalance, cartTotal]);
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'Online'>('COD');
   const [systemSettings, setSystemSettings] = useState<any>(null);
+  const [deliverySettings, setDeliverySettings] = useState<any>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   useEffect(() => {
@@ -205,40 +241,52 @@ const Shop: React.FC = () => {
   }, [cart]);
 
   useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const q = doc(db, 'system', 'settings');
-        const snap = await getDoc(q);
-        if (snap.exists()) {
-          const settings = snap.data();
-          setSystemSettings(settings);
-          
-          // Load Appropriate Scripts
-          if (settings.paymentGateways?.razorpay?.enabled) {
-            const script = document.createElement('script');
-            script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-            script.async = true;
-            document.body.appendChild(script);
-          }
-          
-          if (settings.paymentGateways?.cashfree?.enabled) {
-            const script = document.createElement('script');
-            script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
-            script.async = true;
-            document.body.appendChild(script);
-          }
+    if (!user) return; // Only fetch settings when signed in to avoid permission errors
+
+    const unsubSettings = onSnapshot(doc(db, 'system', 'settings'), (snap) => {
+      if (snap.exists()) {
+        const settings = snap.data();
+        setSystemSettings(settings);
+
+        // SYNC SETTINGS TO SERVER (Workaround for Admin SDK permissions)
+        fetch('/api/sync-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings)
+        }).catch(err => console.error('Settings sync failed', err));
+        
+        // Load Scripts Only if not already loaded
+        if (settings.paymentGateways?.razorpay?.enabled && !document.getElementById('razorpay-sdk')) {
+          const script = document.createElement('script');
+          script.id = 'razorpay-sdk';
+          script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+          script.async = true;
+          document.body.appendChild(script);
         }
+        
+        if (settings.paymentGateways?.cashfree?.enabled && !document.getElementById('cashfree-sdk')) {
+          const script = document.createElement('script');
+          script.id = 'cashfree-sdk';
+          script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
+          script.async = true;
+          document.body.appendChild(script);
+        }
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'system/settings');
+    });
+
+    const fetchDeliverySettings = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'system', 'deliverySettings'));
+        if (snap.exists()) setDeliverySettings(snap.data());
       } catch (e) {
-        handleFirestoreError(e, OperationType.GET, 'system/settings');
+        handleFirestoreError(e, OperationType.GET, 'system/deliverySettings');
       }
     };
-    fetchSettings();
+    fetchDeliverySettings();
 
-    return () => {
-      // Cleanup scripts if necessary, though generally fine to leave
-      const scripts = document.querySelectorAll('script[src*="razorpay"], script[src*="cashfree"]');
-      scripts.forEach(s => s.remove());
-    };
+    return () => unsubSettings();
   }, []);
 
   const finalizeOrder = async (method: 'COD' | 'Online', address: any, transactionId?: string) => {
@@ -248,7 +296,20 @@ const Shop: React.FC = () => {
     }
 
     try {
-      const { writeBatch, Timestamp, doc } = await import('firebase/firestore');
+      const { writeBatch, Timestamp, doc, runTransaction } = await import('firebase/firestore');
+      
+      // 1. Get sequential Order ID
+      const counterRef = doc(db, 'counters', 'orders');
+      let orderNumber = 100001;
+      
+      await runTransaction(db, async (transaction) => {
+        const counterSnap = await transaction.get(counterRef);
+        if (counterSnap.exists()) {
+          orderNumber = counterSnap.data().lastId + 1;
+        }
+        transaction.set(counterRef, { lastId: orderNumber }, { merge: true });
+      });
+
       const batch = writeBatch(db);
       
       const orderId = `${Date.now()}`;
@@ -257,6 +318,7 @@ const Shop: React.FC = () => {
       const finalAmount = cartTotal - (useWallet ? walletAmount : 0);
 
       batch.set(orderRef, {
+        orderId: orderNumber.toString(), // Numeric 6-digit ID
         userId: user.uid,
         userName: profile?.name || 'Customer',
         userMobile: profile?.mobile || address?.mobile || '',
@@ -268,10 +330,12 @@ const Shop: React.FC = () => {
           unit: item.selectedVariant ? item.selectedVariant.unit : item.unit,
           variant: item.selectedVariant ? item.selectedVariant.name : 'Standard'
         })),
-        status: 'Received',
+        status: hasSpecialItems ? 'Verifying' : 'Pending',
         totalAmount: cartTotal,
         walletDiscount: useWallet ? walletAmount : 0,
         paidAmount: finalAmount,
+        deliveryCharge: 0,
+        deliveryPaymentStatus: 'Unpaid',
         deliveryAddress: address || null,
         paymentMethod: method === 'COD' ? 'Cash on Delivery' : 'Online Payment',
         paymentStatus: method === 'Online' ? 'Paid' : 'Pending',
@@ -530,7 +594,17 @@ const Shop: React.FC = () => {
 
   const fixImageUrl = (url: string) => {
     if (!url) return 'https://placehold.co/400x400?text=Product';
-    return url;
+    let fixedUrl = url.trim();
+    if (fixedUrl.includes('drive.google.com')) {
+      const match = fixedUrl.match(/\/d\/(.+?)(\/|$)/) || 
+                    fixedUrl.match(/id=(.+?)(&|$)/) ||
+                    fixedUrl.match(/\/file\/d\/(.+?)(\/|$)/) ||
+                    fixedUrl.match(/drive\.google\.com\/open\?id=(.+?)(&|$)/);
+      if (match && match[1]) {
+        return `https://lh3.googleusercontent.com/u/0/d/${match[1]}=w1000`;
+      }
+    }
+    return fixedUrl;
   };
 
   return (
@@ -573,6 +647,11 @@ const Shop: React.FC = () => {
       {/* Top Header */}
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+          {(currentView === 'checkout' || currentView === 'cart') && (
+            <Button variant="ghost" size="icon" className="rounded-full" onClick={() => setCurrentView('catalog')}>
+              <RotateCcw size={20} />
+            </Button>
+          )}
           {currentView === 'details' && (
             <Button variant="ghost" size="icon" className="rounded-full" onClick={() => setCurrentView('catalog')}>
               <X size={20} />
@@ -587,147 +666,19 @@ const Shop: React.FC = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
-            <SheetTrigger render={
-              <Button variant="ghost" size="icon" className="relative rounded-full hover:bg-slate-100">
-                <ShoppingCart size={22} className="text-slate-600" />
-                {cart.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold h-5 w-5 rounded-full flex items-center justify-center">
-                    {cart.reduce((s, i) => s + i.quantity, 0)}
-                  </span>
-                )}
-              </Button>
-            } />
-            <SheetContent className="w-full sm:max-w-md flex flex-col p-0">
-              <SheetHeader className="p-6 border-b">
-                <SheetTitle className="flex items-center gap-2">
-                  <ShoppingCart className="text-emerald-600" />
-                  Your Cart ({cart.length})
-                </SheetTitle>
-              </SheetHeader>
-              
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {cart.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center">
-                    <ShoppingBag size={64} className="mb-4 opacity-20" />
-                    <p className="font-medium">Your cart is empty</p>
-                    <Button variant="link" className="text-emerald-600" onClick={() => setIsCartOpen(false)}>Start Shopping</Button>
-                  </div>
-                ) : (
-                  cart.map(item => (
-                    <div key={item.cartId} className="flex gap-4 p-3 bg-white border rounded-2xl">
-                      <img src={fixImageUrl(item.imageUrl)} alt={item.name} className="w-20 h-20 object-cover rounded-xl border" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex justify-between items-start">
-                          <h4 className="text-sm font-bold break-words pr-4">{item.name}</h4>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-red-500" onClick={() => removeFromCart(item.cartId)}>
-                            <X size={14} />
-                          </Button>
-                        </div>
-                        <p className="text-[10px] text-slate-500 mb-2">Variant: {item.selectedVariant?.name || 'Standard'}</p>
-                        <div className="flex items-center justify-between">
-                          <p className="font-bold text-emerald-600">₹{item.price.toLocaleString()}</p>
-                          <div className="flex items-center border rounded-lg overflow-hidden">
-                            <button className="p-1 hover:bg-slate-100" onClick={() => updateQuantity(item.cartId, -1)}><Minus size={14} /></button>
-                            <span className="px-3 text-xs font-bold">{item.quantity}</span>
-                            <button className="p-1 hover:bg-slate-100" onClick={() => updateQuantity(item.cartId, 1)}><Plus size={14} /></button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {cart.length > 0 && (
-                <div className="p-6 bg-white border-t space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-500">Subtotal</span>
-                      <span className="font-bold">₹{cartTotal.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-500">Delivery</span>
-                      <span className="text-emerald-600 font-bold">FREE</span>
-                    </div>
-                    <div className="pt-2 border-t space-y-2">
-                       {profile?.walletBalance !== undefined && (profile.walletBalance > 0 || profile.rewardBalance > 0) && (
-                        <div className={`p-3 rounded-xl border flex items-center justify-between transition-colors ${useWallet ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-100 opacity-60 hover:opacity-100'}`} onClick={() => setUseWallet(!useWallet)}>
-                           <div className="flex items-center gap-2">
-                              <Wallet className={`h-4 w-4 ${useWallet ? 'text-emerald-600' : 'text-slate-400'}`} />
-                              <div className="text-left">
-                                 <p className="text-[10px] font-black italic uppercase text-slate-700">Use Wallet Balance</p>
-                                 <p className="text-[9px] font-bold italic text-slate-400">Available: ₹{profile.walletBalance}</p>
-                              </div>
-                           </div>
-                           <Switch checked={useWallet} onCheckedChange={setUseWallet} className="scale-75 data-[state=checked]:bg-emerald-600" />
-                        </div>
-                       )}
-
-                       {useWallet && walletAmount > 0 && (
-                        <div className="flex justify-between text-sm text-emerald-600 italic font-bold">
-                           <span>Wallet Discount</span>
-                           <span>- ₹{walletAmount.toLocaleString()}</span>
-                        </div>
-                       )}
-
-                      <div className="flex justify-between items-center pt-2">
-                        <span className="font-bold text-lg">Total</span>
-                        <span className="text-xl font-bold text-emerald-600 flex items-center">
-                          <IndianRupee size={18} />
-                          {(cartTotal - walletAmount).toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-3">
-                    <div className="p-3 bg-slate-50 rounded-xl border flex items-center justify-between cursor-pointer" onClick={() => setIsAddressModalOpen(true)}>
-                      <div className="flex items-center gap-2 overflow-hidden">
-                        <MapPin size={16} className="text-emerald-600 flex-shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-[10px] uppercase font-bold text-slate-400">Deliver to</p>
-                          <p className="text-xs font-bold truncate">
-                            {selectedAddressId ? profile?.savedAddresses?.find(a => a.id === selectedAddressId)?.farmName || 'Selected Address' : 'Choose Address'}
-                          </p>
-                        </div>
-                      </div>
-                      <ChevronRight size={16} className="text-slate-400" />
-                    </div>
-
-                    <div className="space-y-2">
-                      <p className="text-[10px] uppercase font-bold text-slate-400">Payment Method</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button 
-                          onClick={() => setPaymentMethod('COD')}
-                          className={`p-3 rounded-xl border-2 text-[10px] font-bold transition-all ${
-                            paymentMethod === 'COD' ? 'border-emerald-500 bg-emerald-50 text-emerald-600' : 'border-slate-100 text-slate-500 hover:bg-slate-50'
-                          }`}
-                        >
-                          CASH ON DELIVERY
-                        </button>
-                        <button 
-                          onClick={() => setPaymentMethod('Online')}
-                          className={`p-3 rounded-xl border-2 text-[10px] font-bold transition-all ${
-                            paymentMethod === 'Online' ? 'border-emerald-500 bg-emerald-50 text-emerald-600' : 'border-slate-100 text-slate-500 hover:bg-slate-50'
-                          }`}
-                        >
-                          ONLINE PAYMENT
-                        </button>
-                      </div>
-                    </div>
-
-                    <Button 
-                      className={`w-full py-6 rounded-2xl bg-emerald-600 hover:bg-emerald-700 shadow-lg ${isProcessingPayment ? 'opacity-50 pointer-events-none' : ''}`}
-                      onClick={handlePlaceOrder}
-                    >
-                      {isProcessingPayment ? 'Processing...' : `Place Order (${paymentMethod})`}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </SheetContent>
-          </Sheet>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className={`relative rounded-full hover:bg-slate-100 ${currentView === 'cart' ? 'bg-emerald-50 text-emerald-600' : 'text-slate-600'}`}
+            onClick={() => setCurrentView(currentView === 'cart' ? 'catalog' : 'cart')}
+          >
+            <ShoppingCart size={22} />
+            {cart.length > 0 && (
+              <span className="absolute -top-1 -right-1 bg-emerald-600 text-white text-[10px] font-bold h-5 w-5 rounded-full flex items-center justify-center">
+                {cart.reduce((s, i) => s + i.quantity, 0)}
+              </span>
+            )}
+          </Button>
         </div>
       </header>
 
@@ -749,7 +700,7 @@ const Shop: React.FC = () => {
                     categoryFilter === cat.name ? 'border-emerald-500 bg-emerald-100' : 'border-slate-100 bg-slate-50'
                   }`}>
                     {cat.iconUrl ? (
-                      <img src={cat.iconUrl} alt={cat.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      <img src={fixImageUrl(cat.iconUrl)} alt={cat.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       cat.icon || <Package size={18} />
                     )}
@@ -833,6 +784,328 @@ const Shop: React.FC = () => {
             )}
           </main>
         </>
+      ) : currentView === 'cart' ? (
+        <div className="max-w-6xl mx-auto px-4 py-8 md:py-16 bg-white min-h-screen">
+          <h1 className="text-3xl font-medium text-slate-900 mb-12">Your cart</h1>
+
+          {cart.length === 0 ? (
+            <div className="py-20 text-center">
+              <p className="text-slate-500 mb-8">Your cart is currently empty.</p>
+              <Button onClick={() => setCurrentView('catalog')} className="bg-black text-white hover:bg-slate-800 px-8 py-6 rounded-none uppercase text-xs tracking-widest transition-all">
+                Continue shopping
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-16">
+              <div className="lg:col-span-8">
+                {/* Table Header - Desktop only */}
+                <div className="hidden md:grid grid-cols-12 pb-4 border-b border-slate-100 text-[10px] uppercase tracking-widest text-slate-400 font-medium">
+                  <div className="col-span-12 md:col-span-7">Product</div>
+                  <div className="col-span-12 md:col-span-2 text-center">Quantity</div>
+                  <div className="col-span-12 md:col-span-3 text-right">Total</div>
+                </div>
+
+                <div className="divide-y divide-slate-100">
+                  {cart.map(item => (
+                    <div key={item.cartId} className="py-8 grid grid-cols-12 gap-4 md:gap-0 items-center">
+                      {/* Product Detail */}
+                      <div className="col-span-12 md:col-span-7 flex gap-6">
+                        <div className="w-24 h-24 bg-slate-50 border border-slate-100 flex-shrink-0">
+                          <img src={fixImageUrl(item.imageUrl)} alt={item.name} className="w-full h-full object-contain p-2" />
+                        </div>
+                        <div className="flex flex-col justify-center gap-1">
+                          <h3 className="text-sm font-medium text-slate-900">{item.name}</h3>
+                          <p className="text-xs text-slate-500">{item.selectedVariant?.name || 'Standard'}</p>
+                          <p className="text-xs text-slate-900 mt-1">₹{item.price.toLocaleString()}</p>
+                          <button 
+                            onClick={() => removeFromCart(item.cartId)}
+                            className="text-[10px] text-slate-400 hover:text-red-500 underline text-left mt-2 uppercase tracking-widest"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Quantity Selector */}
+                      <div className="col-span-6 md:col-span-2 flex justify-start md:justify-center">
+                        <div className="flex items-center border border-slate-200">
+                          <button className="p-2 hover:bg-slate-50 text-slate-400" onClick={() => updateQuantity(item.cartId, -1)}><Minus size={14} /></button>
+                          <span className="px-4 text-xs font-medium w-10 text-center">{item.quantity}</span>
+                          <button className="p-2 hover:bg-slate-50 text-slate-400" onClick={() => updateQuantity(item.cartId, 1)}><Plus size={14} /></button>
+                        </div>
+                      </div>
+
+                      {/* Total */}
+                      <div className="col-span-6 md:col-span-3 text-right">
+                        <p className="text-sm font-medium text-slate-900">₹{(item.price * item.quantity).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Summary */}
+              <div className="lg:col-span-4 bg-slate-50 p-8 h-fit">
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center text-slate-900">
+                    <span className="text-sm font-medium capitalize">Subtotal</span>
+                    <span className="text-lg font-medium">₹{cartTotal.toLocaleString()}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Taxes and shipping calculated at checkout. Delivery fees for heavy freight (Chicks, Feed) will be finalized after order verification.
+                  </p>
+                  
+                  <div className="pt-4 space-y-3">
+                    <Button 
+                      className="w-full bg-black text-white hover:bg-slate-800 py-7 rounded-none uppercase text-xs tracking-[0.2em] transition-all font-medium"
+                      onClick={() => setCurrentView('checkout')}
+                    >
+                      Check out
+                    </Button>
+                    <div className="flex justify-center">
+                       <button onClick={() => setCurrentView('catalog')} className="text-xs text-slate-400 hover:text-slate-900 underline underline-offset-4 font-medium transition-colors">
+                         Continue shopping
+                       </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : currentView === 'checkout' ? (
+        <div className="max-w-6xl mx-auto flex flex-col lg:flex-row min-h-screen bg-white">
+          {/* Main Checkout Form Area */}
+          <div className="flex-1 px-4 py-8 md:p-16 lg:pr-24 border-r border-slate-100">
+            <div className="max-w-xl mx-auto lg:ml-auto lg:mr-0 space-y-12">
+              <header className="space-y-4">
+                <h1 className="text-2xl font-light text-slate-900 tracking-tight">Checkout</h1>
+                <nav className="flex gap-2 text-[10px] text-slate-400 uppercase tracking-widest font-medium">
+                  <button onClick={() => setCurrentView('cart')} className="hover:text-slate-900 transition-colors">Cart</button>
+                  <span>/</span>
+                  <button 
+                    onClick={() => setCheckoutStep('information')} 
+                    className={`transition-colors ${checkoutStep === 'information' ? 'text-slate-900' : 'hover:text-slate-900'}`}
+                  >
+                    Information
+                  </button>
+                  <span>/</span>
+                  <button 
+                    onClick={() => selectedAddressId && setCheckoutStep('payment')} 
+                    className={`transition-colors ${checkoutStep === 'payment' ? 'text-slate-900' : 'hover:text-slate-900'} ${!selectedAddressId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    disabled={!selectedAddressId}
+                  >
+                    Payment
+                  </button>
+                </nav>
+              </header>
+
+              {checkoutStep === 'information' ? (
+                /* Section 1: Contact & Shipping */
+                <div className="space-y-8">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium text-slate-900">Shipping address</h3>
+                      {selectedAddressId && (
+                        <Badge variant="outline" className="text-[9px] bg-emerald-50 text-emerald-600 border-emerald-100">Validated</Badge>
+                      )}
+                    </div>
+                    
+                    {selectedAddressId ? (
+                      <div className="p-6 border border-slate-200 flex items-center justify-between group rounded-2xl bg-slate-50/30">
+                        <div className="flex items-center gap-4">
+                          <MapPin size={18} className="text-emerald-500" />
+                          <div className="text-xs text-slate-600 leading-relaxed font-normal">
+                            {(() => {
+                              const addr = profile?.savedAddresses?.find((a: any) => a.id === selectedAddressId);
+                              return (
+                                <>
+                                  <p className="font-bold text-slate-900">{addr?.farmName || addr?.name}</p>
+                                  <p>{addr?.line1}, {addr?.locality}</p>
+                                  <p>{addr?.district}, {addr?.state} - {addr?.pincode}</p>
+                                  <p className="mt-2 font-medium text-slate-400">{addr?.name} | {addr?.mobile}</p>
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                        <Button variant="ghost" onClick={() => setIsAddressModalOpen(true)} className="text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 underline uppercase tracking-widest px-4 h-10 rounded-xl transition-all">Change</Button>
+                      </div>
+                    ) : (
+                      <Button 
+                        onClick={() => setIsAddressModalOpen(true)}
+                        className="w-full h-20 border-2 border-dashed border-slate-200 text-slate-400 hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50/30 transition-all bg-white text-xs uppercase tracking-widest font-black rounded-3xl"
+                      >
+                        Select delivery location
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="pt-8">
+                    <Button 
+                      disabled={!selectedAddressId}
+                      className="w-full bg-slate-900 text-white hover:bg-slate-800 py-8 rounded-2xl uppercase text-[10px] tracking-[0.2em] transition-all font-black disabled:opacity-30 flex items-center justify-center gap-2"
+                      onClick={() => setCheckoutStep('payment')}
+                    >
+                      Continue to Payment
+                      <ChevronRight size={14} />
+                    </Button>
+                    <div className="flex justify-center mt-6">
+                      <button onClick={() => setCurrentView('cart')} className="text-[10px] uppercase tracking-widest text-slate-400 hover:text-slate-900 font-bold transition-colors">Return to cart</button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Section 2: Payment */
+                <div className="space-y-8">
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <MapPin size={16} className="text-slate-400" />
+                      <div className="text-[10px] text-slate-600 font-medium">
+                        {profile?.savedAddresses?.find((a: any) => a.id === selectedAddressId)?.farmName}
+                      </div>
+                    </div>
+                    <button onClick={() => setCheckoutStep('information')} className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest hover:underline">Change</button>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-medium text-slate-900">Payment method</h3>
+                    <p className="text-[11px] text-slate-500">All transactions are secure and encrypted.</p>
+                    
+                    <div className="border border-slate-200 divide-y divide-slate-100 rounded-2xl overflow-hidden shadow-sm">
+                      {systemSettings?.paymentGateways?.cashOnDelivery?.enabled !== false && (
+                        <button 
+                          onClick={() => setPaymentMethod('COD')}
+                          className={`w-full flex items-center justify-between p-6 transition-all text-left ${
+                            paymentMethod === 'COD' ? 'bg-emerald-50/50' : 'bg-white hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${paymentMethod === 'COD' ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'}`}>
+                              {paymentMethod === 'COD' && <CheckCircle2 size={12} className="text-white" />}
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-slate-900 uppercase tracking-tight">Cash on Delivery (COD)</span>
+                              <span className="text-[10px] text-slate-500 font-medium">Pay when you receive the order</span>
+                            </div>
+                          </div>
+                        </button>
+                      )}
+
+                      {(systemSettings?.paymentGateways?.razorpay?.enabled || 
+                        systemSettings?.paymentGateways?.cashfree?.enabled || 
+                        systemSettings?.paymentGateways?.payu?.enabled) && (
+                        <button 
+                          onClick={() => setPaymentMethod('Online')}
+                          className={`w-full flex items-center justify-between p-6 transition-all text-left ${
+                            paymentMethod === 'Online' ? 'bg-emerald-50/50' : 'bg-white hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${paymentMethod === 'Online' ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'}`}>
+                              {paymentMethod === 'Online' && <CheckCircle2 size={12} className="text-white" />}
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-slate-900 uppercase tracking-tight">Online Payment</span>
+                              <span className="text-[10px] text-slate-500 font-medium">Razorpay / Cashfree Secure Checkout</span>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                             <CreditCard size={18} className="text-slate-400 group-hover:text-emerald-500 transition-colors" />
+                          </div>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-8 space-y-4">
+                    <Button 
+                      disabled={isProcessingPayment}
+                      className="w-full bg-emerald-600 text-white hover:bg-emerald-700 py-8 rounded-2xl uppercase text-[10px] tracking-[0.2em] transition-all font-black shadow-lg shadow-emerald-900/10"
+                      onClick={handlePlaceOrder}
+                    >
+                      {isProcessingPayment ? 'Processing Transaction...' : 'Complete Purchase'}
+                    </Button>
+                    <div className="flex justify-center mt-6">
+                      <button onClick={() => setCheckoutStep('information')} className="text-[10px] uppercase tracking-widest text-slate-400 hover:text-slate-900 font-bold transition-colors">Return to information</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <footer className="pt-12 border-t border-slate-100 flex flex-wrap gap-4 text-[9px] text-slate-400 uppercase tracking-widest font-medium">
+                 {systemSettings?.termsList && Array.isArray(systemSettings.termsList) && systemSettings.termsList.map((term: any) => (
+                   <Dialog key={term.id}>
+                     <DialogTrigger nativeButton={true} render={
+                       <button className="hover:text-slate-900 transition-colors">{term.title}</button>
+                     } />
+                     <DialogContent className="rounded-[2rem] sm:max-w-3xl h-[80vh] flex flex-col p-0 overflow-hidden">
+                       <DialogHeader className="p-8 pb-4">
+                         <DialogTitle className="text-2xl font-black italic">{term.title}</DialogTitle>
+                         <DialogDescription>Effective from {new Date(term.createdAt).toLocaleDateString()}</DialogDescription>
+                       </DialogHeader>
+                       <div className="flex-1 overflow-y-auto px-8 pb-8">
+                         <div className="prose prose-slate max-w-none">
+                           <div className="text-slate-600 leading-relaxed whitespace-pre-wrap font-medium">
+                             {term.content}
+                           </div>
+                         </div>
+                       </div>
+                     </DialogContent>
+                   </Dialog>
+                 ))}
+                 {!systemSettings?.termsList?.length && (
+                   <>
+                     <button className="hover:text-slate-900 transition-colors">Refund policy</button>
+                     <button className="hover:text-slate-900 transition-colors">Shipping policy</button>
+                     <button className="hover:text-slate-900 transition-colors">Privacy policy</button>
+                   </>
+                 )}
+              </footer>
+            </div>
+          </div>
+
+          {/* Sidebar Order Summary */}
+          <div className="w-full lg:w-[450px] bg-slate-50 px-4 py-8 md:p-16 min-h-screen">
+            <div className="max-w-md mx-auto space-y-8">
+              <div className="divide-y divide-slate-200">
+                {cart.map(item => (
+                  <div key={item.cartId} className="py-4 flex gap-4 items-center group">
+                    <div className="relative w-16 h-16 bg-white border border-slate-200 flex-shrink-0 rounded-lg">
+                      <img src={fixImageUrl(item.imageUrl)} alt={item.name} className="w-full h-full object-contain p-2" />
+                      <span className="absolute -top-2 -right-2 bg-slate-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-medium">
+                        {item.quantity}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-900 truncate">{item.name}</p>
+                      <p className="text-xs text-slate-500">{item.selectedVariant?.name || 'Standard'}</p>
+                    </div>
+                    <p className="text-sm font-medium text-slate-900">₹{(item.price * item.quantity).toLocaleString()}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-6 space-y-3">
+                <div className="flex justify-between text-xs text-slate-600 font-normal">
+                  <span>Subtotal</span>
+                  <span className="font-medium text-slate-900">₹{cartTotal.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-xs text-slate-600 font-normal">
+                  <span>Shipping</span>
+                  <span className="text-slate-400 italic">Calculated at next step</span>
+                </div>
+                <div className="pt-4 flex justify-between items-center text-slate-900">
+                  <span className="text-base font-medium">Total</span>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 mr-2 uppercase tracking-widest font-normal">INR</span>
+                    <span className="text-xl font-medium">₹{cartTotal.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="max-w-4xl mx-auto bg-white min-h-screen">
           {selectedItem && (
@@ -862,17 +1135,17 @@ const Shop: React.FC = () => {
                 </button>
 
                 {/* Multiple Images Indicator/Thumbnails */}
-                {selectedItem.imageUrls && selectedItem.imageUrls.length > 1 && (
+                {selectedItem.imageUrls && Array.isArray(selectedItem.imageUrls) && selectedItem.imageUrls.filter(u => u).length > 1 && (
                   <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-2 px-4 overflow-x-auto no-scrollbar pb-1">
-                    {selectedItem.imageUrls.map((url: string, i: number) => (
+                    {selectedItem.imageUrls.filter((u: string) => u).map((url: string, i: number) => (
                       <button 
                         key={i}
-                        className={`w-12 h-12 rounded-xl border-2 transition-all overflow-hidden flex-shrink-0 ${
-                          (selectedItem.currentImageUrl || selectedItem.imageUrl) === url ? 'border-emerald-500 bg-white' : 'border-white/50 bg-white/50'
+                        className={`w-12 h-12 rounded-xl border-2 transition-all overflow-hidden flex-shrink-0 bg-white shadow-md ${
+                          (selectedItem.currentImageUrl || selectedItem.imageUrl) === url ? 'border-emerald-500 scale-110' : 'border-white'
                         }`}
                         onClick={() => setSelectedItem({...selectedItem, currentImageUrl: url})}
                       >
-                        <img src={fixImageUrl(url)} alt={`View ${i}`} className="w-full h-full object-cover" />
+                        <img src={fixImageUrl(url)} alt={`View ${i}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       </button>
                     ))}
                   </div>

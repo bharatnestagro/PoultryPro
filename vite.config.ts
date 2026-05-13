@@ -7,9 +7,8 @@ export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [react(), tailwindcss()],
-    root: 'Frontend',
     build: {
-      outDir: '../dist',
+      outDir: 'dist',
       emptyOutDir: true,
     },
     define: {
@@ -17,9 +16,10 @@ export default defineConfig(({mode}) => {
       'process.env.NODE_ENV': JSON.stringify(mode),
     },
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './Frontend'),
-      },
+      alias: [
+        { find: '@/src', replacement: path.resolve(__dirname, './src') },
+        { find: '@', replacement: path.resolve(__dirname, './src') },
+      ],
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

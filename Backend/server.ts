@@ -11,7 +11,6 @@ console.log("Starting server initialization...");
 
 // Use process.env.NODE_ENV or fallback to production if we're in the dist folder
 const IS_PROD = process.env.NODE_ENV === "production" || fs.existsSync(path.join(process.cwd(), 'dist/index.html'));
-const FRONTEND_ROOT = path.join(process.cwd(), 'Frontend');
 
 let __filename: string;
 let __dirname: string;
@@ -26,14 +25,14 @@ try {
 }
 
 // Initialize Firebase Admin
-const configPath = path.join(process.cwd(), 'Frontend/firebase-applet-config.json');
+const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
 console.log("Loading config from:", configPath);
 
 let firebaseConfig: any;
 try {
   firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 } catch (e: any) {
-  console.error("CRITICAL: Failed to load Backend/firebase-applet-config.json:", e.message);
+  console.error("CRITICAL: Failed to load firebase-applet-config.json:", e.message);
   process.exit(1);
 }
 
@@ -210,6 +209,18 @@ async function startServer() {
     }
   });
 
+  // Alias for Netlify Functions (Local Preview)
+  app.post("/.netlify/functions/create-order", async (req, res) => {
+    console.log("Netlify Function Proxy hit locally");
+    const { gateway } = req.body;
+    if (gateway === 'cashfree') {
+       return res.redirect(307, '/api/create-cashfree-session');
+    } else if (gateway === 'razorpay') {
+       return res.redirect(307, '/api/create-razorpay-order');
+    }
+    res.status(400).json({ error: "Invalid gateway in proxy" });
+  });
+
   // Cashfree Session Creation
   app.post("/api/create-cashfree-session", async (req, res) => {
     console.log("Request to /api/create-cashfree-session received");
@@ -345,7 +356,6 @@ async function startServer() {
     try {
       const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
-        root: FRONTEND_ROOT,
         server: { middlewareMode: true },
         appType: "spa",
       });

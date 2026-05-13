@@ -309,6 +309,12 @@ async function startServer() {
     });
   });
 
+  // Catch-all for API routes to prevent falling through to static middleware
+  app.all("/api/*", (req, res) => {
+    console.warn(`API Route not found: ${req.method} ${req.url}`);
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

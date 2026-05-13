@@ -147,18 +147,22 @@ async function startServer() {
     next();
   });
 
-  // API routes
+  // Diagnostic health check (VERY EARLY)
   app.get("/api/health", (req, res) => {
+    console.log("Health check hit");
     res.json({ 
       status: "ok", 
       has_settings: !!_cachedSettings,
       env: process.env.NODE_ENV,
+      is_prod: IS_PROD,
       time: new Date().toISOString()
     });
   });
 
+  const apiRouter = express.Router();
+
   // Sync settings from client
-  app.post("/api/sync-settings", async (req, res) => {
+  apiRouter.post("/sync-settings", async (req, res) => {
     try {
       const settings = req.body;
       _cachedSettings = settings;
@@ -172,7 +176,7 @@ async function startServer() {
   });
 
   // Razorpay Order Creation
-  app.post("/api/create-razorpay-order", async (req, res) => {
+  apiRouter.post("/create-razorpay-order", async (req, res) => {
     try {
       const { amount, currency = "INR" } = req.body;
       const settings = await getSystemSettings();
@@ -202,7 +206,7 @@ async function startServer() {
   });
 
   // Cashfree Session Creation
-  app.post("/api/create-cashfree-session", async (req, res) => {
+  apiRouter.post("/create-cashfree-session", async (req, res) => {
     console.log("Request to /api/create-cashfree-session received");
     try {
       const { amount, customerId, customerPhone, customerEmail, orderId } = req.body;
@@ -270,7 +274,7 @@ async function startServer() {
   });
 
   // Verify Cashfree Payment
-  app.get("/api/verify-cashfree-payment/:orderId", async (req, res) => {
+  apiRouter.get("/verify-cashfree-payment/:orderId", async (req, res) => {
     try {
       const { orderId } = req.params;
       const settings = await getSystemSettings();
@@ -304,7 +308,7 @@ async function startServer() {
   });
 
   // Stats API
-  app.get("/api/admin/stats", (req, res) => {
+  apiRouter.get("/admin/stats", (req, res) => {
     res.json({
       totalFarmers: 128,
       totalBirds: 15400,
@@ -318,10 +322,17 @@ async function startServer() {
     });
   });
 
-  // Catch-all for API routes
+  // Mount API router
+  app.use("/api", apiRouter);
+
+  // Catch-all for API routes (AFTER mounting the router)
   app.all("/api/*", (req, res) => {
     console.warn(`API Route not found: ${req.method} ${req.url}`);
-    res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
+    res.status(404).json({ 
+      error: `API route not found: ${req.method} ${req.url}`,
+      suggestion: "If this worked in dev but not prod, check if the build succeeded.",
+      timestamp: new Date().toISOString()
+    });
   });
 
   // Vite/Static handling

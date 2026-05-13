@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import admin from "firebase-admin";
@@ -8,16 +7,44 @@ import axios from "axios";
 import fs from "fs";
 import Razorpay from "razorpay";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+console.log("Starting server initialization...");
+
+// Use process.env.NODE_ENV or fallback to production if we're in the dist folder
+const IS_PROD = process.env.NODE_ENV === "production" || fs.existsSync(path.join(process.cwd(), 'dist/index.html'));
+
+let __filename: string;
+let __dirname: string;
+
+try {
+  __filename = fileURLToPath(import.meta.url);
+  __dirname = path.dirname(__filename);
+} catch (e) {
+  // Fallback for CJS bundle where import.meta is not available
+  __filename = (global as any).__filename || "";
+  __dirname = (global as any).__dirname || process.cwd();
+}
 
 // Initialize Firebase Admin
-const firebaseConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'firebase-applet-config.json'), 'utf8'));
+const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+console.log("Loading config from:", configPath);
+
+let firebaseConfig: any;
+try {
+  firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+} catch (e: any) {
+  console.error("CRITICAL: Failed to load firebase-applet-config.json:", e.message);
+  process.exit(1);
+}
 
 if (admin.apps.length === 0) {
-  admin.initializeApp({
-    projectId: firebaseConfig.projectId
-  });
+  try {
+    admin.initializeApp({
+      projectId: firebaseConfig.projectId
+    });
+    console.log("Firebase Admin initialized successfully");
+  } catch (e: any) {
+    console.error("Firebase Admin init failed:", e.message);
+  }
 }
 
 // In AI Studio, we must use the database ID from the config
@@ -35,14 +62,16 @@ async function getSystemSettings() {
     if (fs.existsSync(cachePath)) {
       const data = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
       _cachedSettings = data;
+      console.log("Settings loaded from disc cache");
       return data;
     }
   } catch (e) {
-    console.error("Cache read failed");
+    // Expected if doesn't exist
   }
 
   const debug: any = { source: "admin_sdk" };
   try {
+    console.log("Fetching settings from Firestore...");
     const settingsRef = db.collection('system').doc('settings');
     const settingsSnap = await settingsRef.get();
     
@@ -61,6 +90,7 @@ async function getSystemSettings() {
     
     // REST API Fallback
     try {
+      console.log("Attempting REST API fallback for settings...");
       const projectId = firebaseConfig.projectId;
       const databaseId = firebaseConfig.firestoreDatabaseId;
       const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/system/settings`;
@@ -96,7 +126,7 @@ async function getSystemSettings() {
     } catch (restErr: any) {
       debug.rest_error = restErr.response?.data || restErr.message;
       debug.rest_status = restErr.response?.status;
-      console.error("RESt API Fallback also failed.");
+      console.error("REST API Fallback also failed.");
       
       // If we have nothing, throw a helpful error
       throw new Error(JSON.stringify(debug));
@@ -105,21 +135,29 @@ async function getSystemSettings() {
 }
 
 async function startServer() {
+  console.log("Initializing Express app...");
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Logging middleware
+  app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    next();
+  });
 
   // API routes
   app.get("/api/health", (req, res) => {
     res.json({ 
       status: "ok", 
       has_settings: !!_cachedSettings,
-      env: process.env.NODE_ENV 
+      env: process.env.NODE_ENV,
+      time: new Date().toISOString()
     });
   });
 
-  // Sync settings from client (workaround for Firestore Admin permissions)
+  // Sync settings from client
   app.post("/api/sync-settings", async (req, res) => {
     try {
       const settings = req.body;
@@ -137,13 +175,9 @@ async function startServer() {
   app.post("/api/create-razorpay-order", async (req, res) => {
     try {
       const { amount, currency = "INR" } = req.body;
-
       const settings = await getSystemSettings();
-      if (!settings) {
-        return res.status(404).json({ error: "System settings not found" });
-      }
-
       const razorpayConfig = settings?.paymentGateways?.razorpay;
+      
       if (!razorpayConfig?.enabled || !razorpayConfig?.apiKey || !razorpayConfig?.apiSecret) {
         return res.status(400).json({ error: "Razorpay is not properly configured" });
       }
@@ -154,7 +188,7 @@ async function startServer() {
       });
 
       const options = {
-        amount: Math.round(amount * 100), // amount in the smallest currency unit
+        amount: Math.round(amount * 100),
         currency,
         receipt: `receipt_${Date.now()}`,
       };
@@ -169,42 +203,27 @@ async function startServer() {
 
   // Cashfree Session Creation
   app.post("/api/create-cashfree-session", async (req, res) => {
+    console.log("Request to /api/create-cashfree-session received");
     try {
       const { amount, customerId, customerPhone, customerEmail, orderId } = req.body;
 
-      // 1. Get Cashfree keys using helper
       let settings;
-      let debug_info: any = { status: "fetching" };
       try {
         settings = await getSystemSettings();
       } catch (e: any) {
-        try {
-          debug_info = JSON.parse(e.message);
-        } catch (parseErr) {
-          debug_info.raw_error = e.message;
-        }
+        console.error("Settings fetch failed in Cashfree session creation:", e.message);
       }
       
       if (!settings) {
-        return res.status(404).json({ 
-          error: "System settings not found or inaccessible",
-          debug: debug_info 
-        });
+        return res.status(404).json({ error: "System settings not found or inaccessible" });
       }
 
       const cashfreeConfig = settings?.paymentGateways?.cashfree;
 
       if (!cashfreeConfig?.enabled || !cashfreeConfig?.appId || !cashfreeConfig?.secretKey) {
-        console.error("Cashfree configuration missing:", { 
-          enabled: cashfreeConfig?.enabled, 
-          hasAppId: !!cashfreeConfig?.appId, 
-          hasSecret: !!cashfreeConfig?.secretKey 
-        });
         return res.status(400).json({ error: "Cashfree is not properly configured" });
       }
 
-      // 2. Call Cashfree API to create order/session
-      // Using Cashfree V3 API: https://docs.cashfree.com/reference/pgcreateorder
       const isProduction = cashfreeConfig.mode === "production";
       const cashfreeUrl = isProduction 
         ? "https://api.cashfree.com/pg/orders" 
@@ -220,14 +239,12 @@ async function startServer() {
           customer_id: String(customerId || `cust_${Date.now()}`),
           customer_phone: String(customerPhone || "9999999999"),
           customer_email: customerEmail || "customer@example.com",
-          customer_name: "Customer" // Added fallback name
+          customer_name: "Customer"
         },
         order_meta: {
            return_url: `${req.headers.origin}/transactions`
         }
       };
-
-      console.log("Cashfree Payload:", JSON.stringify(payload, null, 2));
 
       const response = await axios.post(
         cashfreeUrl,
@@ -256,12 +273,7 @@ async function startServer() {
   app.get("/api/verify-cashfree-payment/:orderId", async (req, res) => {
     try {
       const { orderId } = req.params;
-
       const settings = await getSystemSettings();
-      if (!settings) {
-        return res.status(404).json({ error: "System settings not found" });
-      }
-      
       const cashfreeConfig = settings?.paymentGateways?.cashfree;
 
       if (!cashfreeConfig?.appId || !cashfreeConfig?.secretKey) {
@@ -291,11 +303,8 @@ async function startServer() {
     }
   });
 
-  // Admin stats API (mocking for now, will connect to Firestore later)
+  // Stats API
   app.get("/api/admin/stats", (req, res) => {
-    // This would normally fetch from Firestore using Admin SDK or similar
-    // But since we are client-side heavy with Firebase, we might just do it in the frontend
-    // However, the user asked for a RESTful API structure.
     res.json({
       totalFarmers: 128,
       totalBirds: 15400,
@@ -309,30 +318,49 @@ async function startServer() {
     });
   });
 
-  // Catch-all for API routes to prevent falling through to static middleware
+  // Catch-all for API routes
   app.all("/api/*", (req, res) => {
     console.warn(`API Route not found: ${req.method} ${req.url}`);
     res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+  // Vite/Static handling
+  if (!IS_PROD) {
+    console.log("Entering development mode with Vite middleware...");
+    try {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } catch (e: any) {
+      console.error("Failed to start Vite middleware:", e.message);
+    }
   } else {
+    console.log("Entering production mode...");
     const distPath = path.join(process.cwd(), "dist");
+    console.log("Serving static files from:", distPath);
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      // Prevent infinite loop if index.html is missing
+      const indexPath = path.join(distPath, "index.html");
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send("Production build not found. Please run 'npm run build'.");
+      }
     });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Node Environment: ${process.env.NODE_ENV}`);
   });
 }
 
-startServer();
+try {
+  startServer();
+} catch (e: any) {
+  console.error("FATAL: Failed to start server:", e.message);
+}

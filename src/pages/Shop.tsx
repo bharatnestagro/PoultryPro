@@ -493,7 +493,14 @@ const Shop: React.FC = () => {
         })
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseErr) {
+        console.error("Failed to parse API response as JSON:", responseText.substring(0, 200));
+        throw new Error(`Server returned invalid response format: ${response.status}. This usually means the server-side API route is missing or crashing.`);
+      }
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to initialize session');

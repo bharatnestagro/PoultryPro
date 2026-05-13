@@ -230,7 +230,7 @@ const Shop: React.FC = () => {
     if (!useWallet || totalBalance <= 0) return 0;
     return Math.min(totalBalance, cartTotal);
   }, [useWallet, profile?.walletBalance, profile?.rewardBalance, cartTotal]);
-  const [paymentMethod, setPaymentMethod] = useState<'COD' | 'Online'>('COD');
+  const [paymentMethod, setPaymentMethod] = useState<'COD' | 'Online'>('Online');
   const [systemSettings, setSystemSettings] = useState<any>(null);
   const [deliverySettings, setDeliverySettings] = useState<any>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -288,6 +288,14 @@ const Shop: React.FC = () => {
 
     return () => unsubSettings();
   }, []);
+
+  useEffect(() => {
+    // If COD is disabled and current payment method is COD, switch to Online
+    const isCodEnabled = systemSettings?.paymentGateways?.cashOnDelivery?.enabled !== false && deliverySettings?.codEnabled !== false;
+    if (!isCodEnabled && paymentMethod === 'COD') {
+      setPaymentMethod('Online');
+    }
+  }, [systemSettings, deliverySettings, paymentMethod]);
 
   const finalizeOrder = async (method: 'COD' | 'Online', address: any, transactionId?: string) => {
     if (!user) {
@@ -426,10 +434,13 @@ const Shop: React.FC = () => {
     setIsProcessingPayment(true);
     
     try {
-      const orderRes = await fetch("/api/create-razorpay-order", {
+      const orderRes = await fetch("/.netlify/functions/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: cartTotal })
+        body: JSON.stringify({ 
+          gateway: "razorpay",
+          amount: cartTotal 
+        })
       });
       
       const orderData = await orderRes.json();
@@ -480,11 +491,12 @@ const Shop: React.FC = () => {
         return;
       }
 
-      // 1. Create Session via our backend
-      const response = await fetch("/api/create-cashfree-session", {
+      // 1. Create Session via Netlify Function
+      const response = await fetch("/.netlify/functions/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          gateway: "cashfree",
           amount: cartTotal,
           customerId: user?.uid || "guest",
           customerPhone: profile?.phone || "9999999999",
@@ -985,7 +997,7 @@ const Shop: React.FC = () => {
                     <p className="text-[11px] text-slate-500">All transactions are secure and encrypted.</p>
                     
                     <div className="border border-slate-200 divide-y divide-slate-100 rounded-2xl overflow-hidden shadow-sm">
-                      {systemSettings?.paymentGateways?.cashOnDelivery?.enabled === true && (
+                      {systemSettings?.paymentGateways?.cashOnDelivery?.enabled !== false && deliverySettings?.codEnabled !== false && (
                         <button 
                           onClick={() => setPaymentMethod('COD')}
                           className={`w-full flex items-center justify-between p-6 transition-all text-left ${

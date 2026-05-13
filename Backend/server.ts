@@ -11,6 +11,7 @@ console.log("Starting server initialization...");
 
 // Use process.env.NODE_ENV or fallback to production if we're in the dist folder
 const IS_PROD = process.env.NODE_ENV === "production" || fs.existsSync(path.join(process.cwd(), 'dist/index.html'));
+const FRONTEND_ROOT = path.join(process.cwd(), 'Frontend');
 
 let __filename: string;
 let __dirname: string;
@@ -25,14 +26,14 @@ try {
 }
 
 // Initialize Firebase Admin
-const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+const configPath = path.join(process.cwd(), 'Frontend/firebase-applet-config.json');
 console.log("Loading config from:", configPath);
 
 let firebaseConfig: any;
 try {
   firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 } catch (e: any) {
-  console.error("CRITICAL: Failed to load firebase-applet-config.json:", e.message);
+  console.error("CRITICAL: Failed to load Backend/firebase-applet-config.json:", e.message);
   process.exit(1);
 }
 
@@ -58,7 +59,7 @@ async function getSystemSettings() {
 
   // Try local disk cache
   try {
-    const cachePath = path.join(process.cwd(), 'settings-cache.json');
+    const cachePath = path.join(process.cwd(), 'Backend/settings-cache.json');
     if (fs.existsSync(cachePath)) {
       const data = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
       _cachedSettings = data;
@@ -148,26 +149,29 @@ async function startServer() {
   });
 
   // Diagnostic health check (VERY EARLY)
+  const startTime = new Date();
   app.get("/api/health", (req, res) => {
-    console.log("Health check hit");
+    console.log("Health check hit - Version 1.0.3");
     res.json({ 
       status: "ok", 
+      version: "1.0.3",
+      uptime: Math.floor((new Date().getTime() - startTime.getTime()) / 1000) + "s",
       has_settings: !!_cachedSettings,
       env: process.env.NODE_ENV,
       is_prod: IS_PROD,
+      cwd: process.cwd(),
       time: new Date().toISOString()
     });
   });
 
-  const apiRouter = express.Router();
-
+  // API Routes directly on app for maximum visibility
   // Sync settings from client
-  apiRouter.post("/sync-settings", async (req, res) => {
+  app.post("/api/sync-settings", async (req, res) => {
+    console.log("Sync settings request received");
     try {
       const settings = req.body;
       _cachedSettings = settings;
-      fs.writeFileSync(path.join(process.cwd(), 'settings-cache.json'), JSON.stringify(settings, null, 2));
-      console.log("System settings synced from client successfully");
+      fs.writeFileSync(path.join(process.cwd(), 'Backend/settings-cache.json'), JSON.stringify(settings, null, 2));
       res.json({ status: "success" });
     } catch (error: any) {
       console.error("Sync settings failed:", error.message);
@@ -176,7 +180,8 @@ async function startServer() {
   });
 
   // Razorpay Order Creation
-  apiRouter.post("/create-razorpay-order", async (req, res) => {
+  app.post("/api/create-razorpay-order", async (req, res) => {
+    console.log("Razorpay order creation request received");
     try {
       const { amount, currency = "INR" } = req.body;
       const settings = await getSystemSettings();
@@ -206,24 +211,17 @@ async function startServer() {
   });
 
   // Cashfree Session Creation
-  apiRouter.post("/create-cashfree-session", async (req, res) => {
+  app.post("/api/create-cashfree-session", async (req, res) => {
     console.log("Request to /api/create-cashfree-session received");
     try {
       const { amount, customerId, customerPhone, customerEmail, orderId } = req.body;
 
-      let settings;
-      try {
-        settings = await getSystemSettings();
-      } catch (e: any) {
-        console.error("Settings fetch failed in Cashfree session creation:", e.message);
-      }
-      
+      const settings = await getSystemSettings();
       if (!settings) {
-        return res.status(404).json({ error: "System settings not found or inaccessible" });
+        return res.status(404).json({ error: "System settings not found" });
       }
 
       const cashfreeConfig = settings?.paymentGateways?.cashfree;
-
       if (!cashfreeConfig?.enabled || !cashfreeConfig?.appId || !cashfreeConfig?.secretKey) {
         return res.status(400).json({ error: "Cashfree is not properly configured" });
       }
@@ -274,7 +272,7 @@ async function startServer() {
   });
 
   // Verify Cashfree Payment
-  apiRouter.get("/verify-cashfree-payment/:orderId", async (req, res) => {
+  app.get("/api/verify-cashfree-payment/:orderId", async (req, res) => {
     try {
       const { orderId } = req.params;
       const settings = await getSystemSettings();
@@ -308,7 +306,7 @@ async function startServer() {
   });
 
   // Stats API
-  apiRouter.get("/admin/stats", (req, res) => {
+  app.get("/api/admin/stats", (req, res) => {
     res.json({
       totalFarmers: 128,
       totalBirds: 15400,
@@ -322,16 +320,22 @@ async function startServer() {
     });
   });
 
-  // Mount API router
-  app.use("/api", apiRouter);
-
-  // Catch-all for API routes (AFTER mounting the router)
+  // Catch-all for API routes (DEBUG VERSION)
   app.all("/api/*", (req, res) => {
-    console.warn(`API Route not found: ${req.method} ${req.url}`);
+    const errorMsg = `API Route not found: ${req.method} ${req.url}`;
+    console.warn(errorMsg);
     res.status(404).json({ 
-      error: `API route not found: ${req.method} ${req.url}`,
-      suggestion: "If this worked in dev but not prod, check if the build succeeded.",
-      timestamp: new Date().toISOString()
+      error: errorMsg,
+      server_time: new Date().toISOString(),
+      is_prod: IS_PROD,
+      registered_routes: [
+        "/api/health",
+        "/api/sync-settings",
+        "/api/create-razorpay-order",
+        "/api/create-cashfree-session",
+        "/api/verify-cashfree-payment/:orderId",
+        "/api/admin/stats"
+      ]
     });
   });
 
@@ -341,6 +345,7 @@ async function startServer() {
     try {
       const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
+        root: FRONTEND_ROOT,
         server: { middlewareMode: true },
         appType: "spa",
       });

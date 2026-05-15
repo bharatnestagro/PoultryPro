@@ -132,11 +132,18 @@ const Footer = () => {
                 {footerData.address || "123 Farm Street, Agrotech Nagar"}
               </p>
             </div>
-            <div className="pt-2">
-              <button className="w-full h-11 bg-emerald-50 rounded-xl text-emerald-600 text-xs font-bold flex items-center justify-center gap-2 hover:bg-emerald-100 transition-all">
-                View on Google Maps <ExternalLink size={14} />
-              </button>
-            </div>
+            {footerData.googleMapLink && (
+              <div className="pt-2">
+                <a 
+                  href={footerData.googleMapLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full h-11 bg-emerald-50 rounded-xl text-emerald-600 text-xs font-bold flex items-center justify-center gap-2 hover:bg-emerald-100 transition-all"
+                >
+                  View on Google Maps <ExternalLink size={14} />
+                </a>
+              </div>
+            )}
           </div>
         </div>
 

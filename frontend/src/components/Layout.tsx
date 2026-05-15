@@ -62,6 +62,7 @@ const Layout: React.FC = () => {
   }
 
   if (!user && 
+      location.pathname !== '/' &&
       location.pathname !== '/dashboard' && 
       location.pathname !== '/add' &&
       location.pathname !== '/shop' &&

@@ -44,21 +44,28 @@ const AddData: React.FC = () => {
 
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab === 'feed_stock') {
-      setActiveTab('stock');
-      setStockMode('feed');
-    } else if (tab === 'medicine_stock') {
-      setActiveTab('stock');
-      setStockMode('medicine');
-    } else if (tab) {
-      setActiveTab(tab);
+    if (tab) {
+      if (!user) {
+        setShowLoginModal(true);
+        return;
+      }
+      
+      if (tab === 'feed_stock') {
+        setActiveTab('stock');
+        setStockMode('feed');
+      } else if (tab === 'medicine_stock') {
+        setActiveTab('stock');
+        setStockMode('medicine');
+      } else {
+        setActiveTab(tab);
+      }
     }
 
     const filter = searchParams.get('filter');
     if (filter) {
       setHistoryFilter(filter);
     }
-  }, [searchParams]);
+  }, [searchParams, user]);
 
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [redirectToAlerts, setRedirectToAlerts] = useState(false);
@@ -256,6 +263,11 @@ const AddData: React.FC = () => {
     const source = searchParams.get('source'); // 'daily' or 'egg'
     
     if (editId && (source === 'daily' || source === 'egg')) {
+      if (!user) {
+        setShowLoginModal(true);
+        return;
+      }
+
       const fetchLog = async () => {
         try {
           const docRef = doc(db, source === 'daily' ? 'dailyLogs' : 'eggLogs', editId);

@@ -78,6 +78,7 @@ const AdminSettings: React.FC = () => {
       },
       footerText: 'Empowering farmers with modern technology.',
       copyrightText: '© 2026 PoultryPro Management System. All rights reserved.',
+      googleMapLink: '',
       pages: []
     },
     paymentGateways: {
@@ -793,6 +794,21 @@ const AdminSettings: React.FC = () => {
                       }))}
                     />
                     <MapPin className="absolute left-3 top-3.5 text-slate-400" size={18} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">GOOGLE MAP LINK</Label>
+                  <div className="relative">
+                    <Input 
+                      placeholder="https://goo.gl/maps/..."
+                      className="rounded-xl h-12 bg-slate-50 border-slate-100 pl-10"
+                      value={settings.footer?.googleMapLink}
+                      onChange={(e) => setSettings(prev => ({ 
+                        ...prev, 
+                        footer: { ...prev.footer, googleMapLink: e.target.value } 
+                      }))}
+                    />
+                    <Globe className="absolute left-3 top-3.5 text-slate-400" size={18} />
                   </div>
                 </div>
               </div>

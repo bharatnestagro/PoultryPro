@@ -1,5 +1,6 @@
 {
   "name": "PoultryPro",
   "description": "A comprehensive mobile-first poultry farm management system for farmers and admins, featuring smart alerts and batch performance tracking.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

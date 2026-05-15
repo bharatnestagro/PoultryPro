@@ -5997,6 +5997,10 @@ const AddData: React.FC = () => {
               )}
             </DialogContent>
           </Dialog>
+          <LoginModal 
+            isOpen={showLoginModal} 
+            onClose={() => setShowLoginModal(false)} 
+          />
         </div>
       )}
     </div>

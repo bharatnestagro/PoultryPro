@@ -72,7 +72,7 @@ const Layout: React.FC = () => {
   }
 
   const navItems = [
-    { icon: Home, label: 'Home', path: '/dashboard' },
+    { icon: Home, label: 'Home', path: '/' },
     { icon: PlusCircle, label: 'Add Data', path: '/add' },
     { icon: ShoppingBag, label: 'Shop', path: '/shop' },
     { icon: PlayCircle, label: 'Learn', path: '/learn' },
@@ -207,7 +207,7 @@ const Layout: React.FC = () => {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-4 md:p-8">
         <Outlet context={{ isSidebarOpen }} />
-        {location.pathname === '/dashboard' && <Footer />}
+        {(location.pathname === '/' || location.pathname === '/dashboard') && <Footer />}
       </main>
 
       {/* Mobile Bottom Nav */}

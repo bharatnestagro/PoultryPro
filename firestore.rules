@@ -1,0 +1,408 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // 0. Global Safety Net (Default Deny)
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Pillar 3: Path Variable Hardening (Helpers)
+    // ===============================================================
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+    function isAuthenticated() { return isSignedIn(); } // Legacy alias
+    
+    // Pillar 6: PII Isolation & Admin Logic
+    function isBharatAdmin() {
+      return isSignedIn() && 
+        (request.auth.token.email == "bharatnestagro@gmail.com" ||
+         request.auth.uid == "OQb1NF7095Qep0tLoijpSZNZRcl2");
+    }
+
+    function isAdmin() {
+      return isBharatAdmin() || (isSignedIn() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin"
+      ));
+    }
+
+    function isManager() {
+      return isAdmin() || (isSignedIn() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "manager"
+      ));
+    }
+
+    // ===============================================================
+    // Entity Validators (Pillar 2 & 5)
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role']) &&
+             data.uid == request.auth.uid &&
+             data.role in ['farmer', 'admin', 'manager'] &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 128 &&
+             data.email is string && data.email.size() > 0;
+    }
+
+    function isValidFlock(data) {
+      return data.keys().hasAll(['userId', 'name', 'breed', 'placementDate', 'initialCount']) &&
+             data.userId == request.auth.uid &&
+             data.breed is string &&
+             data.initialCount is number && data.initialCount >= 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 128;
+    }
+
+    function isValidTransaction(data) {
+      // Identity Integrity (Pillar 2)
+      return data.keys().hasAll(['userId', 'type', 'amount', 'description', 'date']) &&
+             (data.userId == request.auth.uid || (('farmerId' in data) && data.farmerId == request.auth.uid)) &&
+             data.type in ['Income', 'Expense'] &&
+             data.amount is number && data.amount >= 0 &&
+             data.description is string && data.description.size() < 1000;
+    }
+
+    function isValidLearningVideo(data) {
+      return data.keys().hasAll(['title', 'videoUrl', 'createdAt']) &&
+             data.title is string && data.title.size() > 0 &&
+             data.videoUrl is string && data.videoUrl.size() > 0;
+    }
+
+    function isValidLearningCategory(data) {
+      return data.keys().hasAll(['name', 'createdAt']) &&
+             data.name is string && data.name.size() > 0;
+    }
+
+    function isValidVideoAnalytics(data) {
+      return data.keys().hasAll(['userId', 'videoId', 'watchTime']) &&
+             data.userId == request.auth.uid &&
+             data.watchTime is number;
+    }
+
+    function isValidChallengePlan(data) {
+      return data.keys().hasAll(['title', 'cost', 'durationDays', 'dailyReward']) &&
+             data.title is string && data.title.size() > 0 &&
+             data.cost is number && data.cost >= 0 &&
+             data.durationDays is number && data.durationDays > 0 &&
+             data.dailyReward is number && data.dailyReward >= 0;
+    }
+
+    function isValidUserChallenge(data) {
+      return data.keys().hasAll(['userId', 'challengeId', 'startDate', 'status']) &&
+             data.userId == request.auth.uid &&
+             data.challengeId is string &&
+             data.status in ['Active', 'Completed', 'Failed'];
+    }
+
+    function isValidShopCategory(data) {
+      return data.keys().hasAll(['name', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 128;
+    }
+
+    function isValidShopItem(data) {
+      return data.keys().hasAll(['name', 'category', 'price', 'unit']) &&
+             data.name is string && data.name.size() > 0 &&
+             data.category is string &&
+             data.price is number && data.price >= 0 &&
+             data.unit is string;
+    }
+
+    function isValidWalletTransaction(data) {
+      return data.keys().hasAll(['userId', 'amount', 'type', 'source', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.amount is number &&
+             data.type in ['Credit', 'Debit'] &&
+             data.source in ['Challenge Reward', 'Bonus', 'Withdrawal', 'Order Payment'];
+    }
+
+    // ===============================================================
+    // Rules (Pillar 1: Master Gate)
+    // ===============================================================
+
+    // New: Learning Categories
+    match /learningCategories/{categoryId} {
+      allow get, list: if true;
+      allow write: if isAdmin() || isManager();
+    }
+
+    // New: Learning Videos
+    match /learningVideos/{videoId} {
+      allow get, list: if true;
+      allow create: if (isAdmin() || isManager()) && isValidLearningVideo(incoming());
+      allow update: if (isAdmin() || isManager()) && isValidLearningVideo(incoming());
+      allow delete: if isAdmin() || isManager();
+    }
+
+    // New: Video Analytics
+    match /videoAnalytics/{analyticsId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidVideoAnalytics(incoming());
+      allow update: if isSignedIn() && isValidVideoAnalytics(incoming()) && (resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // 1. Users Collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidUser(incoming());
+      allow update: if isSignedIn() && (userId == request.auth.uid || isAdmin() || isManager());
+      allow delete: if isAdmin() || isManager();
+    }
+
+    // 2. Flocks Collection
+    match /flocks/{flockId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn()); // Query enforce will check data
+      allow create: if isSignedIn() && isValidFlock(incoming());
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // 3. Transactions Collection (Pillar 8: Secure List Queries)
+    match /transactions/{transactionId} {
+      // Broad read for admins/managers, restricted for farmers
+      allow read: if isAdmin() || isManager() || (isSignedIn() && (
+        resource.data.userId == request.auth.uid || 
+        ( ('farmerId' in resource.data) && resource.data.farmerId == request.auth.uid )
+      ));
+      
+      // Specifically harden the list operation to allow queries with filters
+      allow list: if isAdmin() || isManager() || (isSignedIn()); 
+      
+      allow create: if isSignedIn() && isValidTransaction(incoming());
+      allow update: if isAdmin() || isManager() || (isSignedIn() && (
+        resource.data.userId == request.auth.uid || 
+        ( ('farmerId' in resource.data) && resource.data.farmerId == request.auth.uid )
+      ));
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // 4. Daily Logs
+    match /dailyLogs/{logId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn());
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // 5. Stock Collections
+    match /medicineStock/{stockId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn());
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    match /feedStock/{stockId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn());
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // 6. Shop & Orders
+    match /shopItems/{itemId} {
+      allow get, list: if true;
+      allow create: if (isAdmin() || isManager()) && isValidId(itemId) && isValidShopItem(incoming());
+      allow update: if (isAdmin() || isManager()) && isValidId(itemId) && isValidShopItem(incoming());
+      allow delete: if isAdmin() || isManager() && isValidId(itemId);
+    }
+
+    match /shopCategories/{categoryId} {
+      allow get, list: if true;
+      allow create: if (isAdmin() || isManager()) && isValidId(categoryId) && isValidShopCategory(incoming());
+      allow update: if (isAdmin() || isManager()) && isValidId(categoryId) && isValidShopCategory(incoming());
+      allow delete: if isAdmin() || isManager() && isValidId(categoryId);
+    }
+
+    match /coupons/{couponId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isManager();
+    }
+
+    match /deliveryPartners/{partnerId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isManager();
+    }
+
+    match /orders/{orderId} {
+      allow get: if (isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid)) && isValidId(orderId);
+      allow list: if isAdmin() || isManager() || (isSignedIn());
+      allow create: if isSignedIn() && isValidId(orderId);
+      allow update: if (isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid)) && isValidId(orderId);
+      allow delete: if isAdmin() && isValidId(orderId);
+    }
+
+    match /counters/{counterId} {
+      allow get: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /carts/{userId} {
+      allow get: if (isSignedIn() && (userId == request.auth.uid || isAdmin() || isManager())) && isValidId(userId);
+      allow list: if (isAdmin() || isManager());
+      allow write: if isSignedIn() && (userId == request.auth.uid || isAdmin() || isManager()) && isValidId(userId);
+    }
+
+    // 7. System & Settings
+    match /system/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /licensePlans/{planId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 8. Alerts
+    match /systemAlerts/{alertId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (isAdmin() || isManager() || (incoming().diff(existing()).affectedKeys().hasOnly(['viewedBy'])));
+      allow delete: if isAdmin() || isManager();
+    }
+
+    // 9. License Keys
+    match /licenseKeys/{keyId} {
+      allow read: if isSignedIn();
+      allow create: if isManager() || isAdmin();
+      allow update: if isAdmin() || isManager() || (
+        isSignedIn() && 
+        existing().status == 'Unused' &&
+        incoming().status == 'Active' &&
+        incoming().usedBy == request.auth.uid
+      ) || (
+        isSignedIn() && 
+        existing().usedBy == request.auth.uid
+      );
+      allow delete: if isAdmin() || isManager();
+    }
+
+    // 10. Manager Analytics
+    match /managerPayments/{paymentId} {
+      allow read: if isSignedIn() && (isAdmin() || resource.data.managerId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /managerCommissions/{managerId} {
+      allow read: if isSignedIn() && (isAdmin() || managerId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    // 11. Hatchery & Incubator
+    match /hatcheryBatches/{batchId} {
+      allow read, write: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    match /incubatorLogs/{logId} {
+      allow read, write: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+    
+    match /deletedOrders/{orderId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /deletedKeys/{keyId} {
+      allow read, write: if isAdmin() || isManager();
+    }
+
+    // 12. Tasks & Schedules
+    match /tasks/{taskId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn());
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // 13. Egg Production Logs
+    match /eggLogs/{logId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn());
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    match /eggSales/{saleId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn());
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    match /contacts/{contactId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn());
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // 14. Batch Schedules & Templates
+    match /schedules/{scheduleId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn());
+      allow create: if isAdmin() || isManager();
+      allow update: if isAdmin() || isManager() || (
+        isSignedIn() && 
+        resource.data.userId == request.auth.uid && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['completedDays', 'completionLogs', 'watchedVideos', 'videoWatchLogs', 'updatedAt'])
+      );
+      allow delete: if isAdmin() || isManager();
+    }
+
+    match /scheduleTemplates/{templateId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isManager();
+    }
+
+    // 15. Alerts & Rules
+    match /alertRules/{ruleId} {
+      allow read: if isAdmin() || isManager();
+      allow write: if isAdmin();
+    }
+
+    // 16. Challenges & Wallet
+    match /challengePlans/{planId} {
+      allow read: if isSignedIn();
+      allow create: if (isAdmin() || isManager()) && isValidChallengePlan(incoming());
+      allow update: if (isAdmin() || isManager()) && isValidChallengePlan(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /userChallenges/{participationId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidUserChallenge(incoming());
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /walletTransactions/{transactionId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidWalletTransaction(incoming());
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+  }
+}

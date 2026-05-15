@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx backend/server.ts",
-    "build": "vite build frontend --outDir dist && esbuild backend/server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "cd frontend && vite build && cd .. && esbuild backend/server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "preview": "cd frontend && vite preview",
     "clean": "rm -rf dist frontend/dist",

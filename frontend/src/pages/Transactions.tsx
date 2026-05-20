@@ -51,7 +51,7 @@ const Transactions: React.FC = () => {
     if (orderId && user) {
       const verifyPayment = async () => {
         try {
-          const res = await fetch(`/.netlify/functions/verify-cashfree?orderId=${orderId}`);
+          const res = await fetch(`/api/verify-cashfree?orderId=${orderId}`);
           const data = await res.json();
           
           if (data.order_status === 'PAID') {

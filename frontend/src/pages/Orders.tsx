@@ -75,7 +75,7 @@ const Orders: React.FC = () => {
   const handleDeliveryPaymentRazorpay = async (order: any) => {
     setIsProcessingPayment(true);
     try {
-      const orderRes = await fetch("/.netlify/functions/create-order", {
+      const orderRes = await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -128,7 +128,7 @@ const Orders: React.FC = () => {
       const Cashfree = (window as any).Cashfree;
       if (!Cashfree) throw new Error('Cashfree SDK not loaded');
 
-      const response = await fetch("/.netlify/functions/create-order", {
+      const response = await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

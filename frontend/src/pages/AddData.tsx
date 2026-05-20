@@ -3343,9 +3343,9 @@ const AddData: React.FC = () => {
                             }));
                             break;
                           case 'financial':
-                            displayItems = transactions.filter(flockFilter).map(tx => ({
+                            displayItems = transactions.map(tx => ({
                               id: tx.id,
-                              date: tx.date,
+                              date: tx.date || tx.timestamp,
                               flockId: tx.flockId,
                               title: `${tx.type}: ${tx.category}`,
                               details: (
@@ -3382,7 +3382,9 @@ const AddData: React.FC = () => {
                             <div key={item.id} className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center hover:border-slate-300 transition-colors">
                               <div>
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{flock?.name || 'Unknown Flock'}</span>
+                                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                    {item.flockId ? (flock?.name || 'Unknown Flock') : 'General Farm'}
+                                  </span>
                                   <span className="text-[10px] text-slate-300">•</span>
                                   <span className="text-xs font-medium text-slate-500">
                                     {(() => {

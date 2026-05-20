@@ -5,16 +5,17 @@ import fs from "fs";
 import path from "path";
 import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 // Initialize Firebase Admin (aligning with backend/server.ts)
 const configPath = path.resolve("firebase-applet-config.json");
-let firebaseConfig;
+let firebaseConfig: any;
 try {
   if (fs.existsSync(configPath)) {
     firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   }
-} catch (e) {
-  console.error("[DEBUG] Error loading firebase-applet-config.json inside create-order utility:", e.message);
+} catch (e: any) {
+  console.error("[DEBUG] Error loading firebase-applet-config.json inside api create-order:", e.message);
 }
 
 if (admin.apps.length === 0 && firebaseConfig) {
@@ -22,25 +23,25 @@ if (admin.apps.length === 0 && firebaseConfig) {
     admin.initializeApp({
       projectId: firebaseConfig.projectId
     });
-    console.log("[DEBUG] Firebase Admin initialized inside create-order.js");
-  } catch (e) {
-    console.error("[DEBUG] Firebase Admin init failed inside create-order.js:", e.message);
+    console.log("[DEBUG] Firebase Admin initialized inside api/create-order.ts");
+  } catch (e: any) {
+    console.error("[DEBUG] Firebase Admin init failed inside api/create-order.ts:", e.message);
   }
 }
 
 const getCashfreeConfig = async () => {
-  // Use environment variables as standard/fallback defaults
-  let appId = process.env.CASHFREE_APP_ID;
-  let secretKey = process.env.CASHFREE_SECRET_KEY;
+  // Read Vercel/Standard Environment parameters first
+  let appId = process.env.CASHFREE_CLIENT_ID || process.env.CASHFREE_APP_ID;
+  let secretKey = process.env.CASHFREE_CLIENT_SECRET || process.env.CASHFREE_SECRET_KEY;
   let environment = process.env.CASHFREE_ENVIRONMENT === "PRODUCTION" ? "PRODUCTION" : "SANDBOX";
 
-  console.log("[DEBUG] Initial environment-based credentials check:", {
-    appId: appId ? `${appId.substring(0, 4)}... (from env)` : "not set",
+  console.log("[DEBUG] Initial environment-based credentials check inside API:", {
+    appId: appId ? `${appId.substring(0, 4)}...` : "not set",
     hasSecret: !!secretKey,
     environment
   });
 
-  // Try parsing the local setting-cache file
+  // Try parsing local settings-cache.json
   try {
     const cachePath = path.resolve("settings-cache.json");
     if (fs.existsSync(cachePath)) {
@@ -53,7 +54,7 @@ const getCashfreeConfig = async () => {
         if (cashfree.mode) environment = cashfree.mode === "production" ? "PRODUCTION" : "SANDBOX";
       }
     }
-  } catch (err) {
+  } catch (err: any) {
     console.warn("[DEBUG] Error reading local settings-cache.json:", err.message);
   }
 
@@ -82,7 +83,7 @@ const getCashfreeConfig = async () => {
       } else {
         console.warn("[DEBUG] system/settings document snapshot does not exist in Firestore");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("[DEBUG] Error fetching settings directly from Firestore:", err.message);
     }
   }
@@ -90,35 +91,27 @@ const getCashfreeConfig = async () => {
   return { appId, secretKey, environment };
 };
 
-export const handler = async (event, context) => {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS Headers
-  const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-  };
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 
-  if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 200, headers, body: "" };
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
   }
 
-  if (event.httpMethod !== "POST") {
-    return { 
-      statusCode: 405, 
-      headers,
-      body: JSON.stringify({ error: "Method Not Allowed" }) 
-    };
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method Not Allowed" });
   }
 
   try {
-    const { amount, customerId, customerPhone, customerEmail, gateway, orderId } = JSON.parse(event.body);
+    const rawBody = req.body;
+    const body = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody;
+    const { amount, customerId, customerPhone, customerEmail, gateway, orderId } = body;
     
-    if (!amount || isNaN(amount) || amount <= 0) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: "Invalid amount value specified" })
-      };
+    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+      return res.status(400).json({ error: "Invalid amount value specified" });
     }
 
     const finalOrderId = orderId || `order_${Date.now()}`;
@@ -153,7 +146,7 @@ export const handler = async (event, context) => {
           customer_name: "Customer"
         },
         order_meta: {
-          return_url: `${event.headers.origin || "https://example.com"}/transactions?order_id={order_id}`
+          return_url: `${String(req.headers.origin || "https://example.com")}/transactions?order_id={order_id}`
         }
       };
 
@@ -164,16 +157,11 @@ export const handler = async (event, context) => {
         const response = await cashfreeApp.PGCreateOrder(requestPayload);
         console.log("[DEBUG] Cashfree API response data successfully received:", JSON.stringify(response.data, null, 2));
 
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify(response.data)
-        };
-      } catch (cfError) {
+        return res.status(200).json(response.data);
+      } catch (cfError: any) {
         console.error("[ERROR] Cashfree API Direct Call Failure:");
         if (cfError.response) {
           console.error("[ERROR] Status Code:", cfError.response.status);
-          console.error("[ERROR] Headers:", JSON.stringify(cfError.response.headers));
           console.error("[ERROR] Error Response Data:", JSON.stringify(cfError.response.data, null, 2));
           throw new Error(`Cashfree error [${cfError.response.status}]: ${JSON.stringify(cfError.response.data)}`);
         } else {
@@ -200,22 +188,18 @@ export const handler = async (event, context) => {
       const hashString = `${merchantKey}|${txnid}|${amount}|${productinfo}|${firstname}|${email}|||||||||||${salt}`;
       const hash = crypto.createHash("sha512").update(hashString).digest("hex");
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          hash,
-          merchantKey,
-          txnid,
-          amount,
-          productinfo,
-          firstname,
-          email,
-          action: process.env.PAYU_ENVIRONMENT === "PRODUCTION" 
-            ? "https://secure.payu.in/_payment" 
-            : "https://test.payu.in/_payment"
-        })
-      };
+      return res.status(200).json({
+        hash,
+        merchantKey,
+        txnid,
+        amount,
+        productinfo,
+        firstname,
+        email,
+        action: process.env.PAYU_ENVIRONMENT === "PRODUCTION" 
+          ? "https://secure.payu.in/_payment" 
+          : "https://test.payu.in/_payment"
+      });
     }
 
     if (gateway === "razorpay") {
@@ -232,35 +216,23 @@ export const handler = async (event, context) => {
       });
 
       const options = {
-        amount: Math.round(amount * 100),
+        amount: Math.round(parseFloat(amount) * 100),
         currency: "INR",
         receipt: finalOrderId,
       };
 
       const order = await instance.orders.create(options);
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify(order)
-      };
+      return res.status(200).json(order);
     }
 
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({ error: "Invalid or missing gateway specified. Options: cashfree, payu, razorpay" })
-    };
+    return res.status(400).json({ error: "Invalid or missing gateway specified. Options: cashfree, payu, razorpay" });
 
-  } catch (error) {
-    console.error("[ERROR] Order Creation Failed inside backend lambda:", error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ 
-        error: "Failed to create order", 
-        message: error.message,
-        details: error.response?.data || null
-      })
-    };
+  } catch (error: any) {
+    console.error("[ERROR] Order Creation Failed inside api lambda:", error);
+    return res.status(500).json({ 
+      error: "Failed to create order", 
+      message: error.message,
+      details: error.response?.data || null
+    });
   }
-};
+}

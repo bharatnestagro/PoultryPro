@@ -10,8 +10,10 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { LayoutDashboard } from 'lucide-react';
+import { useAuth } from '@/src/lib/AuthContext';
 
 const Register: React.FC = () => {
+  const { triggerSuccessFlash } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -93,6 +95,7 @@ const Register: React.FC = () => {
       }
 
       toast.success('Account created successfully');
+      triggerSuccessFlash(formData.name);
       navigate('/dashboard');
     } catch (error: any) {
       console.error("Registration error:", error);

@@ -415,7 +415,7 @@ const Profile: React.FC = () => {
       const description = activePurchaseTab === 'plans' ? `License Plan: ${selectedPlan.name}` : `Challenge Entry: ${selectedPlan.title}`;
       
       // 1. Create Order on Server
-      const orderRes = await fetch("/.netlify/functions/create-order", {
+      const orderRes = await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -473,7 +473,7 @@ const Profile: React.FC = () => {
       }
 
       // 1. Create Session
-      const response = await fetch("/.netlify/functions/create-order", {
+      const response = await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -112,7 +112,7 @@ const AdminSettings: React.FC = () => {
         setSettings(prev => ({ ...prev, ...data }));
         
         // Push to server for backend availability
-        fetch('/.netlify/functions/sync-settings', {
+        fetch('/api/sync-settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data)
@@ -263,7 +263,7 @@ const AdminSettings: React.FC = () => {
       await setDoc(doc(db, 'system', 'settings'), settings);
       // Sync to server for backend access
       try {
-        await fetch('/.netlify/functions/sync-settings', {
+        await fetch('/api/sync-settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(settings)

@@ -19,7 +19,7 @@ const Login: React.FC = () => {
   const [resetLoading, setResetLoading] = useState(false);
   const [isResetOpen, setIsResetOpen] = useState(false);
   const navigate = useNavigate();
-  const { signInWithGoogle, user, profile } = useAuth();
+  const { signInWithGoogle, user, profile, triggerSuccessFlash } = useAuth();
 
   useEffect(() => {
     if (user && profile) {
@@ -31,7 +31,9 @@ const Login: React.FC = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const name = userCredential.user.displayName || userCredential.user.email || "Farmer";
+      triggerSuccessFlash(name);
       toast.success('Logged in successfully');
     } catch (error: any) {
       console.error("Login error:", error);

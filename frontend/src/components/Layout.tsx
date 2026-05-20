@@ -55,8 +55,20 @@ const Layout: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#FAF9F5]">
+        <div className="relative flex flex-col items-center">
+          <div className="text-3xl font-extrabold text-slate-800 tracking-tight animate-pulse flex flex-col items-center gap-2">
+            <span className="text-[#22c55e]">PoultryPro</span>
+            <span className="text-xs uppercase tracking-[0.2em] font-semibold text-slate-500">
+              by <span className="text-black font-extrabold text-[11px]">Gavthi</span> <span className="text-[#22c55e] font-extrabold text-[11px]">Wallah</span>
+            </span>
+          </div>
+          <div className="mt-8 flex gap-1.5 justify-center">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#22c55e] animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#22c55e] animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#22c55e] animate-bounce" style={{ animationDelay: '300ms' }} />
+          </div>
+        </div>
       </div>
     );
   }

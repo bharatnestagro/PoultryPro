@@ -164,36 +164,37 @@ async function startServer() {
     });
   });
 
-  // Netlify Function Emulation
-  app.all("/.netlify/functions/:functionName", async (req, res) => {
+  // Vercel Serverless Function Emulation for Local Development
+  app.all("/api/:functionName", async (req, res, next) => {
     const { functionName } = req.params;
-    console.log(`Netlify Function Proxy: ${functionName}`);
+    
+    // Explicit exclusions for standard backend-configured Express routes
+    if (["health", "admin", "create-razorpay-order", "create-cashfree-session", "verify-cashfree-payment"].includes(functionName)) {
+      return next();
+    }
+    
+    console.log(`[Vercel Emulation] Intercepting local request to Vercel API route: /api/${functionName}`);
     try {
-      const { handler } = await import(`./netlify/functions/${functionName.js ? functionName : functionName + '.js'}`);
-      const event = {
-        httpMethod: req.method,
-        body: (req.method === 'GET' || req.method === 'DELETE') ? null : JSON.stringify(req.body),
-        headers: {
-          ...req.headers,
-          origin: req.headers.origin || `${req.protocol}://${req.get('host')}`
-        },
-        path: req.path,
-        queryStringParameters: req.query
-      };
-
-      const context = {};
-      const result = await handler(event, context);
-
-      if (result.headers) {
-        Object.entries(result.headers).forEach(([key, value]) => {
-          res.setHeader(key, value);
-        });
+      let handlerPath = path.resolve(process.cwd(), "api", `${functionName}.ts`);
+      if (!fs.existsSync(handlerPath)) {
+        handlerPath = path.resolve(process.cwd(), "api", `${functionName}.js`);
       }
-
-      res.status(result.statusCode || 200).send(result.body);
+      
+      if (!fs.existsSync(handlerPath)) {
+        console.warn(`[Vercel Emulation] Handler file not found for route: /api/${functionName}`);
+        return next();
+      }
+      
+      const module = await import(handlerPath);
+      const handler = module.default;
+      if (typeof handler === "function") {
+        await handler(req, res);
+      } else {
+        res.status(500).json({ error: "Invalid Vercel API function: Default export not a function" });
+      }
     } catch (error: any) {
-      console.error(`Netlify Function Error (${functionName}):`, error);
-      res.status(500).json({ error: "Function Execution Error", message: error.message });
+      console.error(`[Vercel Emulation Error] Failed to execute /api/${functionName}:`, error);
+      res.status(500).json({ error: "Local emulation of serverless route failed", message: error.message });
     }
   });
 

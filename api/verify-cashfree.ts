@@ -3,16 +3,17 @@ import { getFirestore } from "firebase-admin/firestore";
 import admin from "firebase-admin";
 import fs from "fs";
 import path from "path";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 // Initialize Firebase Admin (aligning with backend/server.ts)
 const configPath = path.resolve("firebase-applet-config.json");
-let firebaseConfig;
+let firebaseConfig: any;
 try {
   if (fs.existsSync(configPath)) {
     firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   }
-} catch (e) {
-  console.error("[DEBUG] Error loading firebase-applet-config.json inside verification utility:", e.message);
+} catch (e: any) {
+  console.error("[DEBUG] Error loading firebase-applet-config.json inside api verification:", e.message);
 }
 
 if (admin.apps.length === 0 && firebaseConfig) {
@@ -20,25 +21,25 @@ if (admin.apps.length === 0 && firebaseConfig) {
     admin.initializeApp({
       projectId: firebaseConfig.projectId
     });
-    console.log("[DEBUG] Firebase Admin initialized inside verify-cashfree.js");
-  } catch (e) {
-    console.error("[DEBUG] Firebase Admin init failed inside verify-cashfree.js:", e.message);
+    console.log("[DEBUG] Firebase Admin initialized inside api/verify-cashfree.ts");
+  } catch (e: any) {
+    console.error("[DEBUG] Firebase Admin init failed inside api/verify-cashfree.ts:", e.message);
   }
 }
 
 const getCashfreeConfig = async () => {
-  // Use environment variables as standard/fallback defaults
-  let appId = process.env.CASHFREE_APP_ID;
-  let secretKey = process.env.CASHFREE_SECRET_KEY;
+  // Read Vercel/Standard Environment parameters first
+  let appId = process.env.CASHFREE_CLIENT_ID || process.env.CASHFREE_APP_ID;
+  let secretKey = process.env.CASHFREE_CLIENT_SECRET || process.env.CASHFREE_SECRET_KEY;
   let environment = process.env.CASHFREE_ENVIRONMENT === "PRODUCTION" ? "PRODUCTION" : "SANDBOX";
 
-  console.log("[DEBUG-VERIFY] Initial environment-based credentials check:", {
-    appId: appId ? `${appId.substring(0, 4)}... (from env)` : "not set",
+  console.log("[DEBUG-VERIFY] Initial environment-based credentials check inside API:", {
+    appId: appId ? `${appId.substring(0, 4)}...` : "not set",
     hasSecret: !!secretKey,
     environment
   });
 
-  // Try parsing the local setting-cache file
+  // Try parsing the local settings-cache file
   try {
     const cachePath = path.resolve("settings-cache.json");
     if (fs.existsSync(cachePath)) {
@@ -51,7 +52,7 @@ const getCashfreeConfig = async () => {
         if (cashfree.mode) environment = cashfree.mode === "production" ? "PRODUCTION" : "SANDBOX";
       }
     }
-  } catch (err) {
+  } catch (err: any) {
     console.warn("[DEBUG-VERIFY] Error reading local settings-cache.json:", err.message);
   }
 
@@ -80,7 +81,7 @@ const getCashfreeConfig = async () => {
       } else {
         console.warn("[DEBUG-VERIFY] system/settings document snapshot does not exist in Firestore");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("[DEBUG-VERIFY] Error fetching settings directly from Firestore:", err.message);
     }
   }
@@ -88,14 +89,30 @@ const getCashfreeConfig = async () => {
   return { appId, secretKey, environment };
 };
 
-export const handler = async (event, context) => {
-  const orderId = event.queryStringParameters ? event.queryStringParameters.orderId : null;
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // CORS Headers
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  let orderId = req.query ? (req.query.orderId as string) : null;
+
+  // Fallback to manually parse url if req.query is not present
+  if (!orderId && req.url) {
+    try {
+      const urlObj = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+      orderId = urlObj.searchParams.get("orderId");
+    } catch (e: any) {
+      console.error("Url parsing failed in verification API parameter retrieval:", e);
+    }
+  }
 
   if (!orderId) {
-    return { 
-      statusCode: 400, 
-      body: JSON.stringify({ error: "Order ID is required to fetch payments" }) 
-    };
+    return res.status(400).json({ error: "Order ID is required to fetch payments" });
   }
 
   try {
@@ -119,11 +136,8 @@ export const handler = async (event, context) => {
       const response = await cashfreeApp.PGOrderFetchPayments(orderId);
       console.log(`[DEBUG-VERIFY] Successfully retrieved Cashfree payment logs for order ${orderId}`);
       
-      return {
-        statusCode: 200,
-        body: JSON.stringify(response.data),
-      };
-    } catch (cfError) {
+      return res.status(200).json(response.data);
+    } catch (cfError: any) {
       console.error(`[ERROR-VERIFY] Cashfree Fetch Failure for order ${orderId}:`);
       if (cfError.response) {
         console.error("[ERROR-VERIFY] Status Code:", cfError.response.status);
@@ -134,14 +148,11 @@ export const handler = async (event, context) => {
         throw cfError;
       }
     }
-  } catch (error) {
-    console.error("[ERROR] PGOrderFetchPayments lambda execution crashed:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ 
-        error: "Failed to verify payment with Cashfree", 
-        message: error.message 
-      }),
-    };
+  } catch (error: any) {
+    console.error("[ERROR] PGOrderFetchPayments API execution crashed:", error);
+    return res.status(500).json({ 
+      error: "Failed to verify payment with Cashfree", 
+      message: error.message 
+    });
   }
-};
+}

@@ -427,7 +427,7 @@ const Shop: React.FC = () => {
     setIsProcessingPayment(true);
     
     try {
-      const orderRes = await fetch("/.netlify/functions/create-order", {
+      const orderRes = await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -486,8 +486,8 @@ const Shop: React.FC = () => {
         return;
       }
 
-      // 1. Create Session via Netlify Function
-      const response = await fetch("/.netlify/functions/create-order", {
+      // 1. Create Session via Vercel API Route
+      const response = await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -540,7 +540,7 @@ const Shop: React.FC = () => {
   const handlePayUPayment = async (address: any) => {
     setIsProcessingPayment(true);
     try {
-      const response = await fetch("/.netlify/functions/create-order", {
+      const response = await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

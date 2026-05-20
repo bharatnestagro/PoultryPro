@@ -262,7 +262,7 @@ async function startServer() {
 
       console.log(`Creating Cashfree session in ${cashfreeConfig.mode} mode using SDK v5...`);
 
-      const isProduction = cashfreeConfig.mode === "production";
+      const isProduction = String(cashfreeConfig.mode || "sandbox").toLowerCase() === "production";
       const cashfreeApp = new Cashfree(
         isProduction ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX,
         cashfreeConfig.appId,
@@ -313,7 +313,7 @@ async function startServer() {
 
       console.log(`Verifying Cashfree payment logs for order ${orderId}...`);
 
-      const isProduction = cashfreeConfig.mode === "production";
+      const isProduction = String(cashfreeConfig.mode || "sandbox").toLowerCase() === "production";
       const cashfreeApp = new Cashfree(
         isProduction ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX,
         cashfreeConfig.appId,

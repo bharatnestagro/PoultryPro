@@ -497,8 +497,9 @@ const Profile: React.FC = () => {
       }
 
       // 2. Initialize checkout
+      const mode = systemSettings?.paymentGateways?.cashfree?.mode === "production" ? "production" : "sandbox";
       const cashfree = new Cashfree({
-        mode: "sandbox", 
+        mode: mode, 
       });
 
       cashfree.checkout({

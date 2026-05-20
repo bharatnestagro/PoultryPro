@@ -31,13 +31,8 @@ const getCashfreeConfig = async () => {
   // Read Vercel/Standard Environment parameters first
   let appId = process.env.CASHFREE_CLIENT_ID || process.env.CASHFREE_APP_ID;
   let secretKey = process.env.CASHFREE_CLIENT_SECRET || process.env.CASHFREE_SECRET_KEY;
-  let environment = process.env.CASHFREE_ENVIRONMENT === "PRODUCTION" ? "PRODUCTION" : "SANDBOX";
-
-  console.log("[DEBUG-VERIFY] Initial environment-based credentials check inside API:", {
-    appId: appId ? `${appId.substring(0, 4)}...` : "not set",
-    hasSecret: !!secretKey,
-    environment
-  });
+  let rawMode = process.env.CASHFREE_ENVIRONMENT || process.env.CASHFREE_MODE || "SANDBOX";
+  let configSource = "Process Environment Variables";
 
   // Try parsing the local settings-cache file
   try {
@@ -46,10 +41,12 @@ const getCashfreeConfig = async () => {
       const cacheData = JSON.parse(fs.readFileSync(cachePath, "utf8"));
       const cashfree = cacheData?.paymentGateways?.cashfree;
       if (cashfree) {
-        console.log("[DEBUG-VERIFY] Found Cashfree gateway settings in settings-cache.json");
         if (cashfree.appId) appId = cashfree.appId;
         if (cashfree.secretKey) secretKey = cashfree.secretKey;
-        if (cashfree.mode) environment = cashfree.mode === "production" ? "PRODUCTION" : "SANDBOX";
+        if (cashfree.mode) {
+          rawMode = cashfree.mode;
+          configSource = "Local Cache (settings-cache.json)";
+        }
       }
     }
   } catch (err: any) {
@@ -59,7 +56,6 @@ const getCashfreeConfig = async () => {
   // Fallback to fetch directly from Firestore settings document for dynamic update safety
   if (firebaseConfig) {
     try {
-      console.log("[DEBUG-VERIFY] Fetching latest settings from Firestore database:", firebaseConfig.firestoreDatabaseId);
       const db = getFirestore(firebaseConfig.firestoreDatabaseId || "(default)");
       const docRef = db.collection("system").doc("settings");
       const docSnap = await docRef.get();
@@ -67,26 +63,33 @@ const getCashfreeConfig = async () => {
         const data = docSnap.data();
         const cashfree = data?.paymentGateways?.cashfree;
         if (cashfree) {
-          console.log("[DEBUG-VERIFY] Loaded latest Cashfree config from Firestore settings document:", {
-            appId: cashfree.appId ? `${cashfree.appId.substring(0, 4)}... (from firestore)` : "not set",
-            hasSecret: !!cashfree.secretKey,
-            mode: cashfree.mode
-          });
           if (cashfree.appId) appId = cashfree.appId;
           if (cashfree.secretKey) secretKey = cashfree.secretKey;
-          if (cashfree.mode) environment = cashfree.mode === "production" ? "PRODUCTION" : "SANDBOX";
-        } else {
-          console.warn("[DEBUG-VERIFY] Firestore settings exists but paymentGateways.cashfree is not defined");
+          if (cashfree.mode) {
+            rawMode = cashfree.mode;
+            configSource = "Firestore (system/settings document)";
+          }
         }
-      } else {
-        console.warn("[DEBUG-VERIFY] system/settings document snapshot does not exist in Firestore");
       }
     } catch (err: any) {
       console.error("[DEBUG-VERIFY] Error fetching settings directly from Firestore:", err.message);
     }
   }
 
-  return { appId, secretKey, environment };
+  // Normalize Environment Mode securely
+  const modeNormalized = String(rawMode || "SANDBOX").toLowerCase();
+  const environment = (modeNormalized === "production" || modeNormalized === "live") ? "PRODUCTION" : "SANDBOX";
+  const sdkEndpoint = environment === "PRODUCTION" ? "https://api.cashfree.com/pg" : "https://sandbox.cashfree.com/pg";
+
+  console.log("[CASHFREE CONFIG RESOLVED] Details:", {
+    selectedMode: environment,
+    partialAppId: appId ? `${appId.substring(0, Math.min(6, appId.length))}...` : "not set",
+    hasSecretKey: !!secretKey,
+    environmentSource: configSource,
+    endpointUsed: sdkEndpoint
+  });
+
+  return { appId, secretKey, environment, sdkEndpoint };
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

@@ -150,7 +150,7 @@ const Orders: React.FC = () => {
         throw new Error(errMsg);
       }
 
-      const mode = systemSettings?.paymentGateways?.cashfree?.mode === "production" ? "production" : "sandbox";
+      const mode = "sandbox"; // Consistent sandbox mode for testing
       const cf = new Cashfree({ mode: mode });
       
       if (!data.payment_session_id) throw new Error("No payment session ID received");

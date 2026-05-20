@@ -78,13 +78,17 @@ const getCashfreeConfig = async () => {
     }
   }
 
-  // Normalize Environment Mode securely
-  const modeNormalized = String(rawMode || "SANDBOX").toLowerCase();
-  const environment = (modeNormalized === "production" || modeNormalized === "live") ? "PRODUCTION" : "SANDBOX";
-  const sdkEndpoint = environment === "PRODUCTION" ? "https://api.cashfree.com/pg" : "https://sandbox.cashfree.com/pg";
+  // For sandbox testing mode override as requested:
+  // "1. Keep the application in SANDBOX mode for testing."
+  // "2. Ensure backend uses: CFEnvironment.SANDBOX"
+  // "3. Ensure Cashfree API endpoint matches sandbox mode."
+  // "4. Remove any forced production configuration."
+  const environment = "SANDBOX";
+  const sdkEndpoint = "https://sandbox.cashfree.com/pg";
 
   console.log("[CASHFREE CONFIG RESOLVED] Details:", {
     selectedMode: environment,
+    requestedAdminMode: rawMode,
     partialAppId: appId ? `${appId.substring(0, Math.min(6, appId.length))}...` : "not set",
     hasSecretKey: !!secretKey,
     environmentSource: configSource,
@@ -163,14 +167,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json(response.data);
       } catch (cfError: any) {
         console.error("[ERROR] Cashfree API Direct Call Failure:");
+        let errorMessage = cfError.message || "Unknown Cashfree Error";
+        let status = 500;
+        let details = null;
+
         if (cfError.response) {
-          console.error("[ERROR] Status Code:", cfError.response.status);
-          console.error("[ERROR] Error Response Data:", JSON.stringify(cfError.response.data, null, 2));
-          throw new Error(`Cashfree error [${cfError.response.status}]: ${JSON.stringify(cfError.response.data)}`);
+          status = cfError.response.status;
+          details = cfError.response.data;
+          console.error("[ERROR] Status Code:", status);
+          console.error("[ERROR] Error Response Data:", JSON.stringify(details, null, 2));
+          
+          if (status === 401) {
+            errorMessage = "Cashfree API 401 Authentication Failed. Ensure you are using your SANDBOX credentials (Sandbox App ID and Sandbox Secret Key) when the app is in Sandbox mode, and that they have not been copied with leading/trailing spaces.";
+          } else {
+            errorMessage = `Cashfree error [${status}]: ${JSON.stringify(details)}`;
+          }
         } else {
           console.error("[ERROR] Error Message:", cfError.message);
-          throw cfError;
         }
+
+        return res.status(status).json({ 
+          error: "Cashfree Authentication or Request Failure", 
+          message: errorMessage,
+          details: details,
+          debug: {
+            environmentMode: "SANDBOX (testing)",
+            partialAppId: config.appId ? `${config.appId.substring(0, Math.min(6, config.appId.length))}...` : "not set",
+            endpointUsed: config.sdkEndpoint
+          }
+        });
       }
     } 
     

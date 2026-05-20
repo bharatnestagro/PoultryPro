@@ -110,11 +110,11 @@ const Login: React.FC = () => {
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
                 <Dialog open={isResetOpen} onOpenChange={setIsResetOpen}>
-                  <DialogTrigger render={
+                  <DialogTrigger asChild>
                     <Button variant="link" className="px-0 font-semibold text-emerald-600 hover:text-emerald-700 h-auto py-0">
                       Forgot password?
                     </Button>
-                  } />
+                  </DialogTrigger>
                   <DialogContent className="rounded-2xl max-w-sm">
                     <DialogHeader>
                       <DialogTitle className="flex items-center gap-2">

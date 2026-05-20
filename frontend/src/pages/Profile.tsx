@@ -489,7 +489,11 @@ const Profile: React.FC = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to initialize session');
+        let errMsg = data.error || 'Failed to initialize session';
+        if (data.message) {
+          errMsg += `: ${data.message}`;
+        }
+        throw new Error(errMsg);
       }
 
       // 2. Initialize checkout
@@ -843,7 +847,7 @@ const Profile: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <Dialog open={isPasswordModalOpen} onOpenChange={setIsPasswordModalOpen}>
-            <DialogTrigger nativeButton={true} render={
+            <DialogTrigger asChild>
               <Button 
                 variant="outline" 
                 className="border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl gap-2 shadow-sm h-10"
@@ -851,7 +855,7 @@ const Profile: React.FC = () => {
                 <Lock size={16} />
                 <span className="hidden sm:inline">Password</span>
               </Button>
-            } />
+            </DialogTrigger>
             <DialogContent className="rounded-3xl max-w-sm">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
@@ -916,7 +920,7 @@ const Profile: React.FC = () => {
           </Dialog>
 
           <Dialog open={isEditProfileOpen} onOpenChange={setIsEditProfileOpen}>
-            <DialogTrigger nativeButton={true} render={
+            <DialogTrigger asChild>
               <Button 
                 variant="outline" 
                 className="border-indigo-100 text-indigo-600 hover:bg-indigo-50 rounded-xl gap-2 shadow-sm h-10"
@@ -924,7 +928,7 @@ const Profile: React.FC = () => {
                 <Edit2 size={16} />
                 <span className="hidden sm:inline">Edit Profile</span>
               </Button>
-            } />
+            </DialogTrigger>
             <DialogContent className="rounded-3xl max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Personal & Farm Information</DialogTitle>
@@ -1179,7 +1183,9 @@ const Profile: React.FC = () => {
         ) : (
           <div className="bg-slate-50 p-4 rounded-2xl text-center">
             <p className="text-xs text-slate-400 font-medium">No recent orders found</p>
-            <Button variant="link" render={<Link to="/shop">Shop Now</Link>} className="h-auto p-0 text-xs mt-1 text-indigo-600 font-bold" />
+            <Button variant="link" asChild className="h-auto p-0 text-xs mt-1 text-indigo-600 font-bold">
+              <Link to="/shop">Shop Now</Link>
+            </Button>
           </div>
         )}
       </CollapsibleSection>
@@ -1207,14 +1213,14 @@ const Profile: React.FC = () => {
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  render={
-                    <a href={`tel:${managerData.phone}`}>
-                      <Phone size={14} className="mr-2" />
-                      Call
-                    </a>
-                  }
+                  asChild
                   className="rounded-xl border-indigo-200 text-indigo-600 hover:bg-indigo-50 h-10 px-4"
-                />
+                >
+                  <a href={`tel:${managerData.phone}`}>
+                    <Phone size={14} className="mr-2" />
+                    Call
+                  </a>
+                </Button>
               )}
             </div>
 
@@ -1637,7 +1643,7 @@ const Profile: React.FC = () => {
           </div>
 
           <Dialog open={isAddressModalOpen} onOpenChange={setIsAddressModalOpen}>
-            <DialogTrigger nativeButton={true} render={
+            <DialogTrigger asChild>
               <Button variant="outline" className="w-full rounded-2xl border-dashed border-2 border-slate-200 h-14 bg-slate-50/50 hover:bg-slate-50 text-slate-500 font-bold gap-2" onClick={() => {
                 setEditingAddressId(null);
                 setAddressFormData({ name: '', type: 'Farm', line1: '', locality: '', district: '', state: '', pincode: '', mobile: profile?.phone || '' });
@@ -1645,7 +1651,7 @@ const Profile: React.FC = () => {
                 <Plus size={18} />
                 Add New Address
               </Button>
-            } />
+            </DialogTrigger>
             <DialogContent className="rounded-3xl max-w-lg w-[95vw]">
               <DialogHeader>
                 <DialogTitle>{editingAddressId ? 'Edit Address' : 'New Delivery Address'}</DialogTitle>
@@ -1880,7 +1886,7 @@ const Profile: React.FC = () => {
             <div className="grid gap-3">
               {systemSettings.termsList.map((term: any) => (
                 <Dialog key={term.id}>
-                  <DialogTrigger nativeButton={false} render={
+                  <DialogTrigger asChild>
                     <div className="flex items-center justify-between p-5 bg-white border border-slate-100 rounded-3xl hover:border-indigo-200 hover:bg-slate-50 transition-all cursor-pointer group shadow-sm">
                       <div className="flex items-center gap-4">
                         <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-slate-400 group-hover:text-indigo-500 transition-colors">
@@ -1895,7 +1901,7 @@ const Profile: React.FC = () => {
                       </div>
                       <ChevronRight size={18} className="text-slate-300 group-hover:text-indigo-400 transition-all" />
                     </div>
-                  } />
+                  </DialogTrigger>
                   <DialogContent className="rounded-[2rem] sm:max-w-3xl h-[80vh] flex flex-col p-0 overflow-hidden">
                     <DialogHeader className="p-8 pb-4">
                       <DialogTitle className="text-2xl font-black italic">{term.title}</DialogTitle>

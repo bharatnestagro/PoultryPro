@@ -142,7 +142,13 @@ const Orders: React.FC = () => {
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to initialize session');
+      if (!response.ok) {
+        let errMsg = data.error || 'Failed to initialize session';
+        if (data.message) {
+          errMsg += `: ${data.message}`;
+        }
+        throw new Error(errMsg);
+      }
 
       const mode = systemSettings?.paymentGateways?.cashfree?.mode === "production" ? "production" : "sandbox";
       const cf = new Cashfree({ mode: mode });
@@ -230,7 +236,7 @@ const Orders: React.FC = () => {
           {orders.map((order) => (
             <div key={order.id}>
               <Dialog open={selectedOrder?.id === order.id} onOpenChange={(open) => !open && setSelectedOrder(null)}>
-                <DialogTrigger nativeButton={false} render={
+                <DialogTrigger asChild>
                   <div 
                     role="button"
                     tabIndex={0}
@@ -286,7 +292,7 @@ const Orders: React.FC = () => {
                       </CardContent>
                     </Card>
                   </div>
-                } />
+                </DialogTrigger>
               <DialogContent className="rounded-[2.5rem] sm:max-w-xl max-h-[85vh] overflow-y-auto border-none shadow-2xl p-0 no-scrollbar">
                 <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-md px-8 py-6 border-b border-slate-100 flex items-center justify-between">
                   <div>

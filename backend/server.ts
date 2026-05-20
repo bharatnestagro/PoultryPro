@@ -6,6 +6,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import axios from "axios";
 import fs from "fs";
 import Razorpay from "razorpay";
+import { Cashfree, CFEnvironment } from "cashfree-pg";
 
 console.log("Starting server initialization...");
 
@@ -258,40 +259,35 @@ async function startServer() {
         return res.status(400).json({ error: "Cashfree is not properly configured" });
       }
 
+      console.log(`Creating Cashfree session in ${cashfreeConfig.mode} mode using SDK v5...`);
+
       const isProduction = cashfreeConfig.mode === "production";
-      const cashfreeUrl = isProduction 
-        ? "https://api.cashfree.com/pg/orders" 
-        : "https://sandbox.cashfree.com/pg/orders";
+      const cashfreeApp = new Cashfree(
+        isProduction ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX,
+        cashfreeConfig.appId,
+        cashfreeConfig.secretKey
+      );
 
-      console.log(`Creating Cashfree session in ${cashfreeConfig.mode} mode...`);
+      cashfreeApp.XApiVersion = "2023-08-01";
 
-      const payload = {
+      const requestPayload = {
         order_id: orderId || `order_${Date.now()}`,
-        order_amount: parseFloat(amount),
+        order_amount: parseFloat(parseFloat(amount).toFixed(2)),
         order_currency: "INR",
         customer_details: {
           customer_id: String(customerId || `cust_${Date.now()}`),
-          customer_phone: String(customerPhone || "9999999999"),
+          customer_phone: String(customerPhone || "9999999999").replace(/\D/g, "").slice(-10) || "9999999999",
           customer_email: customerEmail || "customer@example.com",
           customer_name: "Customer"
         },
         order_meta: {
-           return_url: `${req.headers.origin}/transactions`
+          return_url: `${req.headers.origin}/transactions?order_id={order_id}`
         }
       };
 
-      const response = await axios.post(
-        cashfreeUrl,
-        payload,
-        {
-          headers: {
-            "x-client-id": cashfreeConfig.appId,
-            "x-client-secret": cashfreeConfig.secretKey,
-            "x-api-version": "2023-08-01",
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      console.log("[SERVER DEBUG] Cashfree Payload:", JSON.stringify(requestPayload, null, 2));
+      const response = await cashfreeApp.PGCreateOrder(requestPayload);
+      console.log("[SERVER DEBUG] Cashfree Response Data:", JSON.stringify(response.data, null, 2));
 
       res.json(response.data);
     } catch (error: any) {
@@ -314,26 +310,27 @@ async function startServer() {
         return res.status(400).json({ error: "Cashfree not configured" });
       }
 
-      const isProduction = cashfreeConfig.mode === "production";
-      const cashfreeUrl = isProduction 
-        ? `https://api.cashfree.com/pg/orders/${orderId}`
-        : `https://sandbox.cashfree.com/pg/orders/${orderId}`;
+      console.log(`Verifying Cashfree payment logs for order ${orderId}...`);
 
-      const response = await axios.get(
-        cashfreeUrl,
-        {
-          headers: {
-            "x-client-id": cashfreeConfig.appId,
-            "x-client-secret": cashfreeConfig.secretKey,
-            "x-api-version": "2023-08-01",
-          }
-        }
+      const isProduction = cashfreeConfig.mode === "production";
+      const cashfreeApp = new Cashfree(
+        isProduction ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX,
+        cashfreeConfig.appId,
+        cashfreeConfig.secretKey
       );
+
+      cashfreeApp.XApiVersion = "2023-08-01";
+
+      const response = await cashfreeApp.PGOrderFetchPayments(orderId);
+      console.log(`[SERVER DEBUG] Cashfree Payments response retrieved:`, JSON.stringify(response.data, null, 2));
 
       res.json(response.data);
     } catch (error: any) {
       console.error("Verification Error:", error.response?.data || error.message);
-      res.status(500).json({ error: "Failed to verify payment" });
+      res.status(500).json({ 
+        error: "Failed to verify payment",
+        details: error.response?.data || error.message
+      });
     }
   });
 

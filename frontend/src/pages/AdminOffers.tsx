@@ -108,12 +108,12 @@ const AdminOffers: React.FC = () => {
           <p className="text-slate-500 font-medium">Create and manage promotional discounts</p>
         </div>
         <Dialog open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if(!open) resetForm(); }}>
-          <DialogTrigger render={
+          <DialogTrigger asChild>
             <Button className="bg-[#122B21] hover:bg-[#1a3d2e] text-white rounded-xl py-6 flex items-center gap-2">
               <Plus size={20} />
               <span>Create Coupon</span>
             </Button>
-          } />
+          </DialogTrigger>
           <DialogContent className="rounded-[2rem] sm:max-w-[500px]">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold">Create New Coupon</DialogTitle>

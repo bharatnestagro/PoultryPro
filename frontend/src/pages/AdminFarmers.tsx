@@ -712,8 +712,10 @@ const AdminFarmers: React.FC = () => {
                   </TableCell>
                   <TableCell className="text-right px-8">
                     <DropdownMenu>
-                      <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="rounded-full hover:bg-slate-100" />}>
-                        <MoreHorizontal size={18} className="text-slate-400" />
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="rounded-full hover:bg-slate-100">
+                          <MoreHorizontal size={18} className="text-slate-400" />
+                        </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48 rounded-xl border-slate-100 shadow-xl p-2">
                         <DropdownMenuItem className="rounded-lg gap-2 font-medium cursor-pointer">
@@ -1290,11 +1292,11 @@ const AdminFarmers: React.FC = () => {
       </Dialog>
       {/* Floating Action Button with Dialog */}
       <Dialog open={isAddingFarmer} onOpenChange={setIsAddingFarmer}>
-        <DialogTrigger render={
+        <DialogTrigger asChild>
           <Button className="fixed bottom-8 right-8 w-14 h-14 rounded-full bg-[#122B21] hover:bg-[#1a3d2e] shadow-2xl flex items-center justify-center p-0 z-50">
             <UserPlus size={24} className="text-white" />
           </Button>
-        } />
+        </DialogTrigger>
         <DialogContent className="rounded-[2.5rem] sm:max-w-2xl max-h-[90vh] overflow-y-auto p-0 border-none shadow-2xl">
           <div className="bg-emerald-600 p-10 text-white relative overflow-hidden">
             <div className="relative z-10">

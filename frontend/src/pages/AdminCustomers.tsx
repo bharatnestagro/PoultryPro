@@ -203,11 +203,11 @@ const AdminCustomers: React.FC = () => {
                   </TableCell>
                   <TableCell className="text-right px-8">
                     <DropdownMenu>
-                      <DropdownMenuTrigger render={
+                      <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" className="rounded-full hover:bg-slate-100">
                           <MoreHorizontal size={18} className="text-slate-400" />
                         </Button>
-                      } />
+                      </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48 rounded-xl border-slate-100 shadow-xl p-2">
                         <DropdownMenuItem className="rounded-lg gap-2 font-medium cursor-pointer" onClick={() => openView(customer)}>
                           <Eye size={16} />

@@ -1,14 +1,94 @@
-import { Cashfree } from "cashfree-pg";
+import { Cashfree, CFEnvironment } from "cashfree-pg";
 import Razorpay from "razorpay";
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
 
-// Note: In Netlify, these are set in the UI Environment Variables
-// We use a helper to ensure they are available
-const getCashfreeConfig = () => ({
-  appId: process.env.CASHFREE_APP_ID,
-  secretKey: process.env.CASHFREE_SECRET_KEY,
-  environment: process.env.CASHFREE_ENVIRONMENT === "PRODUCTION" ? "PRODUCTION" : "SANDBOX"
-});
+// Initialize Firebase Admin (aligning with backend/server.ts)
+const configPath = path.resolve("firebase-applet-config.json");
+let firebaseConfig;
+try {
+  if (fs.existsSync(configPath)) {
+    firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  }
+} catch (e) {
+  console.error("[DEBUG] Error loading firebase-applet-config.json inside create-order utility:", e.message);
+}
+
+if (admin.apps.length === 0 && firebaseConfig) {
+  try {
+    admin.initializeApp({
+      projectId: firebaseConfig.projectId
+    });
+    console.log("[DEBUG] Firebase Admin initialized inside create-order.js");
+  } catch (e) {
+    console.error("[DEBUG] Firebase Admin init failed inside create-order.js:", e.message);
+  }
+}
+
+const getCashfreeConfig = async () => {
+  // Use environment variables as standard/fallback defaults
+  let appId = process.env.CASHFREE_APP_ID;
+  let secretKey = process.env.CASHFREE_SECRET_KEY;
+  let environment = process.env.CASHFREE_ENVIRONMENT === "PRODUCTION" ? "PRODUCTION" : "SANDBOX";
+
+  console.log("[DEBUG] Initial environment-based credentials check:", {
+    appId: appId ? `${appId.substring(0, 4)}... (from env)` : "not set",
+    hasSecret: !!secretKey,
+    environment
+  });
+
+  // Try parsing the local setting-cache file
+  try {
+    const cachePath = path.resolve("settings-cache.json");
+    if (fs.existsSync(cachePath)) {
+      const cacheData = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+      const cashfree = cacheData?.paymentGateways?.cashfree;
+      if (cashfree) {
+        console.log("[DEBUG] Found Cashfree gateway settings in settings-cache.json");
+        if (cashfree.appId) appId = cashfree.appId;
+        if (cashfree.secretKey) secretKey = cashfree.secretKey;
+        if (cashfree.mode) environment = cashfree.mode === "production" ? "PRODUCTION" : "SANDBOX";
+      }
+    }
+  } catch (err) {
+    console.warn("[DEBUG] Error reading local settings-cache.json:", err.message);
+  }
+
+  // Fallback to fetch directly from Firestore settings document for dynamic update safety
+  if (firebaseConfig) {
+    try {
+      console.log("[DEBUG] Fetching latest settings from Firestore database:", firebaseConfig.firestoreDatabaseId);
+      const db = getFirestore(firebaseConfig.firestoreDatabaseId || "(default)");
+      const docRef = db.collection("system").doc("settings");
+      const docSnap = await docRef.get();
+      if (docSnap.exists) {
+        const data = docSnap.data();
+        const cashfree = data?.paymentGateways?.cashfree;
+        if (cashfree) {
+          console.log("[DEBUG] Loaded latest Cashfree config from Firestore settings document:", {
+            appId: cashfree.appId ? `${cashfree.appId.substring(0, 4)}... (from firestore)` : "not set",
+            hasSecret: !!cashfree.secretKey,
+            mode: cashfree.mode
+          });
+          if (cashfree.appId) appId = cashfree.appId;
+          if (cashfree.secretKey) secretKey = cashfree.secretKey;
+          if (cashfree.mode) environment = cashfree.mode === "production" ? "PRODUCTION" : "SANDBOX";
+        } else {
+          console.warn("[DEBUG] Firestore settings exists but paymentGateways.cashfree is not defined");
+        }
+      } else {
+        console.warn("[DEBUG] system/settings document snapshot does not exist in Firestore");
+      }
+    } catch (err) {
+      console.error("[DEBUG] Error fetching settings directly from Firestore:", err.message);
+    }
+  }
+
+  return { appId, secretKey, environment };
+};
 
 export const handler = async (event, context) => {
   // CORS Headers
@@ -37,7 +117,7 @@ export const handler = async (event, context) => {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: "Invalid amount" })
+        body: JSON.stringify({ error: "Invalid amount value specified" })
       };
     }
 
@@ -45,42 +125,62 @@ export const handler = async (event, context) => {
     console.log(`[DEBUG] Creating ${gateway} order: ${finalOrderId} for amount: ${amount}`);
 
     if (gateway === "cashfree") {
-      const config = getCashfreeConfig();
+      const config = await getCashfreeConfig();
       if (!config.appId || !config.secretKey) {
-        throw new Error("Cashfree credentials not configured in environment");
+        throw new Error("Cashfree credentials are not configured in Admin Settings or System Environment");
       }
 
-      Cashfree.XClientId = config.appId;
-      Cashfree.XClientSecret = config.secretKey;
-      Cashfree.XEnvironment = config.environment === "PRODUCTION" 
-        ? Cashfree.Environment.PRODUCTION 
-        : Cashfree.Environment.SANDBOX;
+      // Initialize the correct Cashfree SDK instance (v5 class-based SDK)
+      const isProductionMode = config.environment === "PRODUCTION";
+      const cashfreeApp = new Cashfree(
+        isProductionMode ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX,
+        config.appId,
+        config.secretKey
+      );
+      
+      // Explicitly set the supported API version
+      cashfreeApp.XApiVersion = "2023-08-01";
 
-      const request = {
+      // Formulate optimal request details
+      const requestPayload = {
         order_id: finalOrderId,
-        order_amount: parseFloat(amount),
+        order_amount: parseFloat(parseFloat(amount).toFixed(2)),
         order_currency: "INR",
         customer_details: {
           customer_id: String(customerId || `cust_${Date.now()}`),
-          customer_phone: String(customerPhone || "9999999999"),
+          customer_phone: String(customerPhone || "9999999999").replace(/\D/g, "").slice(-10) || "9999999999",
           customer_email: customerEmail || "customer@example.com",
           customer_name: "Customer"
         },
         order_meta: {
-           // Netlify might not have headers.origin easily available in all contexts, but event.headers.origin is standard
-           return_url: `${event.headers.origin || "https://example.com"}/transactions?order_id={order_id}`
+          return_url: `${event.headers.origin || "https://example.com"}/transactions?order_id={order_id}`
         }
       };
 
-      console.log("[DEBUG] Cashfree Payload:", JSON.stringify(request));
-      const response = await Cashfree.PGCreateOrder("2023-08-01", request);
-      console.log("[DEBUG] Cashfree Response:", JSON.stringify(response.data));
+      console.log("[DEBUG] Cashfree payment creation request payload:", JSON.stringify(requestPayload, null, 2));
+      
+      try {
+        // v5 signature is: PGCreateOrder(CreateOrderRequest, x_request_id?, x_idempotency_key?, options?)
+        const response = await cashfreeApp.PGCreateOrder(requestPayload);
+        console.log("[DEBUG] Cashfree API response data successfully received:", JSON.stringify(response.data, null, 2));
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify(response.data)
-      };
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify(response.data)
+        };
+      } catch (cfError) {
+        console.error("[ERROR] Cashfree API Direct Call Failure:");
+        if (cfError.response) {
+          console.error("[ERROR] Status Code:", cfError.response.status);
+          console.error("[ERROR] Headers:", JSON.stringify(cfError.response.headers));
+          console.error("[ERROR] Error Response Data:", JSON.stringify(cfError.response.data, null, 2));
+          throw new Error(`Cashfree error [${cfError.response.status}]: ${JSON.stringify(cfError.response.data)}`);
+        } else {
+          console.error("[ERROR] Error Message:", cfError.message);
+          throw cfError;
+        }
+      }
     } 
     
     if (gateway === "payu") {
@@ -152,7 +252,7 @@ export const handler = async (event, context) => {
     };
 
   } catch (error) {
-    console.error("[ERROR] Order Creation Failed:", error);
+    console.error("[ERROR] Order Creation Failed inside backend lambda:", error);
     return {
       statusCode: 500,
       headers,

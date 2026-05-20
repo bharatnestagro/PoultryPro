@@ -502,7 +502,11 @@ const Shop: React.FC = () => {
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to initialize session');
+        let errMsg = data.error || 'Failed to initialize session';
+        if (data.message) {
+          errMsg += `: ${data.message}`;
+        }
+        throw new Error(errMsg);
       }
 
       // 2. Initialize checkout
@@ -1097,9 +1101,9 @@ const Shop: React.FC = () => {
               <footer className="pt-12 border-t border-slate-100 flex flex-wrap gap-4 text-[9px] text-slate-400 uppercase tracking-widest font-medium">
                  {systemSettings?.termsList && Array.isArray(systemSettings.termsList) && systemSettings.termsList.map((term: any) => (
                    <Dialog key={term.id}>
-                     <DialogTrigger nativeButton={true} render={
+                     <DialogTrigger asChild>
                        <button className="hover:text-slate-900 transition-colors">{term.title}</button>
-                     } />
+                     </DialogTrigger>
                      <DialogContent className="rounded-[2rem] sm:max-w-3xl h-[80vh] flex flex-col p-0 overflow-hidden">
                        <DialogHeader className="p-8 pb-4">
                          <DialogTitle className="text-2xl font-black italic">{term.title}</DialogTitle>

@@ -570,7 +570,7 @@ const AdminSettings: React.FC = () => {
                 <div className="space-y-6">
                   <div className="flex justify-end">
                     <Dialog open={isTermDialogOpen} onOpenChange={setIsTermDialogOpen}>
-                      <DialogTrigger nativeButton={true} render={
+                      <DialogTrigger asChild>
                         <Button 
                           className="bg-[#122B21] hover:bg-[#1a3d2e] rounded-xl font-bold gap-2"
                           onClick={() => {
@@ -582,7 +582,7 @@ const AdminSettings: React.FC = () => {
                           <Plus size={18} />
                           <span>Create New</span>
                         </Button>
-                      } />
+                      </DialogTrigger>
                       <DialogContent className="rounded-[2rem] sm:max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden">
                       <DialogHeader className="p-8 pb-4">
                         <DialogTitle className="text-2xl font-black italic">{editingTerm ? 'Edit Agreement' : 'New Agreement'}</DialogTitle>
@@ -890,7 +890,7 @@ const AdminSettings: React.FC = () => {
                 </div>
                 <div className="flex gap-2">
                   <Dialog>
-                    <DialogTrigger nativeButton={true} render={
+                    <DialogTrigger asChild>
                       <Button 
                         size="sm" 
                         variant="ghost" 
@@ -898,7 +898,7 @@ const AdminSettings: React.FC = () => {
                       >
                         <FileText size={14} /> Import from T&C
                       </Button>
-                    } />
+                    </DialogTrigger>
                     <DialogContent className="rounded-[2rem] max-w-md">
                       <DialogHeader>
                         <DialogTitle>Import from Terms & Conditions</DialogTitle>
@@ -1052,9 +1052,9 @@ const AdminSettings: React.FC = () => {
                   </div>
                   <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                     <Dialog>
-                      <DialogTrigger nativeButton={true} render={
+                      <DialogTrigger asChild>
                         <Button variant="ghost" size="sm" className="text-indigo-600 font-bold text-xs">MANAGE</Button>
-                      } />
+                      </DialogTrigger>
                       <DialogContent className="max-w-2xl rounded-[2rem]">
                       <DialogHeader>
                         <DialogTitle>User Role Management</DialogTitle>

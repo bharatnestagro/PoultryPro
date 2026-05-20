@@ -425,12 +425,12 @@ const AdminOrders: React.FC = () => {
           <p className="text-slate-500 font-medium">Manage customer orders, track fulfillment, and monitor sales performance.</p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogTrigger render={
+          <DialogTrigger asChild>
             <Button className="bg-[#122B21] hover:bg-[#1a3d2e] text-white rounded-xl py-6 flex items-center gap-2">
               <PlusCircle size={20} />
               <span>Create New Order</span>
             </Button>
-          } />
+          </DialogTrigger>
           <DialogContent className="rounded-[2rem] sm:max-w-[550px] max-h-[90vh] overflow-y-auto no-scrollbar">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold">Create Order for Customer</DialogTitle>
@@ -755,8 +755,10 @@ const AdminOrders: React.FC = () => {
                          Details
                        </Button>
                       <DropdownMenu>
-                        <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="rounded-full hover:bg-slate-100" />}>
-                          <MoreHorizontal size={18} className="text-slate-400" />
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="rounded-full hover:bg-slate-100">
+                            <MoreHorizontal size={18} className="text-slate-400" />
+                          </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48 rounded-xl border-slate-100 shadow-xl p-2">
                           <DropdownMenuItem className="rounded-lg gap-2 font-medium cursor-pointer" onClick={() => openEdit(order)}>

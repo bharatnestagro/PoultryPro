@@ -37,7 +37,10 @@ import {
   AlertTriangle,
   Info,
   PlusCircle,
-  CreditCard
+  CreditCard,
+  Copy,
+  Check,
+  Upload
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
@@ -238,7 +241,13 @@ const Shop: React.FC = () => {
     if (!useWallet || totalBalance <= 0) return 0;
     return Math.min(totalBalance, cartTotal);
   }, [useWallet, profile?.walletBalance, profile?.rewardBalance, cartTotal]);
-  const [paymentMethod, setPaymentMethod] = useState<'COD' | 'Online'>('COD');
+  const [paymentMethod, setPaymentMethod] = useState<'COD' | 'Online' | 'UPI'>('COD');
+  const [isUpiModalOpen, setIsUpiModalOpen] = useState(false);
+  const [upiScreenshot, setUpiScreenshot] = useState<string>('');
+  const [isUploadingScreenshot, setIsUploadingScreenshot] = useState(false);
+  const [pendingAddress, setPendingAddress] = useState<any>(null);
+  const [upiTxnId, setUpiTxnId] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
   const [systemSettings, setSystemSettings] = useState<any>(null);
   const [deliverySettings, setDeliverySettings] = useState<any>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -288,7 +297,7 @@ const Shop: React.FC = () => {
     return () => unsubSettings();
   }, []);
 
-  const finalizeOrder = async (method: 'COD' | 'Online', address: any, transactionId?: string) => {
+  const finalizeOrder = async (method: 'COD' | 'Online' | 'UPI', address: any, transactionId?: string, upiScreenshotUrl?: string) => {
     if (!user) {
       toast.error('User session expired. Please log in again.');
       return;
@@ -336,9 +345,10 @@ const Shop: React.FC = () => {
         deliveryCharge: 0,
         deliveryPaymentStatus: 'Unpaid',
         deliveryAddress: address || null,
-        paymentMethod: method === 'COD' ? 'Cash on Delivery' : 'Online Payment',
-        paymentStatus: method === 'Online' ? 'Paid' : 'Pending',
+        paymentMethod: method === 'COD' ? 'Cash on Delivery' : method === 'UPI' ? 'UPI Payment' : 'Online Payment',
+        paymentStatus: method === 'Online' ? 'Paid' : method === 'UPI' ? 'payment_pending_verification' : 'Pending',
         transactionId: transactionId || '',
+        upiScreenshotUrl: upiScreenshotUrl || '',
         assignedManagerId: profile?.assignedManagerId || '',
         date: new Date().toISOString()
       });
@@ -423,6 +433,22 @@ const Shop: React.FC = () => {
     }
   };
 
+  const safeParseJson = async (res: Response) => {
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      try {
+        return await res.json();
+      } catch (e: any) {
+        throw new Error(`Failed to parse JSON response: ${e.message}`);
+      }
+    }
+    const text = await res.text();
+    if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+      throw new Error(`Server returned HTML response instead of JSON. Status: ${res.status} ${res.statusText}. Please verify that the API backend is running.`);
+    }
+    throw new Error(`Server returned non-JSON response. Status: ${res.status} ${res.statusText}. Content: ${text.substring(0, 150)}...`);
+  };
+
   const handleRazorpayPayment = async (address: any) => {
     setIsProcessingPayment(true);
     
@@ -438,7 +464,7 @@ const Shop: React.FC = () => {
         })
       });
       
-      const orderData = await orderRes.json();
+      const orderData = await safeParseJson(orderRes);
       if (!orderRes.ok) throw new Error(orderData.error || "Failed to create Razorpay order");
 
       const options = {
@@ -500,7 +526,7 @@ const Shop: React.FC = () => {
         })
       });
 
-      const data = await response.json();
+      const data = await safeParseJson(response);
       if (!response.ok) {
         let errMsg = data.error || 'Failed to initialize session';
         if (data.message) {
@@ -510,7 +536,7 @@ const Shop: React.FC = () => {
       }
 
       // 2. Initialize checkout
-      const mode = "sandbox"; // Consistent sandbox mode for testing
+      const mode = systemSettings?.paymentGateways?.cashfree?.mode === "production" ? "production" : "sandbox";
       const cf = new Cashfree({
         mode: mode,
       });
@@ -552,7 +578,7 @@ const Shop: React.FC = () => {
         })
       });
 
-      const data = await response.json();
+      const data = await safeParseJson(response);
       if (!response.ok) throw new Error(data.error || "Failed to initialize PayU");
 
       // PayU requires a form POST redirect
@@ -616,6 +642,12 @@ const Shop: React.FC = () => {
 
     if (paymentMethod === 'Online') {
       handleOnlinePayment(addressObj);
+    } else if (paymentMethod === 'UPI') {
+      const uniqueTxnRef = `UPI${Date.now().toString().slice(-6)}${Math.floor(100 + Math.random() * 900)}`;
+      setUpiTxnId(uniqueTxnRef);
+      setPendingAddress(addressObj);
+      setUpiScreenshot(''); // reset screenshot state
+      setIsUpiModalOpen(true);
     } else {
       finalizeOrder('COD', addressObj);
     }
@@ -1057,6 +1089,30 @@ const Shop: React.FC = () => {
                         </button>
                       )}
 
+                      {systemSettings?.paymentGateways?.upi?.enabled === true && (
+                        <button 
+                          onClick={() => setPaymentMethod('UPI')}
+                          className={`w-full flex items-center justify-between p-6 transition-all text-left ${
+                            paymentMethod === 'UPI' ? 'bg-emerald-50/50' : 'bg-white hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${paymentMethod === 'UPI' ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'}`}>
+                              {paymentMethod === 'UPI' && <CheckCircle2 size={12} className="text-white" />}
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-slate-900 uppercase tracking-tight">
+                                {systemSettings.paymentGateways.upi.displayName || 'UPI Payment'}
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-medium">Pay directly via Google Pay, PhonePe, Paytm, BHIM, etc.</span>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                             <span className="text-[10px] font-extrabold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded px-2 py-0.5 tracking-wider">UPI</span>
+                          </div>
+                        </button>
+                      )}
+
                       {(systemSettings?.paymentGateways?.razorpay?.enabled === true || 
                         systemSettings?.paymentGateways?.cashfree?.enabled === true || 
                         systemSettings?.paymentGateways?.payu?.enabled === true) && (
@@ -1418,6 +1474,212 @@ const Shop: React.FC = () => {
           </div>
           <DialogFooter className="p-4 border-t bg-slate-50">
             <Button className="w-full h-12 rounded-xl bg-slate-900" onClick={() => setIsAddressModalOpen(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* UPI Payment Modal */}
+      <Dialog open={isUpiModalOpen} onOpenChange={setIsUpiModalOpen}>
+        <DialogContent className="rounded-[2.5rem] max-w-lg p-0 overflow-hidden flex flex-col bg-slate-50 border-none shadow-2xl">
+          <DialogHeader className="p-8 pb-4 bg-white/50 border-b border-slate-100 flex flex-row items-center justify-between">
+            <div className="text-left w-full pr-8">
+              <DialogTitle className="text-lg font-black tracking-wider uppercase italic text-indigo-950">
+                {systemSettings?.paymentGateways?.upi?.displayName || 'UPI Payment'}
+              </DialogTitle>
+              <DialogDescription className="text-[10px] text-slate-500 font-semibold uppercase tracking-tight">
+                Order Reference: <span className="font-mono font-bold text-slate-900">{upiTxnId}</span>
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 max-h-[60vh]">
+            {/* Total Price Display */}
+            <div className="bg-gradient-to-br from-indigo-900 to-slate-900 border border-indigo-950 rounded-3xl p-6 text-white text-center shadow-lg shadow-indigo-900/10">
+              <span className="text-[10px] text-white/50 uppercase tracking-[0.2em] font-black italic">Amount Payable</span>
+              <h2 className="text-3xl font-black italic mt-1 pb-1">₹{(cartTotal - (useWallet ? walletAmount : 0)).toLocaleString()}</h2>
+              <div className="w-12 h-1 bg-white/10 mx-auto my-3 rounded-full" />
+              <p className="text-[10px] text-indigo-200/90 leading-relaxed font-semibold">
+                Please transfer the exact amount. QR code and link are dynamically generated for your order.
+              </p>
+            </div>
+
+            {/* Dynamic UPI Details & Copy */}
+            <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm space-y-4">
+              <div className="flex justify-between items-center pb-3 border-b border-slate-55">
+                <div>
+                  <span className="text-[8px] text-slate-400 font-black uppercase tracking-widest block mb-0.5">Payee Name</span>
+                  <p className="text-sm font-extrabold text-slate-900">{systemSettings?.paymentGateways?.upi?.displayName || 'BharatNest Agro'}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[8px] text-slate-400 font-black uppercase tracking-widest block mb-0.5">Payment Network</span>
+                  <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-2.5 py-0.5">BHIM UPI</span>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <div className="min-w-0 flex-1">
+                  <span className="text-[8px] text-slate-400 font-black uppercase tracking-widest block mb-0.5">UPI Virtual Private Address (VPA)</span>
+                  <p className="text-xs font-mono font-bold text-slate-900 truncate mr-3">
+                    {systemSettings?.paymentGateways?.upi?.upiId || 'N/A'}
+                  </p>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    const vpa = systemSettings?.paymentGateways?.upi?.upiId || '';
+                    if (vpa) {
+                      navigator.clipboard.writeText(vpa);
+                      setIsCopied(true);
+                      toast.success("UPI Address copied to clipboard!");
+                      setTimeout(() => setIsCopied(false), 2000);
+                    }
+                  }}
+                  className="px-3.5 py-2 hover:bg-slate-50 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95 bg-white shrink-0 shadow-sm"
+                >
+                  {isCopied ? (
+                    <>
+                      <Check size={12} className="text-emerald-600" />
+                      <span className="text-emerald-600 font-bold">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={12} />
+                      <span>Copy ID</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Dynamic QR Code & Direct Deeplink */}
+            <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm flex flex-col items-center justify-center text-center space-y-4">
+              <div className="p-3 bg-slate-50/50 rounded-2xl border border-slate-150">
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
+                    `upi://pay?pa=${systemSettings?.paymentGateways?.upi?.upiId || ''}&pn=${encodeURIComponent(systemSettings?.paymentGateways?.upi?.displayName || 'BharatNest Agro')}&am=${(cartTotal - (useWallet ? walletAmount : 0)).toFixed(2)}&cu=INR&tn=${encodeURIComponent(upiTxnId)}`
+                  )}`}
+                  alt="Dynamic UPI QR Code"
+                  className="w-48 h-48 object-contain rounded-xl select-none"
+                />
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest font-black">Scan with any UPI App</p>
+                <p className="text-[9px] text-slate-500 font-medium leading-relaxed mt-1 max-w-xs mx-auto">
+                  Scan this QR with Google Pay, PhonePe, Paytm, BHIM, or any banking portal to transact immediately.
+                </p>
+              </div>
+
+              <div className="w-full pt-2">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    const payee = systemSettings?.paymentGateways?.upi?.displayName || 'BharatNest Agro';
+                    const vpa = systemSettings?.paymentGateways?.upi?.upiId || '';
+                    const amountValue = (cartTotal - (useWallet ? walletAmount : 0)).toFixed(2);
+                    const deepLink = `upi://pay?pa=${vpa}&pn=${encodeURIComponent(payee)}&am=${amountValue}&cu=INR&tn=${encodeURIComponent(upiTxnId)}`;
+                    window.location.href = deepLink;
+                  }}
+                  className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.15em] flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all"
+                >
+                  <Copy size={14} />
+                  Open UPI App & Pay
+                </button>
+                <p className="text-[8px] text-slate-400 font-black uppercase tracking-widest mt-2">Mobile Deep linking enabled</p>
+              </div>
+            </div>
+
+            {/* Step-by-Step Helper Instructions */}
+            <div className="bg-slate-150/30 p-5 rounded-3xl border border-slate-200/30 space-y-3 text-left">
+              <div className="flex items-center gap-2">
+                <Info size={14} className="text-indigo-600 shrink-0" />
+                <span className="text-[10px] text-indigo-950 font-black uppercase tracking-wider">Instructions:</span>
+              </div>
+              <ol className="list-decimal pl-4 text-[9px] text-slate-600 font-semibold space-y-1.5 leading-relaxed">
+                <li>Scan the dynamic QR code OR tap <span className="text-indigo-600">"Open UPI App & Pay"</span>.</li>
+                <li>Proceed with security confirmation inside your mobile UPI client app.</li>
+                <li>Take a screenshot of the successful transaction receipt.</li>
+                <li>Upload proof in the attachment drawer below (highly recommended).</li>
+                <li>Hit <span className="text-slate-900">"I Have Completed Payment"</span> to trigger dispatch verification!</li>
+              </ol>
+            </div>
+
+            {/* Image upload widget */}
+            <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm space-y-3">
+              <span className="text-[8px] text-slate-400 font-black uppercase tracking-widest block font-bold">Upload Payment Screenshot</span>
+              
+              <label 
+                htmlFor="upi-proof-upload" 
+                className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 cursor-pointer p-6 rounded-2xl bg-slate-50/50 hover:bg-indigo-50/10 hover:border-indigo-300 transition-all group"
+              >
+                <Upload size={22} className="text-slate-400 group-hover:text-indigo-600 mb-1.5 transition-colors" />
+                <span className="text-[10px] font-black uppercase text-slate-700 group-hover:text-indigo-950 transition-colors">
+                  {isUploadingScreenshot ? 'Analyzing Image...' : 'Select Screenshot Receipt'}
+                </span>
+                <span className="text-[8px] text-slate-400 uppercase tracking-wider mt-0.5">JPEG, PNG format (Max 4MB)</span>
+              </label>
+              <input 
+                type="file" 
+                accept="image/*" 
+                id="upi-proof-upload" 
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setIsUploadingScreenshot(true);
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      setUpiScreenshot(reader.result as string);
+                      setIsUploadingScreenshot(false);
+                      toast.success("Verification receipt attached!");
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+              />
+
+              {upiScreenshot && (
+                <div className="relative border border-slate-250 rounded-xl overflow-hidden bg-slate-50 flex items-center justify-between p-3.5 mt-2 animate-fade-in">
+                  <div className="flex items-center gap-3 text-left">
+                    <img 
+                      src={upiScreenshot} 
+                      alt="UPI screenshot" 
+                      className="w-10 h-10 object-cover rounded-lg border border-slate-200 shadow-sm" 
+                    />
+                    <div>
+                      <p className="text-[9px] font-extrabold uppercase text-slate-900 leading-none">Receipt attached</p>
+                      <p className="text-[8px] text-slate-400 uppercase tracking-widest leading-none mt-1">Ready to finalize</p>
+                    </div>
+                  </div>
+                  <button 
+                    type="button" 
+                    onClick={() => setUpiScreenshot('')}
+                    className="text-[9px] font-black uppercase text-rose-500 hover:text-rose-600 tracking-wider hover:underline"
+                  >
+                    Delete File
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="p-5 border-t border-slate-100 bg-white">
+            <Button 
+              disabled={isUploadingScreenshot || isProcessingPayment}
+              className="w-full py-7 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white uppercase text-[10px] font-black tracking-[0.2em] shadow-lg shadow-indigo-600/10 active:scale-95 transition-all"
+              onClick={async () => {
+                setIsProcessingPayment(true);
+                try {
+                  await finalizeOrder('UPI', pendingAddress, upiTxnId, upiScreenshot);
+                  setIsUpiModalOpen(false);
+                } catch (err) {
+                  toast.error("Failed to complete purchase. Try again!");
+                } finally {
+                  setIsProcessingPayment(false);
+                }
+              }}
+            >
+              {isProcessingPayment ? "Registering Transaction..." : "I Have Completed Payment"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

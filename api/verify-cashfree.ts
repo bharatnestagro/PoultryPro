@@ -76,13 +76,10 @@ const getCashfreeConfig = async () => {
     }
   }
 
-  // For sandbox testing mode override as requested:
-  // "1. Keep the application in SANDBOX mode for testing."
-  // "2. Ensure backend uses: CFEnvironment.SANDBOX"
-  // "3. Ensure Cashfree API endpoint matches sandbox mode."
-  // "4. Remove any forced production configuration."
-  const environment = "SANDBOX";
-  const sdkEndpoint = "https://sandbox.cashfree.com/pg";
+  // Normalize Environment Mode securely
+  const modeNormalized = String(rawMode || "SANDBOX").toLowerCase();
+  const environment = (modeNormalized === "production" || modeNormalized === "live" || modeNormalized === "prod") ? "PRODUCTION" : "SANDBOX";
+  const sdkEndpoint = environment === "PRODUCTION" ? "https://api.cashfree.com/pg" : "https://sandbox.cashfree.com/pg";
 
   console.log("[CASHFREE CONFIG RESOLVED] Details:", {
     selectedMode: environment,
@@ -157,7 +154,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.error("[ERROR-VERIFY] Response Data:", JSON.stringify(details, null, 2));
 
         if (status === 401) {
-          errorMessage = "Cashfree API 401 Authentication Failed during verification. Ensure you are using your SANDBOX credentials (Sandbox App ID and Sandbox Secret Key) when the app is in Sandbox mode, and that they have not been copied with leading/trailing spaces.";
+          errorMessage = `Cashfree API 401 Authentication Failed during verification. Ensure you are using correct ${config.environment} credentials (App ID and Secret Key) and that they have not been copied with leading/trailing spaces. Currently in ${config.environment} mode.`;
         } else {
           errorMessage = `Cashfree Verification Error [${status}]: ${JSON.stringify(details)}`;
         }
@@ -170,7 +167,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         message: errorMessage,
         details: details,
         debug: {
-          environmentMode: "SANDBOX (testing)",
+          environmentMode: config.environment,
           partialAppId: config.appId ? `${config.appId.substring(0, Math.min(6, config.appId.length))}...` : "not set",
           endpointUsed: config.sdkEndpoint
         }

@@ -49,10 +49,26 @@ const Transactions: React.FC = () => {
   useEffect(() => {
     const orderId = searchParams.get('order_id');
     if (orderId && user) {
+      const safeParseJson = async (res: Response) => {
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          try {
+            return await res.json();
+          } catch (e: any) {
+            throw new Error(`Failed to parse JSON response: ${e.message}`);
+          }
+        }
+        const text = await res.text();
+        if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+          throw new Error(`Server returned HTML response instead of JSON. Status: ${res.status} ${res.statusText}. Please verify that the API backend is running.`);
+        }
+        throw new Error(`Server returned non-JSON response. Status: ${res.status} ${res.statusText}. Content: ${text.substring(0, 150)}...`);
+      };
+
       const verifyPayment = async () => {
         try {
           const res = await fetch(`/api/verify-cashfree?orderId=${orderId}`);
-          const data = await res.json();
+          const data = await safeParseJson(res);
           
           if (data.order_status === 'PAID') {
             toast.success('Payment Verified! Transaction Updated.');
@@ -61,8 +77,9 @@ const Transactions: React.FC = () => {
           } else if (data.order_status === 'FAILED') {
             toast.error('Payment Failed. Please try again.');
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error("Verification failed:", err);
+          toast.error(`Verification error: ${err.message}`);
         }
       };
       verifyPayment();

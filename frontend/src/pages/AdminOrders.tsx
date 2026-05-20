@@ -718,9 +718,11 @@ const AdminOrders: React.FC = () => {
                       <div className="flex items-center gap-1 mt-1">
                         <span className="text-[9px] font-bold text-slate-400 uppercase">{order.paymentMethod}</span>
                         <Badge variant="outline" className={`text-[8px] px-1 py-0 h-3.5 ${
-                          order.paymentStatus === 'Paid' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'
+                          order.paymentStatus === 'Paid' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                          order.paymentStatus === 'payment_pending_verification' ? 'bg-indigo-50 text-indigo-600 border-indigo-100 animate-pulse font-extrabold' :
+                          'bg-amber-50 text-amber-600 border-amber-100'
                         }`}>
-                          {order.paymentStatus || 'Pending'}
+                          {order.paymentStatus === 'payment_pending_verification' ? 'Verification' : (order.paymentStatus || 'Pending')}
                         </Badge>
                       </div>
                     </div>
@@ -1015,6 +1017,125 @@ const AdminOrders: React.FC = () => {
                       </div>
                     </Card>
                   </div>
+
+                  {/* Payment Info & Screenshot Verification Panel */}
+                  <Card className="rounded-xl border border-slate-100 shadow-sm bg-white p-4 mt-3 animate-fade-in">
+                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-50 justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">🪙</span>
+                        <h4 className="text-[9px] font-black uppercase text-slate-500 tracking-widest italic">Payment Settlement Verification</h4>
+                      </div>
+                      <Badge className={
+                        selectedOrderDetails?.paymentStatus === 'Paid' 
+                          ? 'border-emerald-200 text-emerald-600 bg-emerald-50 text-[8px] font-black px-2' 
+                          : selectedOrderDetails?.paymentStatus === 'payment_pending_verification'
+                            ? 'border-indigo-200 text-indigo-600 bg-indigo-50 text-[8px] font-black px-2 animate-pulse'
+                            : 'border-amber-200 text-amber-600 bg-amber-50 text-[8px] font-black px-2'
+                      }>
+                        {selectedOrderDetails?.paymentStatus === 'payment_pending_verification' 
+                          ? 'PENDING UPI VERIFICATION' 
+                          : selectedOrderDetails?.paymentStatus || 'Pending'}
+                      </Badge>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-[7px] text-slate-400 uppercase font-black tracking-widest mb-0.5">Payment Method</p>
+                          <p className="text-xs font-bold text-slate-900 uppercase">{selectedOrderDetails?.paymentMethod || 'N/A'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[7px] text-slate-400 uppercase font-black tracking-widest mb-0.5">Transaction Reference</p>
+                          <p className="text-xs font-mono font-semibold text-slate-900 break-all">{selectedOrderDetails?.transactionId || 'N/A'}</p>
+                        </div>
+                      </div>
+
+                      {/* Verification Controls for Admins */}
+                      {selectedOrderDetails?.paymentStatus === 'payment_pending_verification' && (
+                        <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50 flex flex-col sm:flex-row items-center justify-between gap-3">
+                          <div className="text-left">
+                            <p className="text-[10px] text-indigo-950 font-extrabold uppercase">Verify UPI Receipt</p>
+                            <p className="text-[9px] text-indigo-700 font-semibold leading-relaxed">Check your bank statements for the matched UPI amount. Once verified, elevate status to Paid.</p>
+                          </div>
+                          <div className="flex gap-2 w-full sm:w-auto">
+                            <Button 
+                              size="sm" 
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[9px] font-black uppercase px-3 py-1.5 w-full sm:w-auto"
+                              onClick={async () => {
+                                try {
+                                  await updateDoc(doc(db, 'orders', selectedOrderDetails.id), {
+                                    paymentStatus: 'Paid'
+                                  });
+                                  setSelectedOrderDetails((prev: any) => ({ ...prev, paymentStatus: 'Paid' }));
+                                  toast.success("Payment marked as Paid successfully!");
+                                } catch (err) {
+                                  toast.error("Failed to update payment status");
+                                }
+                              }}
+                            >
+                              Approve
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              className="border-slate-300 text-slate-600 rounded-lg text-[9px] font-black uppercase px-3 py-1.5 bg-white w-full sm:w-auto"
+                              onClick={async () => {
+                                try {
+                                  await updateDoc(doc(db, 'orders', selectedOrderDetails.id), {
+                                    paymentStatus: 'Failed'
+                                  });
+                                  setSelectedOrderDetails((prev: any) => ({ ...prev, paymentStatus: 'Failed' }));
+                                  toast.success("Payment marked as Failed.");
+                                } catch (err) {
+                                  toast.error("Failed to update payment status");
+                                }
+                              }}
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Payment Screenshot Display */}
+                      {selectedOrderDetails?.upiScreenshotUrl ? (
+                        <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                          <p className="text-[7px] text-slate-400 uppercase font-black tracking-widest">Uploaded Payment Screenshot</p>
+                          <div className="relative group border border-slate-200 rounded-xl overflow-hidden bg-slate-50 flex items-center justify-center p-2 max-h-80">
+                            <img 
+                              src={selectedOrderDetails.upiScreenshotUrl} 
+                              alt="UPI Screenshot Receipt" 
+                              className="max-h-64 max-w-full object-contain rounded-lg cursor-zoom-in"
+                              onClick={() => {
+                                const w = window.open();
+                                if (w) {
+                                  w.document.write(`<img src="${selectedOrderDetails.upiScreenshotUrl}" style="max-width:100%"/>`);
+                                }
+                              }}
+                            />
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const w = window.open();
+                                if (w) {
+                                  w.document.write(`<img src="${selectedOrderDetails.upiScreenshotUrl}" style="max-width:100%"/>`);
+                                }
+                              }}
+                              className="absolute top-2 right-2 bg-slate-900/80 text-white rounded-md text-[9px] font-bold px-2 py-1 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              Open In New Tab
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        selectedOrderDetails?.paymentMethod === 'UPI Payment' && (
+                          <div className="p-3 bg-slate-50 rounded-xl border border-dashed border-slate-150 text-center">
+                            <p className="text-[10px] text-slate-400 font-bold">No receipt screenshot attached by customer</p>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </Card>
                 </div>
 
                 {/* Command & Control Center */}

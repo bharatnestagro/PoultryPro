@@ -85,7 +85,8 @@ const AdminSettings: React.FC = () => {
       razorpay: { enabled: false, apiKey: '', apiSecret: '', mode: 'sandbox' },
       cashfree: { enabled: false, appId: '', secretKey: '', mode: 'sandbox' },
       payu: { enabled: false, merchantKey: '', merchantSalt: '', mode: 'sandbox' },
-      cashOnDelivery: { enabled: true }
+      cashOnDelivery: { enabled: true },
+      upi: { enabled: false, displayName: 'BharatNest Agro Payments', upiId: '', qrCodeUrl: '' }
     },
     googleApis: {
       maps: { enabled: false, apiKey: '' },
@@ -109,7 +110,18 @@ const AdminSettings: React.FC = () => {
     const unsubSettings = onSnapshot(doc(db, 'system', 'settings'), (doc) => {
       if (doc.exists()) {
         const data = doc.data();
-        setSettings(prev => ({ ...prev, ...data }));
+        setSettings(prev => ({
+          ...prev,
+          ...data,
+          paymentGateways: {
+            ...prev.paymentGateways,
+            ...(data.paymentGateways || {}),
+            upi: {
+              ...prev.paymentGateways.upi,
+              ...(data.paymentGateways?.upi || {})
+            }
+          }
+        }));
         
         // Push to server for backend availability
         fetch('/api/sync-settings', {
@@ -1355,6 +1367,117 @@ const AdminSettings: React.FC = () => {
                             paymentGateways: { ...prev.paymentGateways, payu: { ...prev.paymentGateways.payu, merchantSalt: e.target.value } } 
                           }))}
                         />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* UPI Payment */}
+                  <div className="p-6 rounded-[1.5rem] bg-slate-50 border border-slate-100 space-y-4 animate-fade-in">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">UPI</div>
+                        <div className="text-left">
+                          <Label className="font-bold text-slate-900 block">UPI Direct Payment</Label>
+                          <p className="text-[10px] text-slate-500 font-medium tracking-tight">Direct bank transfers with custom displays and dynamically generated secure QR codes.</p>
+                        </div>
+                      </div>
+                      <Switch 
+                        checked={settings.paymentGateways?.upi?.enabled || false} 
+                        onCheckedChange={(checked) => setSettings(prev => ({ 
+                          ...prev, 
+                          paymentGateways: { ...prev.paymentGateways, upi: { ...prev.paymentGateways.upi, enabled: checked } } 
+                        }))}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">DISPLAY NAME</Label>
+                        <Input 
+                          placeholder="e.g. BharatNest Agro Payments" 
+                          className="rounded-xl border-slate-200"
+                          value={settings.paymentGateways?.upi?.displayName || ''}
+                          onChange={(e) => setSettings(prev => ({ 
+                            ...prev, 
+                            paymentGateways: { ...prev.paymentGateways, upi: { ...prev.paymentGateways.upi, displayName: e.target.value } } 
+                          }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">UPI ID / VPA</Label>
+                        <Input 
+                          placeholder="e.g. bharatnest@upi" 
+                          className="rounded-xl border-slate-200"
+                          value={settings.paymentGateways?.upi?.upiId || ''}
+                          onChange={(e) => setSettings(prev => ({ 
+                            ...prev, 
+                            paymentGateways: { ...prev.paymentGateways, upi: { ...prev.paymentGateways.upi, upiId: e.target.value } } 
+                          }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">OPTIONAL BACKUP QR CODE IMAGE</Label>
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl border border-dashed border-slate-200 bg-white">
+                        <div className="flex-1">
+                          <p className="text-xs text-slate-500 font-medium">Upload custom backup QR code. A secure dynamic QR is generated for every user order automatically.</p>
+                          <input 
+                            type="file" 
+                            accept="image/*"
+                            id="upi-qr-upload"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setSettings(prev => ({
+                                    ...prev,
+                                    paymentGateways: {
+                                      ...prev.paymentGateways,
+                                      upi: {
+                                        ...prev.paymentGateways.upi,
+                                        qrCodeUrl: reader.result as string
+                                      }
+                                    }
+                                  }));
+                                  toast.success("QR Code uploaded successfully");
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                          />
+                          <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm"
+                            className="mt-2 rounded-lg"
+                            onClick={() => document.getElementById('upi-qr-upload')?.click()}
+                          >
+                            <ImageIcon size={14} className="mr-2" />
+                            Select QR Image
+                          </Button>
+                        </div>
+                        {settings.paymentGateways?.upi?.qrCodeUrl && (
+                          <div className="relative flex flex-col items-center gap-1">
+                            <img 
+                              src={settings.paymentGateways.upi.qrCodeUrl} 
+                              alt="UPI QR Code preview" 
+                              className="w-20 h-20 object-contain rounded-lg border border-slate-100"
+                            />
+                            <button 
+                              type="button" 
+                              className="text-[10px] text-rose-500 font-semibold hover:underline"
+                              onClick={() => setSettings(prev => ({ 
+                                ...prev, 
+                                paymentGateways: { ...prev.paymentGateways, upi: { ...prev.paymentGateways.upi, qrCodeUrl: '' } } 
+                              }))}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

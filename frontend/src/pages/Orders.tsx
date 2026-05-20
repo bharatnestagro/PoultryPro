@@ -72,6 +72,22 @@ const Orders: React.FC = () => {
     }
   };
 
+  const safeParseJson = async (res: Response) => {
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      try {
+        return await res.json();
+      } catch (e: any) {
+        throw new Error(`Failed to parse JSON response: ${e.message}`);
+      }
+    }
+    const text = await res.text();
+    if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+      throw new Error(`Server returned HTML response instead of JSON. Status: ${res.status} ${res.statusText}. Please verify that the API backend is running.`);
+    }
+    throw new Error(`Server returned non-JSON response. Status: ${res.status} ${res.statusText}. Content: ${text.substring(0, 150)}...`);
+  };
+
   const handleDeliveryPaymentRazorpay = async (order: any) => {
     setIsProcessingPayment(true);
     try {
@@ -87,7 +103,7 @@ const Orders: React.FC = () => {
         })
       });
       
-      const orderData = await orderRes.json();
+      const orderData = await safeParseJson(orderRes);
       if (!orderRes.ok) throw new Error(orderData.error || "Failed to create Razorpay order");
 
       const options = {
@@ -141,7 +157,7 @@ const Orders: React.FC = () => {
         })
       });
 
-      const data = await response.json();
+      const data = await safeParseJson(response);
       if (!response.ok) {
         let errMsg = data.error || 'Failed to initialize session';
         if (data.message) {
@@ -150,7 +166,7 @@ const Orders: React.FC = () => {
         throw new Error(errMsg);
       }
 
-      const mode = "sandbox"; // Consistent sandbox mode for testing
+      const mode = systemSettings?.paymentGateways?.cashfree?.mode === "production" ? "production" : "sandbox";
       const cf = new Cashfree({ mode: mode });
       
       if (!data.payment_session_id) throw new Error("No payment session ID received");

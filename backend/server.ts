@@ -5,6 +5,7 @@ import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
 import axios from "axios";
 import fs from "fs";
+import crypto from "crypto";
 import Razorpay from "razorpay";
 import { Cashfree, CFEnvironment } from "cashfree-pg";
 
@@ -241,6 +242,196 @@ async function startServer() {
     } catch (error: any) {
       console.error("Razorpay Order Error:", error);
       res.status(500).json({ error: "Failed to create Razorpay order", details: error.message });
+    }
+  });
+
+  // Express fallback for Vercel API `/api/create-order`
+  app.post("/api/create-order", async (req, res) => {
+    console.log("Request to /api/create-order received in Express");
+    try {
+      const { amount, customerId, customerPhone, customerEmail, gateway, orderId } = req.body;
+      
+      if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+        return res.status(400).json({ error: "Invalid amount value specified" });
+      }
+
+      const finalOrderId = orderId || `order_${Date.now()}`;
+      console.log(`[EXPRESS-CREATE-ORDER] Creating ${gateway} order: ${finalOrderId} for amount: ${amount}`);
+
+      if (gateway === "cashfree") {
+        const settings = await getSystemSettings();
+        let appId = process.env.CASHFREE_CLIENT_ID || process.env.CASHFREE_APP_ID || settings?.paymentGateways?.cashfree?.appId;
+        let secretKey = process.env.CASHFREE_CLIENT_SECRET || process.env.CASHFREE_SECRET_KEY || settings?.paymentGateways?.cashfree?.secretKey;
+        let rawMode = process.env.CASHFREE_ENVIRONMENT || process.env.CASHFREE_MODE || settings?.paymentGateways?.cashfree?.mode || "SANDBOX";
+
+        if (!appId || !secretKey) {
+          return res.status(400).json({ error: "Cashfree credentials are not configured" });
+        }
+
+        const modeNormalized = String(rawMode || "SANDBOX").toLowerCase();
+        const environment = (modeNormalized === "production" || modeNormalized === "live" || modeNormalized === "prod") ? "PRODUCTION" : "SANDBOX";
+        const isProductionMode = environment === "PRODUCTION";
+
+        console.log(`[EXPRESS CASHFREE RESOLVED] mode: ${environment}, appId: ${appId.slice(0, 6)}...`);
+
+        const cashfreeApp = new Cashfree(
+          isProductionMode ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX,
+          appId,
+          secretKey
+        );
+        
+        cashfreeApp.XApiVersion = "2023-08-01";
+
+        const requestPayload = {
+          order_id: finalOrderId,
+          order_amount: parseFloat(parseFloat(amount).toFixed(2)),
+          order_currency: "INR",
+          customer_details: {
+            customer_id: String(customerId || `cust_${Date.now()}`),
+            customer_phone: String(customerPhone || "9999999999").replace(/\D/g, "").slice(-10) || "9999999999",
+            customer_email: customerEmail || "customer@example.com",
+            customer_name: "Customer"
+          },
+          order_meta: {
+            return_url: `${req.headers.origin || "https://example.com"}/transactions?order_id={order_id}`
+          }
+        };
+
+        try {
+          const response = await cashfreeApp.PGCreateOrder(requestPayload);
+          return res.status(200).json(response.data);
+        } catch (cfError: any) {
+          console.error("[EXPRESS-ERROR] Cashfree API Direct Call Failure:", cfError.response?.data || cfError.message);
+          let errorMessage = cfError.message || "Unknown Cashfree Error";
+          let status = 500;
+          let details = null;
+
+          if (cfError.response) {
+            status = cfError.response.status;
+            details = cfError.response.data;
+            if (status === 401) {
+              errorMessage = `Cashfree API 401 Authentication Failed. Ensure you are using correct ${environment} credentials (App ID and Secret Key) and currently in ${environment} mode.`;
+            } else {
+              errorMessage = `Cashfree error [${status}]: ${JSON.stringify(details)}`;
+            }
+          }
+
+          return res.status(status).json({ 
+            error: "Cashfree Authentication or Request Failure", 
+            message: errorMessage,
+            details: details,
+            debug: {
+              environmentMode: environment,
+              partialAppId: `${appId.slice(0, Math.min(6, appId.length))}...`,
+            }
+          });
+        }
+      } 
+      
+      if (gateway === "razorpay") {
+        const settings = await getSystemSettings();
+        const keyId = process.env.RAZORPAY_KEY_ID || settings?.paymentGateways?.razorpay?.apiKey;
+        const keySecret = process.env.RAZORPAY_KEY_SECRET || settings?.paymentGateways?.razorpay?.apiSecret;
+
+        if (!keyId || !keySecret) {
+          return res.status(400).json({ error: "Razorpay credentials not configured" });
+        }
+
+        const instance = new Razorpay({
+          key_id: keyId,
+          key_secret: keySecret,
+        });
+
+        const options = {
+          amount: Math.round(parseFloat(amount) * 100),
+          currency: "INR",
+          receipt: finalOrderId,
+        };
+
+        const order = await instance.orders.create(options);
+        return res.status(200).json(order);
+      }
+
+      if (gateway === "payu") {
+        const settings = await getSystemSettings();
+        const merchantKey = process.env.PAYU_MERCHANT_KEY || settings?.paymentGateways?.payu?.merchantKey;
+        const salt = process.env.PAYU_SALT || settings?.paymentGateways?.payu?.merchantSalt;
+        const rawMode = process.env.PAYU_ENVIRONMENT || settings?.paymentGateways?.payu?.mode || "SANDBOX";
+        
+        if (!merchantKey || !salt) {
+          return res.status(400).json({ error: "PayU credentials not configured" });
+        }
+
+        const txnid = finalOrderId;
+        const productinfo = "Payment for order " + txnid;
+        const firstname = "Customer";
+        const email = customerEmail || "customer@example.com";
+        
+        const hashString = `${merchantKey}|${txnid}|${amount}|${productinfo}|${firstname}|${email}|||||||||||${salt}`;
+        const hash = crypto.createHash("sha512").update(hashString).digest("hex");
+
+        return res.status(200).json({
+          hash,
+          merchantKey,
+          txnid,
+          amount,
+          productinfo,
+          firstname,
+          email,
+          action: String(rawMode).toLowerCase() === "production" 
+            ? "https://secure.payu.in/_payment" 
+            : "https://test.payu.in/_payment"
+        });
+      }
+
+      return res.status(400).json({ error: "Invalid gateway specified" });
+
+    } catch (error: any) {
+      console.error("[EXPRESS-ERROR] /api/create-order execution failed:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Express fallback for Vercel API `/api/verify-cashfree`
+  app.get("/api/verify-cashfree", async (req, res) => {
+    console.log("Request to /api/verify-cashfree received in Express");
+    try {
+      const orderId = req.query.orderId as string;
+      if (!orderId) {
+        return res.status(400).json({ error: "orderId is required" });
+      }
+
+      const settings = await getSystemSettings();
+      let appId = process.env.CASHFREE_CLIENT_ID || process.env.CASHFREE_APP_ID || settings?.paymentGateways?.cashfree?.appId;
+      let secretKey = process.env.CASHFREE_CLIENT_SECRET || process.env.CASHFREE_SECRET_KEY || settings?.paymentGateways?.cashfree?.secretKey;
+      let rawMode = process.env.CASHFREE_ENVIRONMENT || process.env.CASHFREE_MODE || settings?.paymentGateways?.cashfree?.mode || "SANDBOX";
+
+      if (!appId || !secretKey) {
+        return res.status(400).json({ error: "Cashfree is not properly configured" });
+      }
+
+      const modeNormalized = String(rawMode || "SANDBOX").toLowerCase();
+      const environment = (modeNormalized === "production" || modeNormalized === "live" || modeNormalized === "prod") ? "PRODUCTION" : "SANDBOX";
+      const isProductionMode = environment === "PRODUCTION";
+
+      console.log(`[EXPRESS CASHFREE VERIFY] mode: ${environment}, appId: ${appId.slice(0, 6)}... for order: ${orderId}`);
+
+      const cashfreeApp = new Cashfree(
+        isProductionMode ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX,
+        appId,
+        secretKey
+      );
+
+      cashfreeApp.XApiVersion = "2023-08-01";
+
+      const response = await cashfreeApp.PGOrderFetchPayments(orderId);
+      res.json(response.data);
+    } catch (error: any) {
+      console.error("[EXPRESS-ERROR] Verification Error:", error.response?.data || error.message);
+      res.status(500).json({ 
+        error: "Failed to verify payment",
+        details: error.response?.data || error.message
+      });
     }
   });
 

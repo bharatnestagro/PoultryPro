@@ -277,7 +277,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { keyId, keySecret, configSource } = await getRazorpayConfig();
 
       if (!keyId || !keySecret) {
-        return res.status(401).json({ error: "Razorpay credentials not configured. Please supply apiKey/apiSecret fields or configure environment variables." });
+        return res.status(401).json({ 
+          error: "Razorpay credentials not configured", 
+          message: "Please configure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in your Vercel project environment settings or Firestore Admin configuration." 
+        });
       }
 
       const amountPaise = Math.round(parseFloat(amount) * 100);
@@ -287,7 +290,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       console.log(`[RAZORPAY CONFIG RESOLVED] using: ${configSource}, Key ID: ${keyId.slice(0, 8)}...`);
 
-      const instance = new Razorpay({
+      // ESM-safe instantiaton of Razorpay
+      const RazorpayClass = (Razorpay as any).default || Razorpay;
+      const instance = new RazorpayClass({
         key_id: keyId,
         key_secret: keySecret,
       });
@@ -298,8 +303,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         receipt: finalOrderId,
       };
 
-      const order = await instance.orders.create(options);
-      return res.status(200).json(order);
+      try {
+        const order = await instance.orders.create(options);
+        return res.status(200).json(order);
+      } catch (rzpErr: any) {
+        console.error("[ERROR] Razorpay API Call Failed:", rzpErr);
+        return res.status(502).json({
+          error: "Razorpay API error",
+          message: rzpErr.message || "Failed to create order on Razorpay servers",
+          statusCode: rzpErr.statusCode || null,
+          description: rzpErr.description || null
+        });
+      }
     }
 
     return res.status(400).json({ error: "Invalid or missing gateway specified. Options: cashfree, payu, razorpay" });

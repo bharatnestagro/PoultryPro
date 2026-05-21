@@ -226,7 +226,8 @@ async function startServer() {
         return res.status(400).json({ error: "Razorpay is not properly configured" });
       }
 
-      const instance = new Razorpay({
+      const RazorpayClass = (Razorpay as any).default || Razorpay;
+      const instance = new RazorpayClass({
         key_id: razorpayConfig.apiKey,
         key_secret: razorpayConfig.apiSecret,
       });
@@ -342,7 +343,8 @@ async function startServer() {
           return res.status(400).json({ error: "Invalid amount. Razorpay requires transaction amount to be at least ₹1 (100 paise)." });
         }
 
-        const instance = new Razorpay({
+        const RazorpayClass = (Razorpay as any).default || Razorpay;
+        const instance = new RazorpayClass({
           key_id: keyId,
           key_secret: keySecret,
         });

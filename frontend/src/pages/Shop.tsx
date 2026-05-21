@@ -474,8 +474,28 @@ const Shop: React.FC = () => {
         name: "Bharat Nest Agro",
         description: "Supply Order Payment",
         order_id: orderData.id,
-        handler: function (response: any) {
-          finalizeOrder('Online', address, response.razorpay_payment_id);
+        handler: async function (response: any) {
+          try {
+            const verifyRes = await fetch("/api/verify-payment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature
+              })
+            });
+            const verifyData = await safeParseJson(verifyRes);
+            if (!verifyRes.ok || !verifyData.success) {
+              throw new Error(verifyData.error || "Payment signature verification failed");
+            }
+
+            finalizeOrder('Online', address, response.razorpay_payment_id);
+          } catch (verifyErr: any) {
+            console.error("Razorpay Signature Verification Failure:", verifyErr);
+            toast.error(verifyErr.message || "Failed to verify transaction signature. Please contact admin.");
+            setIsProcessingPayment(false);
+          }
         },
         prefill: {
           name: profile?.name || "",
@@ -493,6 +513,11 @@ const Shop: React.FC = () => {
       const Razorpay = (window as any).Razorpay;
       if (!Razorpay) throw new Error("Razorpay SDK not loaded. Check your internet or configuration.");
       const rzp = new Razorpay(options);
+      rzp.on('payment.failed', function (response: any) {
+        console.error('Razorpay payment failed:', response.error);
+        toast.error(`Payment failed: ${response.error.description || 'Unknown error'}`);
+        setIsProcessingPayment(false);
+      });
       rzp.open();
     } catch (err: any) {
       console.error('Razorpay Init Error:', err);

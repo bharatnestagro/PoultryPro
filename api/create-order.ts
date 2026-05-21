@@ -95,6 +95,52 @@ const getCashfreeConfig = async () => {
   return { appId, secretKey, environment, sdkEndpoint };
 };
 
+const getRazorpayConfig = async () => {
+  let keyId = process.env.RAZORPAY_KEY_ID;
+  let keySecret = process.env.RAZORPAY_KEY_SECRET;
+  let configSource = "Process Environment Variables";
+
+  try {
+    const cachePath = path.resolve("settings-cache.json");
+    if (fs.existsSync(cachePath)) {
+      const cacheData = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+      const rzp = cacheData?.paymentGateways?.razorpay;
+      if (rzp) {
+        if (rzp.apiKey) {
+          keyId = rzp.apiKey;
+          configSource = "Local Cache (settings-cache.json)";
+        }
+        if (rzp.apiSecret) keySecret = rzp.apiSecret;
+      }
+    }
+  } catch (err: any) {
+    console.warn("[DEBUG] Error reading local settings-cache.json:", err.message);
+  }
+
+  if ((!keyId || !keySecret) && firebaseConfig) {
+    try {
+      const db = getFirestore(firebaseConfig.firestoreDatabaseId || "(default)");
+      const docRef = db.collection("system").doc("settings");
+      const docSnap = await docRef.get();
+      if (docSnap.exists) {
+        const data = docSnap.data();
+        const rzp = data?.paymentGateways?.razorpay;
+        if (rzp) {
+          if (rzp.apiKey) {
+            keyId = rzp.apiKey;
+            configSource = "Firestore (system/settings document)";
+          }
+          if (rzp.apiSecret) keySecret = rzp.apiSecret;
+        }
+      }
+    } catch (err: any) {
+      console.error("[DEBUG] Error fetching settings directly from Firestore:", err.message);
+    }
+  }
+
+  return { keyId, keySecret, configSource };
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS Headers
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -228,12 +274,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (gateway === "razorpay") {
-      const keyId = process.env.RAZORPAY_KEY_ID;
-      const keySecret = process.env.RAZORPAY_KEY_SECRET;
+      const { keyId, keySecret, configSource } = await getRazorpayConfig();
 
       if (!keyId || !keySecret) {
-        throw new Error("Razorpay credentials not configured in environment");
+        return res.status(401).json({ error: "Razorpay credentials not configured. Please supply apiKey/apiSecret fields or configure environment variables." });
       }
+
+      const amountPaise = Math.round(parseFloat(amount) * 100);
+      if (amountPaise < 100) {
+        return res.status(400).json({ error: "Invalid amount. Razorpay requires transaction amount to be at least ₹1 (100 paise)." });
+      }
+
+      console.log(`[RAZORPAY CONFIG RESOLVED] using: ${configSource}, Key ID: ${keyId.slice(0, 8)}...`);
 
       const instance = new Razorpay({
         key_id: keyId,
@@ -241,7 +293,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
 
       const options = {
-        amount: Math.round(parseFloat(amount) * 100),
+        amount: amountPaise,
         currency: "INR",
         receipt: finalOrderId,
       };

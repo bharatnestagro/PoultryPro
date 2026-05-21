@@ -170,7 +170,7 @@ async function startServer() {
     const { functionName } = req.params;
     
     // Explicit exclusions for standard backend-configured Express routes
-    if (["health", "admin", "create-razorpay-order", "create-cashfree-session", "verify-cashfree-payment"].includes(functionName)) {
+    if (["health", "admin", "create-razorpay-order", "create-cashfree-session", "verify-cashfree-payment", "verify-payment"].includes(functionName)) {
       return next();
     }
     
@@ -337,13 +337,18 @@ async function startServer() {
           return res.status(400).json({ error: "Razorpay credentials not configured" });
         }
 
+        const amountPaise = Math.round(parseFloat(amount) * 100);
+        if (amountPaise < 100) {
+          return res.status(400).json({ error: "Invalid amount. Razorpay requires transaction amount to be at least ₹1 (100 paise)." });
+        }
+
         const instance = new Razorpay({
           key_id: keyId,
           key_secret: keySecret,
         });
 
         const options = {
-          amount: Math.round(parseFloat(amount) * 100),
+          amount: amountPaise,
           currency: "INR",
           receipt: finalOrderId,
         };
@@ -432,6 +437,39 @@ async function startServer() {
         error: "Failed to verify payment",
         details: error.response?.data || error.message
       });
+    }
+  });
+
+  // Razorpay Signature Verification
+  app.post("/api/verify-payment", async (req, res) => {
+    console.log("Razorpay payment verification request received");
+    try {
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+        return res.status(400).json({ error: "Missing required verification fields" });
+      }
+
+      const settings = await getSystemSettings();
+      const keySecret = process.env.RAZORPAY_KEY_SECRET || settings?.paymentGateways?.razorpay?.apiSecret;
+
+      if (!keySecret) {
+        return res.status(400).json({ error: "Razorpay credentials not configured (secret key missing)" });
+      }
+
+      const generatedSignature = crypto
+        .createHmac("sha256", keySecret)
+        .update(razorpay_order_id + "|" + razorpay_payment_id)
+        .digest("hex");
+
+      if (generatedSignature === razorpay_signature) {
+        res.status(200).json({ success: true, status: "success" });
+      } else {
+        res.status(400).json({ success: false, error: "Signature mismatch" });
+      }
+    } catch (error: any) {
+      console.error("Razorpay Verification Error:", error);
+      res.status(500).json({ error: "Failed to verify payment", details: error.message });
     }
   });
 

@@ -129,7 +129,7 @@ const Profile: React.FC = () => {
             setSystemSettings(settings);
             
             // Load Appropriate Scripts
-            if (settings.paymentGateways?.razorpay?.enabled) {
+            if (settings.paymentGateways?.razorpay?.enabled || (import.meta as any).env.VITE_RAZORPAY_KEY_ID) {
               const script = document.createElement('script');
               script.src = 'https://checkout.razorpay.com/v1/checkout.js';
               script.async = true;
@@ -393,14 +393,15 @@ const Profile: React.FC = () => {
     }
 
     const gateways = systemSettings?.paymentGateways;
-    if (!gateways) {
+    const hasEnvRazorpay = !!(import.meta as any).env.VITE_RAZORPAY_KEY_ID;
+    if (!gateways && !hasEnvRazorpay) {
       toast.error('Online payment system is not configured');
       return;
     }
 
-    if (gateways.cashfree?.enabled && gateways.cashfree?.appId) {
+    if (gateways?.cashfree?.enabled && gateways?.cashfree?.appId) {
       handleCashfreePurchase(selectedPlan);
-    } else if (gateways.razorpay?.enabled && gateways.razorpay?.apiKey) {
+    } else if (gateways?.razorpay?.enabled || hasEnvRazorpay) {
       handleRazorpayPurchase(selectedPlan);
     } else {
       toast.error('Online payment is currently unavailable. Contact admin.');
@@ -444,7 +445,7 @@ const Profile: React.FC = () => {
       if (!orderRes.ok) throw new Error(orderData.error || "Failed to create order");
 
       const options = {
-        key: systemSettings.paymentGateways.razorpay.apiKey,
+        key: systemSettings?.paymentGateways?.razorpay?.apiKey || (import.meta as any).env.VITE_RAZORPAY_KEY_ID || "",
         amount: orderData.amount,
         currency: orderData.currency,
         name: "Bharat Nest Agro",

@@ -259,26 +259,31 @@ const Shop: React.FC = () => {
 
   useEffect(() => {
     const unsubSettings = onSnapshot(doc(db, 'system', 'settings'), (snap) => {
+      let rzpEnabled = false;
+      let cfEnabled = false;
+
       if (snap.exists()) {
         const settings = snap.data();
         setSystemSettings(settings);
+        rzpEnabled = !!settings.paymentGateways?.razorpay?.enabled;
+        cfEnabled = !!settings.paymentGateways?.cashfree?.enabled;
+      }
 
-        // Load Scripts Only if not already loaded
-        if (settings.paymentGateways?.razorpay?.enabled && !document.getElementById('razorpay-sdk')) {
-          const script = document.createElement('script');
-          script.id = 'razorpay-sdk';
-          script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-          script.async = true;
-          document.body.appendChild(script);
-        }
-        
-        if (settings.paymentGateways?.cashfree?.enabled && !document.getElementById('cashfree-sdk')) {
-          const script = document.createElement('script');
-          script.id = 'cashfree-sdk';
-          script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
-          script.async = true;
-          document.body.appendChild(script);
-        }
+      // Load Scripts from Firestore state or direct Env fallbacks
+      if ((rzpEnabled || !!(import.meta as any).env.VITE_RAZORPAY_KEY_ID) && !document.getElementById('razorpay-sdk')) {
+        const script = document.createElement('script');
+        script.id = 'razorpay-sdk';
+        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+        script.async = true;
+        document.body.appendChild(script);
+      }
+      
+      if ((cfEnabled) && !document.getElementById('cashfree-sdk')) {
+        const script = document.createElement('script');
+        script.id = 'cashfree-sdk';
+        script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
+        script.async = true;
+        document.body.appendChild(script);
       }
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, 'system/settings');
@@ -416,17 +421,19 @@ const Shop: React.FC = () => {
 
   const handleOnlinePayment = async (address: any) => {
     const gateways = systemSettings?.paymentGateways;
-    if (!gateways) {
+    const hasEnvRazorpay = !!(import.meta as any).env.VITE_RAZORPAY_KEY_ID;
+
+    if (!gateways && !hasEnvRazorpay) {
       toast.error('Online payment system is not configured');
       return;
     }
 
     // Check for enabled gateway preference or just pick first enabled
-    if (gateways.cashfree?.enabled) {
+    if (gateways?.cashfree?.enabled) {
       handleCashfreePayment(address);
-    } else if (gateways.razorpay?.enabled) {
+    } else if (gateways?.razorpay?.enabled || hasEnvRazorpay) {
       handleRazorpayPayment(address);
-    } else if (gateways.payu?.enabled) {
+    } else if (gateways?.payu?.enabled) {
       handlePayUPayment(address);
     } else {
       toast.error('Online payment is currently unavailable. No gateway is enabled.');
@@ -468,7 +475,7 @@ const Shop: React.FC = () => {
       if (!orderRes.ok) throw new Error(orderData.error || "Failed to create Razorpay order");
 
       const options = {
-        key: systemSettings.paymentGateways.razorpay.apiKey,
+        key: systemSettings?.paymentGateways?.razorpay?.apiKey || (import.meta as any).env.VITE_RAZORPAY_KEY_ID || "",
         amount: orderData.amount,
         currency: orderData.currency,
         name: "Bharat Nest Agro",
@@ -1139,6 +1146,7 @@ const Shop: React.FC = () => {
                       )}
 
                       {(systemSettings?.paymentGateways?.razorpay?.enabled === true || 
+                        !!(import.meta as any).env.VITE_RAZORPAY_KEY_ID ||
                         systemSettings?.paymentGateways?.cashfree?.enabled === true || 
                         systemSettings?.paymentGateways?.payu?.enabled === true) && (
                         <button 

@@ -35,7 +35,7 @@ const Orders: React.FC = () => {
           const settings = snap.data();
           setSystemSettings(settings);
           
-          if (settings.paymentGateways?.razorpay?.enabled) {
+          if (settings.paymentGateways?.razorpay?.enabled || (import.meta as any).env.VITE_RAZORPAY_KEY_ID) {
             const script = document.createElement('script');
             script.src = 'https://checkout.razorpay.com/v1/checkout.js';
             script.async = true;
@@ -107,7 +107,7 @@ const Orders: React.FC = () => {
       if (!orderRes.ok) throw new Error(orderData.error || "Failed to create Razorpay order");
 
       const options = {
-        key: systemSettings.paymentGateways.razorpay.apiKey,
+        key: systemSettings?.paymentGateways?.razorpay?.apiKey || (import.meta as any).env.VITE_RAZORPAY_KEY_ID || "",
         amount: orderData.amount,
         currency: orderData.currency,
         name: "Bharat Nest Agro",
@@ -348,14 +348,15 @@ const Orders: React.FC = () => {
                          className={`w-full bg-amber-600 hover:bg-amber-700 text-white font-black italic uppercase tracking-[0.2em] py-4 rounded-2xl shadow-xl shadow-amber-100 text-[10px] transition-all active:scale-95 ${isProcessingPayment ? 'opacity-50' : ''}`}
                          onClick={async () => {
                            const gateways = systemSettings?.paymentGateways;
-                           if (!gateways) {
+                           const hasEnvRazorpay = !!(import.meta as any).env.VITE_RAZORPAY_KEY_ID;
+                           if (!gateways && !hasEnvRazorpay) {
                              toast.error('Payment system not ready');
                              return;
                            }
 
-                           if (gateways.cashfree?.enabled) {
+                           if (gateways?.cashfree?.enabled) {
                              handleDeliveryPaymentCashfree(order);
-                           } else if (gateways.razorpay?.enabled) {
+                           } else if (gateways?.razorpay?.enabled || hasEnvRazorpay) {
                              handleDeliveryPaymentRazorpay(order);
                            } else {
                              toast.info('Pay via Wallet or at Point of Delivery as instructed by manager.');

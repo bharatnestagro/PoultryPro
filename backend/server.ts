@@ -614,7 +614,7 @@ async function startServer() {
     }
   } else {
     console.log("Entering production mode...");
-    const distPath = path.join(process.cwd(), "frontend/dist");
+    const distPath = path.join(process.cwd(), "dist");
     console.log("Serving static files from:", distPath);
     app.use(express.static(distPath));
     app.get("*", (req, res) => {

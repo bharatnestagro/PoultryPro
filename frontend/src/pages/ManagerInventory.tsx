@@ -19,56 +19,61 @@ const ManagerInventory: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    // 1. Fetch Assigned Farmers
-    const qFarmers = query(collection(db, 'users'), where('managerId', '==', user.uid));
-    const unsubFarmers = onSnapshot(qFarmers, (snap) => {
-      const farmersList = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as any);
+    setLoading(true);
+
+    // 1. Fetch Users in Realtime & Filter Farmers Assigned to the current Manager (via managerId or assignedManagerId)
+    const unsubFarmers = onSnapshot(collection(db, 'users'), (snap) => {
+      const allUsers = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as any);
+      const farmersList = allUsers.filter((u: any) => 
+        (u.role === 'farmer' || !u.role) && 
+        (u.managerId === user.uid || u.assignedManagerId === user.uid)
+      );
       setFarmers(farmersList);
+    }, (error) => {
+      console.error("Error fetching users:", error);
+    });
 
-      if (farmersList.length === 0) {
-        setLoading(false);
-        return;
-      }
+    // 2. Fetch all feedStock reactively
+    const unsubFeed = onSnapshot(collection(db, 'feedStock'), (feedSnap) => {
+      const allFeed = feedSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as any);
+      setFeedStocks(allFeed);
+    }, (error) => {
+      console.error("Error fetching feed stock:", error);
+    });
 
-      const farmerIds = farmersList.map(f => f.id);
-
-      // 2. Fetch all feedStock
-      const unsubFeed = onSnapshot(collection(db, 'feedStock'), (feedSnap) => {
-        const allFeed = feedSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as any);
-        const assignedFeed = allFeed.filter(fs => farmerIds.includes(fs.userId));
-        setFeedStocks(assignedFeed);
-      });
-
-      // 3. Fetch all medicineStock
-      const unsubMed = onSnapshot(collection(db, 'medicineStock'), (medSnap) => {
-        const allMed = medSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as any);
-        const assignedMed = allMed.filter(ms => farmerIds.includes(ms.userId));
-        setMedicineStocks(assignedMed);
-        setLoading(false);
-      });
-
-      return () => {
-        unsubFeed();
-        unsubMed();
-      };
-    }, () => {
+    // 3. Fetch all medicineStock reactively
+    const unsubMed = onSnapshot(collection(db, 'medicineStock'), (medSnap) => {
+      const allMed = medSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as any);
+      setMedicineStocks(allMed);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching medicine stock:", error);
       setLoading(false);
     });
 
-    return () => unsubFarmers();
+    return () => {
+      unsubFarmers();
+      unsubFeed();
+      unsubMed();
+    };
   }, [user]);
 
   const getFarmerName = (id: string) => {
     return farmers.find(f => f.id === id)?.name || id || 'Team Farmer';
   };
 
-  const filteredFeed = feedStocks.filter(fs => {
+  const farmerIds = farmers.map(f => f.id);
+
+  const assignedFeed = feedStocks.filter(fs => farmerIds.includes(fs.userId));
+  const assignedMed = medicineStocks.filter(ms => farmerIds.includes(ms.userId));
+
+  const filteredFeed = assignedFeed.filter(fs => {
     const fn = getFarmerName(fs.userId).toLowerCase();
     const type = (fs.type || '').toLowerCase();
     return fn.includes(searchTerm.toLowerCase()) || type.includes(searchTerm.toLowerCase());
   });
 
-  const filteredMed = medicineStocks.filter(ms => {
+  const filteredMed = assignedMed.filter(ms => {
     const fn = getFarmerName(ms.userId).toLowerCase();
     const name = (ms.name || '').toLowerCase();
     return fn.includes(searchTerm.toLowerCase()) || name.includes(searchTerm.toLowerCase());
@@ -106,7 +111,7 @@ const ManagerInventory: React.FC = () => {
             <div>
               <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest leading-none">Aggregate Feed Bags</p>
               <h3 className="text-2xl font-black text-slate-800 mt-2">
-                {feedStocks.reduce((sum, curr) => sum + (Number(curr.quantity) || 0), 0)} Bags
+                {assignedFeed.reduce((sum, curr) => sum + (Number(curr.quantity) || 0), 0)} Bags
               </h3>
             </div>
           </CardContent>
@@ -137,6 +142,18 @@ const ManagerInventory: React.FC = () => {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Search Input Filter option */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+        <Input
+          type="text"
+          placeholder="Search by farmer name, feed category, active medicine item name..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="pl-11 pr-4 py-6 bg-white border-2 border-slate-100 rounded-2xl text-xs font-black text-slate-850 focus:border-[#4E46E5] focus:ring-0 placeholder:text-slate-400 placeholder:font-bold transition-all shadow-sm"
+        />
       </div>
 
       {/* Tables layouts */}

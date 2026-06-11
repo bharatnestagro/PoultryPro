@@ -12,6 +12,7 @@ import AdminPanel from './pages/AdminPanel';
 import AdminLayout from './components/AdminLayout';
 import AdminLearningVideos from './pages/AdminLearningVideos';
 import AdminFarmers from './pages/AdminFarmers';
+import FarmerDetails from './pages/FarmerDetails';
 import AdminFlocks from './pages/AdminFlocks';
 import AdminHealth from './pages/AdminHealth';
 import AdminLogs from './pages/AdminLogs';
@@ -76,6 +77,7 @@ export default function App() {
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<AdminPanel />} />
             <Route path="farmers" element={<AdminFarmers />} />
+            <Route path="farmers/:id" element={<FarmerDetails />} />
             <Route path="flocks" element={<AdminFlocks />} />
             <Route path="health" element={<AdminHealth />} />
             <Route path="logs" element={<AdminLogs />} />
@@ -107,6 +109,7 @@ export default function App() {
           <Route path="/manager" element={<ManagerLayout />}>
             <Route index element={<ManagerDashboard />} />
             <Route path="farmers" element={<AdminFarmers />} />
+            <Route path="farmers/:id" element={<FarmerDetails />} />
             <Route path="logs" element={<AdminLogs />} />
             <Route path="operations" element={<AdminOperations />} />
             <Route path="orders" element={<AdminOrders />} />

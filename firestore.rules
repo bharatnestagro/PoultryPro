@@ -279,6 +279,15 @@ service cloud.firestore {
       allow delete: if isAdmin() || isManager();
     }
 
+    // 8b. Clinical Alerts Collection
+    match /alerts/{alertId} {
+      allow read: if isAdmin() || isManager() || (isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.userId == 'All'));
+      allow list: if isAdmin() || isManager() || isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isManager() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || isManager();
+    }
+
     // 9. License Keys
     match /licenseKeys/{keyId} {
       allow read: if isSignedIn();

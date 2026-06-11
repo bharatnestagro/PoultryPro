@@ -632,6 +632,10 @@
       "schema": "SystemAlert",
       "description": "Smart alerts for farmers"
     },
+    "/alerts/{alertId}": {
+      "schema": "SystemAlert",
+      "description": "Clinical and diagnostic alerts"
+    },
     "/challengePlans/{planId}": {
       "schema": "ChallengePlan",
       "description": "Admin defined challenge plans"

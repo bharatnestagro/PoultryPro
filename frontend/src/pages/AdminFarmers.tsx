@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, setDoc, addDoc, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import { initializeApp, getApps, getApp, deleteApp } from 'firebase/app';
@@ -50,7 +50,14 @@ import {
   TrendingUp,
   ArrowUpRight,
   ArrowDownRight,
-  Bird
+  Bird,
+  Clock,
+  Heart,
+  ShieldCheck,
+  Pill,
+  CheckCircle2,
+  XCircle,
+  TrendingDown
 } from 'lucide-react';
 import { 
   DropdownMenu, 
@@ -64,6 +71,8 @@ import { format } from 'date-fns';
 
 const AdminFarmers: React.FC = () => {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { user, isAdmin, isManager } = useAuth();
   const [farmers, setFarmers] = useState<any[]>([]);
   const [managers, setManagers] = useState<any[]>([]);
@@ -87,6 +96,7 @@ const AdminFarmers: React.FC = () => {
   const [selectedFarmerStock, setSelectedFarmerStock] = useState<{ feed: any[], medicine: any[] }>({ feed: [], medicine: [] });
   const [selectedFarmerTransactions, setSelectedFarmerTransactions] = useState<any[]>([]);
   const [expandedFlockId, setExpandedFlockId] = useState<string | null>(null);
+  const [selectedFlockId, setSelectedFlockId] = useState<string | null>(null);
   const [logFilter, setLogFilter] = useState<string | null>(null);
   const [isAddingFarmer, setIsAddingFarmer] = useState(false);
   const [isEditingDetails, setIsEditingDetails] = useState(false);
@@ -204,8 +214,10 @@ const AdminFarmers: React.FC = () => {
     if (!selectedFarmerId) {
       setSelectedFarmerFlocks([]);
       setSelectedFarmerLogs([]);
+      setSelectedFlockId(null);
       return;
     }
+    setSelectedFlockId(null);
 
     // Fetch flocks for selected farmer
     const qFlocks = query(collection(db, 'flocks'));
@@ -650,8 +662,11 @@ const AdminFarmers: React.FC = () => {
               filteredFarmers.map((farmer) => (
                 <TableRow 
                   key={farmer.id} 
-                  className={`group border-slate-50 cursor-pointer transition-colors ${selectedFarmerId === farmer.id ? 'bg-emerald-50/50' : 'hover:bg-slate-50/50'}`}
-                  onClick={() => setSelectedFarmerId(selectedFarmerId === farmer.id ? null : farmer.id)}
+                  className="group border-slate-50 cursor-pointer transition-colors hover:bg-slate-50/50"
+                  onClick={() => {
+                    const pathPrefix = location.pathname.startsWith('/manager') ? '/manager' : '/admin';
+                    navigate(`${pathPrefix}/farmers/${farmer.id}`);
+                  }}
                 >
                   <TableCell className="px-8 py-6">
                     <div className="flex items-center gap-4">
@@ -815,120 +830,429 @@ const AdminFarmers: React.FC = () => {
           </div>
 
           {activeTab === 'overview' ? (
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-              {/* Profile Card */}
-              <Card className="lg:col-span-1 border-none shadow-sm bg-white rounded-[2rem] p-8 space-y-6">
-                <div className="flex flex-col items-center text-center space-y-4">
-                  <div className="w-24 h-24 rounded-[2.5rem] bg-slate-50 flex items-center justify-center text-slate-300 border border-slate-100 italic font-black text-2xl uppercase">
-                    {selectedFarmer.name?.substring(0, 2)}
+            <div className="space-y-10 animate-in fade-in duration-500">
+              
+              {/* Upper 2 Columns Grid: Left & Right components */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                
+                {/* Left Side Col - Profile Info & Demographics (lg:col-span-5) */}
+                <Card className="lg:col-span-5 border-none shadow-md bg-white rounded-[2.5rem] p-8 space-y-8 border border-slate-100 relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                  
+                  <div className="flex items-center gap-5 pb-6 border-b border-slate-100">
+                    <div className="w-20 h-20 rounded-[2rem] bg-emerald-50 flex items-center justify-center text-emerald-700 font-black text-2xl border border-emerald-100/30 shadow-inner">
+                      {selectedFarmer.name ? selectedFarmer.name.split(' ').map((n: any) => n[0]).join('') : '??'}
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Farmer Profile</p>
+                      <h3 className="text-2xl font-black text-slate-900 tracking-tight leading-none text-left">{selectedFarmer.name || 'Anonymous Farmer'}</h3>
+                      <p className="text-xs font-mono font-bold text-slate-500 text-left">{selectedFarmer.farmName || 'Unregistered Farm Name'}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-slate-900">{selectedFarmer.name}</h3>
-                    <p className="text-sm font-medium text-slate-500">{selectedFarmer.email}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2 justify-center">
-                    <Badge className="bg-emerald-50 text-emerald-600 border-none font-bold uppercase text-[10px] px-3 py-1">
-                      {selectedFarmer.status || 'Active'}
-                    </Badge>
-                    <Badge className="bg-slate-50 text-slate-500 border-none font-bold uppercase text-[10px] px-3 py-1">
-                      {selectedFarmer.farmType || 'Standard'}
-                    </Badge>
-                  </div>
-                </div>
 
-                <div className="space-y-4 pt-6 border-t border-slate-50">
-                   <div className="flex items-center gap-3 text-slate-600">
-                      <Phone size={16} className="text-slate-400" />
-                      <span className="text-xs font-bold">{selectedFarmer.phone || 'No phone added'}</span>
-                   </div>
-                   <div className="flex items-center gap-3 text-slate-600">
-                      <MapPin size={16} className="text-slate-400" />
-                      <span className="text-xs font-bold">{selectedFarmer.farmArea || '0'} Acres Farm</span>
-                   </div>
-                   <div className="flex items-center gap-3 text-slate-600">
-                      <Bird size={16} className="text-slate-400" />
-                      <span className="text-xs font-bold">{selectedFarmer.birdCapacity || '0'} Total Capacity</span>
-                   </div>
-                </div>
-              </Card>
-
-              {/* Performance Stats Row */}
-              <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 auto-rows-min">
-                <Card className="border-none shadow-sm bg-white rounded-[2rem] p-6 flex flex-col justify-between">
-                   <div className="flex justify-between items-start">
-                      <div className="bg-indigo-50 p-2.5 rounded-2xl text-indigo-600">
-                        <Package size={20} />
-                      </div>
-                      <TrendingUp size={16} className="text-emerald-500" />
-                   </div>
-                   <div className="mt-4">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Active Flocks</p>
-                      <h4 className="text-2xl font-black text-slate-900">{selectedFarmerStats.totalFlocks}</h4>
-                      <p className="text-[10px] text-emerald-600 font-bold mt-1 bg-emerald-50 px-2 py-0.5 rounded-md inline-block">Healthy Growth</p>
-                   </div>
-                </Card>
-
-                <Card className="border-none shadow-sm bg-white rounded-[2rem] p-6 flex flex-col justify-between">
-                   <div className="flex justify-between items-start">
-                      <div className="bg-emerald-50 p-2.5 rounded-2xl text-emerald-600">
-                        <Users size={20} />
-                      </div>
-                      <ArrowUpRight size={16} className="text-emerald-500" />
-                   </div>
-                   <div className="mt-4">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Birds</p>
-                      <h4 className="text-2xl font-black text-slate-900">{selectedFarmerStats.totalBirds.toLocaleString()}</h4>
-                      <p className="text-[10px] text-slate-400 font-bold mt-1 flex gap-2">
-                        <span>Max Cap: {selectedFarmer.birdCapacity?.toLocaleString() || 0}</span>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-1.5 p-4 bg-slate-50/50 rounded-2xl border border-slate-100/50 text-left">
+                      <p className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1.5">
+                        <Phone size={11} className="text-emerald-500" /> Contact Number
                       </p>
-                   </div>
+                      <p className="text-sm font-bold text-slate-800">{selectedFarmer.phone || 'No phone added'}</p>
+                    </div>
+
+                    <div className="space-y-1.5 p-4 bg-slate-50/50 rounded-2xl border border-slate-100/50 text-left">
+                      <p className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1.5">
+                        <Mail size={11} className="text-emerald-500" /> Email Address
+                      </p>
+                      <p className="text-sm font-bold text-slate-800 break-all">{selectedFarmer.email || 'No email registered'}</p>
+                    </div>
+
+                    <div className="space-y-1.5 p-4 bg-slate-50/50 rounded-2xl border border-slate-100/50 text-left">
+                      <p className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1.5">
+                        <MapPin size={11} className="text-emerald-500" /> Farm Area Size
+                      </p>
+                      <p className="text-sm font-black text-slate-800">{selectedFarmer.farmArea || '0'} Acres</p>
+                    </div>
+
+                    <div className="space-y-1.5 p-4 bg-slate-50/50 rounded-2xl border border-slate-100/50 text-left">
+                      <p className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1.5">
+                        <Bird size={11} className="text-emerald-500" /> Total Capacity
+                      </p>
+                      <p className="text-sm font-black text-slate-800">{(Number(selectedFarmer.birdCapacity) || 0).toLocaleString()} Birds</p>
+                    </div>
+
+                    <div className="space-y-1.5 p-4 bg-emerald-50/30 rounded-2xl border border-emerald-100/20 text-left">
+                      <p className="text-[10px] uppercase font-black text-emerald-600 tracking-wider flex items-center gap-1.5">
+                        <Activity size={11} className="text-emerald-500" /> Active Batches
+                      </p>
+                      <p className="text-sm font-black text-emerald-800">{selectedFarmerFlocks.filter(f => f.status === 'Active' || !f.status).length} Batches</p>
+                    </div>
+
+                    <div className="space-y-1.5 p-4 bg-slate-100/30 rounded-2xl border border-slate-200/20 text-left">
+                      <p className="text-[10px] uppercase font-black text-slate-500 tracking-wider flex items-center gap-1.5">
+                        <XCircle size={11} className="text-slate-400" /> Inactive Batches
+                      </p>
+                      <p className="text-sm font-black text-slate-600">{selectedFarmerFlocks.filter(f => f.status === 'Inactive' || f.status === 'Closed' || f.status === 'Lifted').length} Batches</p>
+                    </div>
+
+                    <div className="col-span-1 md:col-span-2 space-y-1.5 p-4 bg-indigo-50/30 rounded-2xl border border-indigo-100/20 text-left">
+                      <p className="text-[10px] uppercase font-black text-indigo-600 tracking-wider flex items-center gap-1.5">
+                        <Package size={11} className="text-indigo-500" /> Farm Type Batch
+                      </p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-black text-indigo-900">{selectedFarmer.farmType || 'Broiler Breeding'}</p>
+                        <Badge className="bg-indigo-100 text-indigo-800 hover:bg-indigo-200 border-none rounded-lg text-[9px] font-bold px-2 py-0.5 uppercase tracking-wider">
+                          Standard Quality
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
                 </Card>
 
-                <Card className="border-none shadow-sm bg-white rounded-[2rem] p-6 flex flex-col justify-between">
-                   <div className="flex justify-between items-start">
-                      <div className="bg-orange-50 p-2.5 rounded-2xl text-orange-600">
-                        <CreditCard size={20} />
+                {/* Right Side Col - Active Batch Card, Total Bird Card, Feed Stock Card, Medicine Stock Card (lg:col-span-7) */}
+                <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-6 h-full">
+                  
+                  {/* Active Batch Card */}
+                  <Card className="border-none shadow-md bg-white rounded-[2.5rem] p-6 flex flex-col justify-between border border-slate-100 group relative overflow-hidden transition-all duration-300 hover:shadow-lg text-left">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full -mr-10 -mt-10 blur-xl"></div>
+                    <div className="flex justify-between items-center z-10">
+                      <div className="bg-emerald-50 p-3 rounded-2xl text-emerald-600 shrink-0">
+                        <Activity size={22} className="animate-pulse" />
                       </div>
-                      <ArrowDownRight size={16} className="text-rose-500" />
-                   </div>
-                   <div className="mt-4">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Net Balance</p>
-                      <h4 className="text-2xl font-black text-slate-900">₹{selectedFarmerStats.balance.toLocaleString()}</h4>
-                      <p className="text-[10px] text-slate-400 font-bold mt-1">Updated Just Now</p>
-                   </div>
-                </Card>
+                      <Badge className="bg-emerald-100 text-emerald-800 border-none rounded-lg font-bold uppercase text-[9px] px-2 py-0.5">
+                        In Progress
+                      </Badge>
+                    </div>
+                    <div className="mt-6 z-10">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Batches</p>
+                      <h4 className="text-xl font-black text-slate-900 mt-1 truncate">
+                        {selectedFarmerFlocks.filter(f => f.status === 'Active' || !f.status).map(f => f.name || f.flockName || 'Unnamed Batch').join(', ') || 'No Active Batches'}
+                      </h4>
+                      <p className="text-[10px] text-emerald-600 font-bold mt-2 bg-emerald-50/50 px-2.5 py-1 rounded-xl inline-block">
+                        Healthy Mortality Threshold
+                      </p>
+                    </div>
+                  </Card>
 
-                {/* Sub-Detailed Stats */}
-                <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6">
-                   <Card className="border-none shadow-sm bg-[#122B21] text-white rounded-[2rem] p-8 overflow-hidden relative group">
-                      <div className="relative z-10 flex h-full items-center gap-6">
-                         <div className="w-16 h-16 rounded-[1.5rem] bg-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
-                            <Activity size={32} />
-                         </div>
-                         <div>
-                            <p className="text-[10px] font-black text-emerald-300/60 uppercase tracking-widest mb-1">Batch Compliance</p>
-                            <h4 className="text-3xl font-black">{selectedFarmerStats.compliance}%</h4>
-                            <p className="text-xs text-emerald-200/80 font-medium mt-1">Excellent record keeping status</p>
-                         </div>
+                  {/* Total Bird Card */}
+                  <Card className="border-none shadow-md bg-white rounded-[2.5rem] p-6 flex flex-col justify-between border border-slate-100 group relative overflow-hidden transition-all duration-300 hover:shadow-lg text-left">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full -mr-10 -mt-10 blur-xl"></div>
+                    <div className="flex justify-between items-center z-10">
+                      <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600 shrink-0">
+                        <Bird size={22} />
                       </div>
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-emerald-500/20 transition-all duration-700"></div>
-                   </Card>
+                      <span className="text-[10px] text-slate-400 font-bold">Live Status</span>
+                    </div>
+                    <div className="mt-6 z-10">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Live Birds</p>
+                      <h4 className="text-3xl font-black text-slate-900 mt-1">{selectedFarmerStats.totalBirds.toLocaleString()}</h4>
+                      <p className="text-[10px] text-slate-500 font-medium mt-2">
+                        Max Capacity limit: {Number(selectedFarmer.birdCapacity || 0).toLocaleString()}
+                      </p>
+                    </div>
+                  </Card>
 
-                   <Card className="border-none shadow-sm bg-white rounded-[2rem] p-8 border border-slate-50 flex items-center justify-between group">
-                      <div className="flex items-center gap-6">
-                         <div className="w-16 h-16 rounded-[1.5rem] bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-amber-100 group-hover:text-amber-600 transition-colors">
-                            <Package size={32} />
-                         </div>
-                         <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Feed Stock</p>
-                            <h4 className="text-2xl font-black text-slate-900">{selectedFarmerStats.feedStock.toLocaleString()} KG</h4>
-                            <p className="text-xs text-slate-500 font-medium mt-1">Inventory Value: ₹{selectedFarmerStats.feedValue.toLocaleString()}</p>
-                         </div>
+                  {/* Feed Stock Card */}
+                  <Card className="border-none shadow-md bg-white rounded-[2.5rem] p-6 flex flex-col justify-between border border-slate-100 group relative overflow-hidden transition-all duration-300 hover:shadow-lg text-left">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full -mr-10 -mt-10 blur-xl"></div>
+                    <div className="flex justify-between items-center z-10">
+                      <div className="bg-amber-50 p-3 rounded-2xl text-amber-600 shrink-0">
+                        <Package size={22} />
                       </div>
-                      <Download size={20} className="text-slate-200 group-hover:text-emerald-500 cursor-pointer transition-colors" />
-                   </Card>
+                      <Badge className="bg-amber-50 text-amber-700 border-none rounded-lg font-bold text-[9px] px-2 py-0.5">
+                        Stock
+                      </Badge>
+                    </div>
+                    <div className="mt-6 z-10">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Feed Stock On hand</p>
+                      <h4 className="text-3xl font-black text-slate-900 mt-1">{selectedFarmerStats.feedStock.toLocaleString()} KG</h4>
+                      <p className="text-xs text-slate-500 font-medium mt-2">
+                        Inventory value: <span className="font-bold text-slate-700">₹{selectedFarmerStats.feedValue.toLocaleString()}</span>
+                      </p>
+                    </div>
+                  </Card>
+
+                  {/* Medicine Stock Card */}
+                  <Card className="border-none shadow-md bg-white rounded-[2.5rem] p-6 flex flex-col justify-between border border-slate-100 group relative overflow-hidden transition-all duration-300 hover:shadow-lg text-left">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full -mr-10 -mt-10 blur-xl"></div>
+                    <div className="flex justify-between items-center z-10">
+                      <div className="bg-purple-50 p-3 rounded-2xl text-purple-600 shrink-0">
+                        <Pill size={22} />
+                      </div>
+                      <span className="text-[10px] text-violet-500 font-bold uppercase tracking-wider">Pharmacy</span>
+                    </div>
+                    <div className="mt-6 z-10">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Medicine & Vaccine Stock</p>
+                      <h4 className="text-3xl font-black text-slate-900 mt-1">
+                        {selectedFarmerStock.medicine.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0).toLocaleString()} Items
+                      </h4>
+                      <p className="text-[10px] text-slate-500 font-bold mt-2">
+                        {selectedFarmerStock.medicine.length} medical items cataloged
+                      </p>
+                    </div>
+                  </Card>
+
                 </div>
               </div>
+
+              {/* Middle Side - Show Batches List (Full Width) */}
+              <Card className="border-none shadow-md bg-white rounded-[2.5rem] p-8 border border-slate-100 text-left">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                  <div>
+                    <h4 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                      <ClipboardList className="text-emerald-500" size={20} />
+                      Farmer Batches & Flocks
+                    </h4>
+                    <p className="text-xs text-slate-400 font-medium mt-0.5">
+                      Select a batch card below to load comprehensive historic daily logs, medication, and compliance audits
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 px-4 py-1.5 rounded-xl border border-slate-100 text-xs font-bold text-slate-600">
+                    Total {selectedFarmerFlocks.length} batches
+                  </div>
+                </div>
+
+                {selectedFarmerFlocks.length === 0 ? (
+                  <div className="text-center py-16 bg-slate-50 rounded-[2rem] border border-dashed border-slate-200">
+                    <Package size={48} className="mx-auto text-slate-300 mb-3" />
+                    <p className="font-bold text-slate-600 text-sm">No batches managed for this farmer yet</p>
+                    <p className="text-xs text-slate-400 mt-1">Onboard batches under manager console or farm registration</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+                    {selectedFarmerFlocks.map((flock) => {
+                      const isActive = flock.status === 'Active' || !flock.status;
+                      const isSelected = flock.id === (selectedFlockId || selectedFarmerFlocks[0]?.id);
+                      
+                      return (
+                        <div
+                          key={flock.id}
+                          onClick={() => setSelectedFlockId(flock.id)}
+                          className={`relative cursor-pointer select-none rounded-[2rem] p-6 transition-all duration-300 border-2 text-left ${
+                            isSelected 
+                              ? 'bg-gradient-to-br from-emerald-50/40 to-emerald-50/20 border-emerald-500 shadow-lg shadow-emerald-50/50' 
+                              : 'bg-white hover:bg-slate-50/50 border-slate-100 hover:border-slate-200 shadow-sm'
+                          }`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <Badge className={`${
+                              isActive ? 'bg-emerald-500 text-white animate-pulse' : 'bg-slate-300 text-slate-705'
+                            } border-none font-black text-[9px] rounded-lg tracking-wider px-2 py-0.5 uppercase`}>
+                              {isActive ? 'Active' : 'Closed'}
+                            </Badge>
+                            {isSelected && (
+                              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm"></div>
+                            )}
+                          </div>
+
+                          <h5 className="font-black text-slate-900 mt-4 text-base tracking-tight leading-tight">
+                            {flock.name || flock.flockName || 'Unnamed Batch'}
+                          </h5>
+                          
+                          <div className="mt-4 space-y-2 text-xs font-medium text-slate-500">
+                            <div className="flex justify-between">
+                              <span>Initial Birds:</span>
+                              <span className="font-bold text-slate-800">{(flock.initialCount || 0).toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Chicks Cost:</span>
+                              <span className="font-bold text-slate-800">₹{(flock.chicksCost || 0).toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Breed:</span>
+                              <span className="font-bold text-slate-800">{flock.breed || 'Cobb 500'}</span>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-400">
+                            <span>Placed</span>
+                            <span className="font-mono text-slate-700">
+                              {flock.placementDate ? format(new Date(flock.placementDate), 'MMM dd, yyyy') : 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+
+              {/* Bottom Side - Selected Batch Full Details and Logs */}
+              {(() => {
+                const currentFlockId = selectedFlockId || selectedFarmerFlocks[0]?.id || null;
+                const selectedFlock = selectedFarmerFlocks.find(f => f.id === currentFlockId);
+                const selectedFlockLogs = selectedFarmerLogs.filter(log => log.flockId === currentFlockId);
+                
+                if (!selectedFlock) return null;
+
+                return (
+                  <Card className="border-none shadow-md bg-white rounded-[2.5rem] p-8 border border-slate-100 space-y-8 animate-in fade-in duration-300 text-left">
+                    
+                    {/* Header with selected Flock stats */}
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-slate-100">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-2xl font-black text-slate-900 tracking-tight">
+                            {selectedFlock.name || selectedFlock.flockName || 'Selected Batch'} Details
+                          </h4>
+                          <Badge className="bg-indigo-50 text-indigo-750 font-bold border-none uppercase text-[9px] tracking-widest px-2.5 py-0.5">
+                            Batch Records
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-slate-400 font-medium mt-1">
+                          Consolidated daily entries, mortality records, feeding logs, and health check-ins for {selectedFlock.name || 'this flock'}
+                        </p>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-3">
+                        <Button 
+                          onClick={handleDownloadLogs}
+                          variant="outline" 
+                          size="sm" 
+                          className="rounded-xl border-slate-200 font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2 h-10 px-4"
+                        >
+                          <Download size={15} />
+                          Export CSV
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Dynamic Batch Statistics Grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                      
+                      <div className="p-5 bg-slate-50/50 rounded-2xl border border-slate-100/60 text-left">
+                        <p className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Chicks Placed</p>
+                        <h6 className="text-lg font-black text-slate-800 mt-1">{(selectedFlock.initialCount || 0).toLocaleString()}</h6>
+                        <p className="text-[10px] text-slate-500 font-mono mt-1">Placed Live</p>
+                      </div>
+
+                      <div className="p-5 bg-slate-50/50 rounded-2xl border border-slate-100/60 text-left">
+                        <p className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Current LiveCount</p>
+                        <h6 className="text-lg font-black text-slate-800 mt-1">
+                          {selectedFlock.currentCount !== undefined ? selectedFlock.currentCount.toLocaleString() : (selectedFlock.initialCount || 0).toLocaleString()}
+                        </h6>
+                        <p className="text-[10px] text-emerald-600 font-bold mt-1">In Shed</p>
+                      </div>
+
+                      <div className="p-5 bg-slate-50/50 rounded-2xl border border-slate-100/60 text-left">
+                        <p className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Total Mortality</p>
+                        <h6 className="text-lg font-black text-rose-600 mt-1">
+                          {(() => {
+                            const totalChicks = Number(selectedFlock.initialCount) || 0;
+                            const currentLive = Number(selectedFlock.currentCount) || totalChicks;
+                            const mortCount = Math.max(0, totalChicks - currentLive);
+                            const mortPct = totalChicks > 0 ? ((mortCount / totalChicks) * 100).toFixed(1) : '0';
+                            return `${mortCount} (${mortPct}%)`;
+                          })()}
+                        </h6>
+                        <p className="text-[10px] text-slate-400 font-medium mt-1">Total Deaths</p>
+                      </div>
+
+                      <div className="p-5 bg-slate-50/50 rounded-2xl border border-slate-100/60 text-left">
+                        <p className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Current Age</p>
+                        <h6 className="text-lg font-black text-indigo-700 mt-1">
+                          {(() => {
+                            if (!selectedFlock.placementDate) return 'N/A';
+                            const pDate = new Date(selectedFlock.placementDate);
+                            const diff = new Date().getTime() - pDate.getTime();
+                            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                            return days > 0 ? `${days} Days` : '1 Day (Placed)';
+                          })()}
+                        </h6>
+                        <p className="text-[10px] text-slate-400 font-medium mt-1">Growth progression</p>
+                      </div>
+
+                      <div className="p-5 col-span-2 md:col-span-1 bg-[#122B21] text-white rounded-2xl text-left">
+                        <p className="text-[10px] uppercase font-black text-emerald-300 tracking-wider">Breed Hatchery</p>
+                        <h6 className="text-sm font-black text-white mt-1.5 truncate">{selectedFlock.breed || 'Cobb 500 Breed'}</h6>
+                        <p className="text-[9px] text-emerald-100/70 font-medium mt-1.5">Elite Performance</p>
+                      </div>
+
+                    </div>
+
+                    {/* Batch Daily Logs Spreadsheet */}
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <h5 className="font-bold text-slate-800 tracking-tight text-sm uppercase">Batch Daily Intake & Health Logs</h5>
+                        <Badge className="bg-slate-100 text-slate-600 border-none rounded-lg text-[10px] font-bold">
+                          {selectedFlockLogs.length} Entries Available
+                        </Badge>
+                      </div>
+
+                      {selectedFlockLogs.length === 0 ? (
+                        <div className="text-center py-12 px-4 bg-slate-50/50 rounded-2xl border border-dashed border-slate-100">
+                          <Package size={32} className="mx-auto text-slate-200 mb-2" />
+                          <p className="font-bold text-slate-400 text-xs italic">No daily logs reported for this batch yet</p>
+                          <p className="text-[10px] text-slate-400 mt-1">Once the farmer enters log records, they will reflect here instantly.</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto rounded-2xl border border-slate-100">
+                          <Table>
+                            <TableHeader className="bg-slate-50">
+                              <TableRow>
+                                <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-wider py-4 pl-6 text-left">Date</TableHead>
+                                <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-wider py-4 text-left">Age</TableHead>
+                                <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-wider py-4 text-left">Mortality</TableHead>
+                                <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-wider py-4 text-left">Feed Intake (KG)</TableHead>
+                                <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-wider py-4 text-left">Feed Type</TableHead>
+                                <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-wider py-4 text-left">Water Intake (L)</TableHead>
+                                <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-wider py-4 text-left">Avg Weight (G)</TableHead>
+                                <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-wider py-4 text-left">Medicine</TableHead>
+                                <TableHead className="text-[10px] font-bold text-slate-400 uppercase tracking-wider py-4 text-right pr-6">Notes</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {selectedFlockLogs.map((log) => (
+                                <TableRow key={log.id} className="hover:bg-slate-50/40 border-stone-100">
+                                  <TableCell className="font-mono text-slate-700 font-bold text-xs py-4 pl-6 text-left">
+                                    {log.date ? format(new Date(log.date), 'yyyy-MM-dd') : 'N/A'}
+                                  </TableCell>
+                                  <TableCell className="font-bold text-slate-800 text-xs text-left">
+                                    {log.age !== undefined ? `${log.age} Days` : 'N/A'}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-left">
+                                    {log.health?.mortality > 0 ? (
+                                      <span className="font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md">
+                                        +{log.health.mortality} birds
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-400 font-medium">0</span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="font-bold text-slate-700 text-xs text-left">
+                                    {log.consumption?.feedIntake ? `${log.consumption.feedIntake} KG` : 'N/A'}
+                                  </TableCell>
+                                  <TableCell className="text-xs font-mono font-medium text-slate-500 text-left">
+                                    {log.consumption?.feedType || 'N/A'}
+                                  </TableCell>
+                                  <TableCell className="text-xs font-medium text-slate-600 text-left">
+                                    {log.consumption?.waterIntake ? `${log.consumption.waterIntake} L` : 'N/A'}
+                                  </TableCell>
+                                  <TableCell className="font-bold text-indigo-700 text-xs text-left">
+                                    {log.production?.avgWeight ? `${log.production.avgWeight}g` : 'N/A'}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-left">
+                                    {log.health?.medicines && log.health.medicines !== 'none' && log.health.medicines !== 'None' ? (
+                                      <Badge className="bg-indigo-50 text-indigo-700 border-none rounded-lg text-[9px] font-bold">
+                                        {log.health.medicines}
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-slate-400">-</span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-slate-500 max-w-[180px] truncate text-right pr-6" title={log.notes}>
+                                    {log.notes || '-'}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </div>
+
+                  </Card>
+                );
+              })()}
+
             </div>
           ) : (
             <div className="space-y-8">

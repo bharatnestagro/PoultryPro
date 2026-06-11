@@ -641,6 +641,9 @@ const AddData: React.FC = () => {
   });
   const [sellMode, setSellMode] = useState<'batch' | 'egg'>('batch');
   const [stockMode, setStockMode] = useState<'feed' | 'medicine'>('feed');
+  const [isCustomFeedType, setIsCustomFeedType] = useState(false);
+  const [customFeedTypeName, setCustomFeedTypeName] = useState('');
+  const [selectedFeedStockId, setSelectedFeedStockId] = useState<string>('');
   const [contactData, setContactData] = useState({
     name: '',
     phone: '',
@@ -746,6 +749,25 @@ const AddData: React.FC = () => {
       }));
     }
   }, [selectedFlockId, dailyLog.health.mortality, dailyLog.health.culling, flocks]);
+
+  useEffect(() => {
+    const fType = dailyLog.consumption.feedType;
+    if (fType) {
+      const matching = feedStock.filter(s => s.type === fType);
+      if (matching.length === 1) {
+        setSelectedFeedStockId(matching[0].id);
+      } else if (matching.length > 1) {
+        const isStillValid = matching.some(m => m.id === selectedFeedStockId);
+        if (!isStillValid) {
+          setSelectedFeedStockId('');
+        }
+      } else {
+        setSelectedFeedStockId('');
+      }
+    } else {
+      setSelectedFeedStockId('');
+    }
+  }, [dailyLog.consumption.feedType, feedStock]);
 
   useEffect(() => {
     if (!user) return;
@@ -1015,15 +1037,27 @@ const AddData: React.FC = () => {
 
       // 2. Revert Feed Stock
       const feedIntake = Number(logData.consumption?.feedIntake) || 0;
+      const feedStockId = logData.consumption?.feedStockId;
       const feedType = logData.consumption?.feedType;
-      if (feedIntake > 0 && feedType) {
-        const q = query(collection(db, 'feedStock'), where('userId', '==', user?.uid), where('type', '==', feedType));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          const stockDoc = snap.docs[0];
-          await updateDoc(doc(db, 'feedStock', stockDoc.id), {
-            quantity: (Number(stockDoc.data().quantity) || 0) + feedIntake
-          });
+      if (feedIntake > 0) {
+        let stockDocRef = null;
+        if (feedStockId) {
+          stockDocRef = doc(db, 'feedStock', feedStockId);
+        } else if (feedType) {
+          const q = query(collection(db, 'feedStock'), where('userId', '==', user?.uid), where('type', '==', feedType));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            stockDocRef = doc(db, 'feedStock', snap.docs[0].id);
+          }
+        }
+        if (stockDocRef) {
+          const stockDocSnap = await getDoc(stockDocRef);
+          if (stockDocSnap.exists()) {
+            const stockData = stockDocSnap.data() as any;
+            await updateDoc(stockDocRef, {
+              quantity: (Number(stockData?.quantity) || 0) + feedIntake
+            });
+          }
         }
       }
 
@@ -1134,15 +1168,27 @@ const AddData: React.FC = () => {
       // Feed
       const oldFeed = Number(originalLog.consumption?.feedIntake) || 0;
       const newFeed = updatedLog.consumption?.feedIntake || 0;
-      const feedType = originalLog.consumption?.feedType; // Assume type doesn't change for simple edit
-      if (oldFeed !== newFeed && feedType) {
-        const q = query(collection(db, 'feedStock'), where('userId', '==', user.uid), where('type', '==', feedType));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          const stockDoc = snap.docs[0];
-          await updateDoc(doc(db, 'feedStock', stockDoc.id), {
-            quantity: (Number(stockDoc.data().quantity) || 0) + (oldFeed - newFeed)
-          });
+      const feedStockId = originalLog.consumption?.feedStockId;
+      const feedType = originalLog.consumption?.feedType;
+      if (oldFeed !== newFeed) {
+        let stockDocRef = null;
+        if (feedStockId) {
+          stockDocRef = doc(db, 'feedStock', feedStockId);
+        } else if (feedType) {
+          const q = query(collection(db, 'feedStock'), where('userId', '==', user.uid), where('type', '==', feedType));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            stockDocRef = doc(db, 'feedStock', snap.docs[0].id);
+          }
+        }
+        if (stockDocRef) {
+          const stockDocSnap = await getDoc(stockDocRef);
+          if (stockDocSnap.exists()) {
+            const stockData = stockDocSnap.data() as any;
+            await updateDoc(stockDocRef, {
+              quantity: (Number(stockData?.quantity) || 0) + (oldFeed - newFeed)
+            });
+          }
         }
       }
 
@@ -1314,9 +1360,18 @@ const AddData: React.FC = () => {
       const date = new Date().toISOString();
       const unitPrice = feedQty > 0 ? (cost / feedQty) : 0;
 
+      // Determine final feed type
+      const finalFeedType = isCustomFeedType ? customFeedTypeName.trim() : newFeed.type;
+      if (!finalFeedType) {
+        toast.error('Please specify a feed type');
+        setLoading(false);
+        return;
+      }
+
       // 1. Add to Feed Stock
       await addDoc(collection(db, 'feedStock'), {
         ...newFeed,
+        type: finalFeedType,
         userId: user.uid,
         quantity: feedQty, // This will act as remaining quantity
         initialQuantity: feedQty, // Persistent original quantity
@@ -1332,7 +1387,7 @@ const AddData: React.FC = () => {
           type: 'Expense',
           category: 'Feed',
           amount: cost,
-          description: `Purchase of ${feedQty}kg ${newFeed.name} (${newFeed.type})`,
+          description: `Purchase of ${feedQty}kg ${newFeed.name} (${finalFeedType})`,
           date: format(new Date(), 'yyyy-MM-dd'),
           createdAt: date,
         });
@@ -1342,6 +1397,8 @@ const AddData: React.FC = () => {
       }
 
       setNewFeed({ name: '', type: 'Starter', quantity: '', purchaseCost: '' });
+      setIsCustomFeedType(false);
+      setCustomFeedTypeName('');
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'feedStock');
       toast.error('Failed to add feed');
@@ -1496,10 +1553,20 @@ const AddData: React.FC = () => {
 
       // --- Stock Validation ---
       if (todayFeed > 0) {
-        const stockItem = feedStock.find(s => s.type === feedType);
+        const matching = feedStock.filter(s => s.type === feedType);
+        if (matching.length > 1 && !selectedFeedStockId) {
+          toast.error(`Please select which specific ${feedType} feed to consume from the stock`);
+          setLoading(false);
+          return;
+        }
+
+        const stockItem = selectedFeedStockId 
+          ? feedStock.find(s => s.id === selectedFeedStockId) 
+          : feedStock.find(s => s.type === feedType);
+
         const available = Number(stockItem?.quantity) || 0;
         if (!stockItem || available < todayFeed) {
-          toast.error(`Insufficient ${feedType} feed in stock. Available: ${available}kg`);
+          toast.error(`Insufficient ${stockItem ? stockItem.name : feedType} feed in stock. Available: ${available}kg`);
           setLoading(false);
           return;
         }
@@ -1571,6 +1638,10 @@ const AddData: React.FC = () => {
           feedIntake: todayFeed,
           waterIntake: Number(dailyLog.consumption.waterIntake) || 0,
           fcr: calculatedFCR || Number(dailyLog.consumption.fcr) || 0,
+          feedStockId: selectedFeedStockId || null,
+          feedName: selectedFeedStockId 
+            ? feedStock.find(s => s.id === selectedFeedStockId)?.name || null
+            : null,
         },
         production: {
           ...dailyLog.production,
@@ -1600,7 +1671,9 @@ const AddData: React.FC = () => {
         
         // 3. Subtract Stock
         if (todayFeed > 0) {
-          const stockItem = feedStock.find(s => s.type === feedType);
+          const stockItem = selectedFeedStockId 
+            ? feedStock.find(s => s.id === selectedFeedStockId) 
+            : feedStock.find(s => s.type === feedType);
           if (stockItem) {
             await updateDoc(doc(db, 'feedStock', stockItem.id), {
               quantity: (Number(stockItem.quantity) || 0) - todayFeed
@@ -2338,7 +2411,14 @@ const AddData: React.FC = () => {
                                         <SelectValue placeholder="Select feed type" />
                                       </SelectTrigger>
                                       <SelectContent>
-                                        {['Pre-Starter', 'Starter', 'Finisher', 'Layer', 'Counter'].map(type => (
+                                        {Array.from(new Set([
+                                          ...feedStock.map(s => s.type),
+                                          'Pre-Starter',
+                                          'Starter',
+                                          'Grower',
+                                          'Finisher',
+                                          'Layer Mash'
+                                        ])).filter(Boolean).map(type => (
                                           <SelectItem key={type} value={type}>{type}</SelectItem>
                                         ))}
                                       </SelectContent>
@@ -2347,11 +2427,43 @@ const AddData: React.FC = () => {
                                   <div className="w-32 flex flex-col justify-center px-3 bg-slate-50 rounded-xl border border-slate-100">
                                     <span className="text-[10px] text-slate-500 uppercase font-bold">Available</span>
                                     <span className="text-sm font-bold text-emerald-600">
-                                      {feedStock.find(s => s.type === dailyLog.consumption.feedType)?.quantity || 0} kg
+                                      {(() => {
+                                        const matchingStock = feedStock.filter(s => s.type === dailyLog.consumption.feedType);
+                                        if (selectedFeedStockId) {
+                                          return (feedStock.find(s => s.id === selectedFeedStockId)?.quantity || 0) + ' kg';
+                                        }
+                                        const totalQty = matchingStock.reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+                                        return totalQty + ' kg';
+                                      })()}
                                     </span>
                                   </div>
                                 </div>
                               </div>
+                              {(() => {
+                                const matchingFeeds = feedStock.filter(s => s.type === dailyLog.consumption.feedType);
+                                return matchingFeeds.length > 1 ? (
+                                  <div className="space-y-2 col-span-1 md:col-span-2 mt-2 animate-in fade-in duration-200">
+                                    <Label htmlFor="specificFeedStockId" className="text-amber-700 font-bold flex items-center gap-1.5">
+                                      <Utensils size={14} /> Multiple brands found for {dailyLog.consumption.feedType}. Please select which one:
+                                    </Label>
+                                    <Select 
+                                      value={selectedFeedStockId} 
+                                      onValueChange={v => setSelectedFeedStockId(v)}
+                                    >
+                                      <SelectTrigger className="rounded-xl border-amber-200 bg-amber-50/50">
+                                        <SelectValue placeholder="Select specific feed brand" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {matchingFeeds.map(feed => (
+                                          <SelectItem key={feed.id} value={feed.id}>
+                                            {feed.name} ({feed.quantity} kg available)
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                ) : null;
+                              })()}
                             </div>
                           </div>
                         )}
@@ -5002,7 +5114,13 @@ const AddData: React.FC = () => {
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="feedType">Feed Type</Label>
-                          <Select value={newFeed.type} onValueChange={v => setNewFeed({...newFeed, type: v})}>
+                          <Select 
+                            value={newFeed.type} 
+                            onValueChange={v => {
+                              setNewFeed({...newFeed, type: v});
+                              setIsCustomFeedType(v === 'Custom');
+                            }}
+                          >
                             <SelectTrigger className="rounded-xl">
                               <SelectValue />
                             </SelectTrigger>
@@ -5012,9 +5130,23 @@ const AddData: React.FC = () => {
                               <SelectItem value="Grower">Grower</SelectItem>
                               <SelectItem value="Finisher">Finisher</SelectItem>
                               <SelectItem value="Layer Mash">Layer Mash</SelectItem>
+                              <SelectItem value="Custom">Custom Feed</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
+                        {isCustomFeedType && (
+                          <div className="space-y-2 col-span-1 md:col-span-2 animate-in slide-in-from-top-2 duration-200">
+                            <Label htmlFor="customFeedTypeName">Custom Feed Type Name</Label>
+                            <Input 
+                              id="customFeedTypeName" 
+                              required 
+                              value={customFeedTypeName} 
+                              onChange={e => setCustomFeedTypeName(e.target.value)} 
+                              placeholder="e.g. My Premium Mash" 
+                              className="rounded-xl border-amber-300 focus:border-amber-500" 
+                            />
+                          </div>
+                        )}
                         <div className="space-y-2">
                           <Label htmlFor="feedQty">Quantity (kg)</Label>
                           <Input id="feedQty" type="number" required value={newFeed.quantity} onChange={e => setNewFeed({...newFeed, quantity: e.target.value})} placeholder="0" className="rounded-xl" />
@@ -5694,7 +5826,14 @@ const AddData: React.FC = () => {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {['Pre-Starter', 'Starter', 'Finisher', 'Layer', 'Counter'].map(type => (
+                              {Array.from(new Set([
+                                ...feedStock.map(s => s.type),
+                                'Pre-Starter',
+                                'Starter',
+                                'Grower',
+                                'Finisher',
+                                'Layer Mash'
+                              ])).filter(Boolean).map(type => (
                                 <SelectItem key={type} value={type}>{type}</SelectItem>
                               ))}
                             </SelectContent>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { doc, updateDoc, getDoc, collection, query, where, getDocs, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import { useAuth } from '@/src/lib/AuthContext';
@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { User, LogOut, Save, Building2, MapPin, Maximize2, Users, Trash2, Phone, Edit2, Plus, ShieldCheck, Shield, Key, CreditCard, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ShoppingCart, Bell, MapPinned, Database, Cloud, RefreshCw, FileText, Lock, Wallet, Trophy, Minus, AlertCircle, ShoppingBag } from 'lucide-react';
+import { User, LogOut, Save, Building2, MapPin, Maximize2, Users, Trash2, Phone, Edit2, Plus, ShieldCheck, Shield, Key, CreditCard, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ShoppingCart, Bell, MapPinned, Database, Cloud, RefreshCw, FileText, Lock, Wallet, Trophy, Minus, AlertCircle, ShoppingBag, Coins, CheckCircle2, Upload } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, addDays } from 'date-fns';
@@ -50,7 +50,11 @@ const Profile: React.FC = () => {
   const [showWithdrawDialog, setShowWithdrawDialog] = useState(false);
   const [withdrawType, setWithdrawType] = useState<'main' | 'reward'>('main');
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [activePurchaseTab, setActivePurchaseTab] = useState<'plans'|'challenges'>('plans');
+  const [activePurchaseTab, setActivePurchaseTab] = useState<'plans' | 'challenges' | 'plan_for_you'>('plan_for_you');
+  const [selectedGateway, setSelectedGateway] = useState<'razorpay' | 'cashfree' | 'payu' | 'wallet' | 'upi'>('razorpay');
+  const [upiScreenshot, setUpiScreenshot] = useState<string>('');
+  const [upiTxnId, setUpiTxnId] = useState('');
+  const [isUploadingScreenshot, setIsUploadingScreenshot] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [purchaseSuccess, setPurchaseSuccess] = useState(false);
   const [countdown, setCountdown] = useState(3);
@@ -157,7 +161,33 @@ const Profile: React.FC = () => {
   
   useEffect(() => {
     const action = searchParams.get('action');
-    if (action === 'purchase') {
+    const status = searchParams.get('status');
+    const licensePlanId = searchParams.get('license_plan_id');
+    const orderId = searchParams.get('order_id');
+
+    if (status === 'success' && licensePlanId && orderId) {
+      const fetchAndFinalize = async () => {
+        try {
+          const { getDoc, doc } = await import('firebase/firestore');
+          const planDoc = await getDoc(doc(db, 'licensePlans', licensePlanId));
+          if (planDoc.exists()) {
+            const planData = { id: planDoc.id, ...planDoc.data() };
+            await finalizePurchase(planData, orderId);
+            toast.success("Payment Received! License activated successfully.");
+          } else {
+            toast.error("License plan details not found");
+          }
+        } catch (err: any) {
+          console.error("PayU finalizing error:", err);
+          toast.error("Failed to finalize PayU payment: " + err.message);
+        }
+      };
+      fetchAndFinalize();
+      setSearchParams({}, { replace: true });
+    } else if (status === 'failure') {
+      toast.error("Payment failed or cancelled. Please try again.");
+      setSearchParams({}, { replace: true });
+    } else if (action === 'purchase') {
       setShowPurchaseDialog(true);
       // Clean up the URL
       setSearchParams({}, { replace: true });
@@ -196,12 +226,14 @@ const Profile: React.FC = () => {
       const { writeBatch, Timestamp, doc } = await import('firebase/firestore');
       const batch = writeBatch(db);
       const isChallenge = !!selectedPlan.durationDays && !!selectedPlan.dailyReward;
-      const cost = isChallenge ? (selectedPlan.cost || 0) : (selectedPlan.price || 0);
+      
+      const finalPrice = isChallenge ? (selectedPlan.cost || 0) : (selectedPlan.pricingType === 'per_bird' ? calculatedPrice : (selectedPlan.price || 0));
+      const finalCapacity = isChallenge ? 0 : (selectedPlan.pricingType === 'per_bird' ? farmerCapacity : (selectedPlan.birdCapacity || 5000));
 
       // Handle Wallet Deduction if paid via wallet
       if (transactionId === 'WALLET_PAYMENT') {
         const userRef = doc(db, 'users', profile?.uid);
-        let remainingToDeduct = cost;
+        let remainingToDeduct = finalPrice;
         const currentReward = profile?.rewardBalance || 0;
         const currentMain = profile?.walletBalance || 0;
 
@@ -274,7 +306,8 @@ const Profile: React.FC = () => {
           planId: selectedPlan.id,
           planName: selectedPlan.name,
           validityDays: selectedPlan.days || 365,
-          price: selectedPlan.price,
+          price: finalPrice,
+          birdCapacity: finalCapacity,
           usedBy: profile?.uid,
           usedByEmail: profile?.email,
           activatedAt: Timestamp.now(),
@@ -286,7 +319,7 @@ const Profile: React.FC = () => {
         batch.set(doc(db, 'transactions', transId), {
           id: transId,
           userId: profile?.uid,
-          amount: selectedPlan.price,
+          amount: finalPrice,
           type: 'Expense',
           description: `License Purchase: ${selectedPlan.name}`,
           date: format(new Date(), 'yyyy-MM-dd'),
@@ -296,7 +329,8 @@ const Profile: React.FC = () => {
         batch.update(doc(db, 'users', profile?.uid as string), {
           licenseActive: true,
           licenseKey: newKey,
-          licenseActivatedAt: new Date().toISOString()
+          licenseActivatedAt: new Date().toISOString(),
+          birdCapacity: finalCapacity
         });
 
         toast.success(`License "${selectedPlan.name}" activated!`);
@@ -376,14 +410,34 @@ const Profile: React.FC = () => {
 
   const handlePurchaseKey = async () => {
     if (!profile) return;
-    const selectedPlan = activePurchaseTab === 'plans' ? plans[selectedPlanIndex] : availableChallenges[selectedPlanIndex];
     
     if (!selectedPlan) {
       toast.error('No selection available to purchase');
       return;
     }
 
-    const price = activePurchaseTab === 'plans' ? (selectedPlan.price || 0) : (selectedPlan.cost || 0);
+    const isChallenge = activePurchaseTab === 'challenges' || (!!selectedPlan.durationDays && !!selectedPlan.dailyReward);
+    const price = isChallenge ? (selectedPlan.cost || 0) : calculatedPrice;
+
+    if (!isChallenge) {
+      const finalCapacity = selectedPlan.pricingType === 'per_bird' ? farmerCapacity : (selectedPlan.birdCapacity || 5000);
+      
+      // Enforce appropriate farmer birds capacity
+      if (selectedPlan.pricingType === 'per_bird') {
+        const minCapRequired = selectedPlan.minCapacity || 1000;
+        if (farmerCapacity < minCapRequired) {
+          toast.error(`The minimum capacity for this plan is ${minCapRequired} birds.`);
+          return;
+        }
+      }
+
+      if (selectedPlan?.autoFetchValidate !== false) {
+        if (totalActiveBirds > finalCapacity) {
+          toast.error(`Checkout Blocked: Your actual active flock size (${totalActiveBirds} birds) is higher than the requested license capacity (${finalCapacity} birds). Please select or enter a higher capacity.`);
+          return;
+        }
+      }
+    }
     
     if (price === 0) {
       // Free plan/challenge - bypass payment gateway
@@ -399,12 +453,42 @@ const Profile: React.FC = () => {
       return;
     }
 
-    if (gateways?.cashfree?.enabled && gateways?.cashfree?.appId) {
+    if (selectedGateway === 'wallet') {
+      const walletBalance = profile?.walletBalance || 0;
+      const rewardBalance = profile?.rewardBalance || 0;
+      if (walletBalance + rewardBalance < price) {
+        toast.error('Insufficient wallet or rewards balance to buy this subscription');
+        return;
+      }
+      setIsPurchasing(true);
+      await finalizePurchase(selectedPlan, 'WALLET_PAYMENT');
+      return;
+    }
+
+    if (selectedGateway === 'upi') {
+      if (gateways?.upi?.enabled) {
+        await handleUpiPurchase(selectedPlan);
+      } else {
+        toast.error('UPI Transfer is not currently enabled.');
+      }
+      return;
+    }
+
+    if (selectedGateway === 'cashfree' && gateways?.cashfree?.enabled && gateways?.cashfree?.appId) {
       handleCashfreePurchase(selectedPlan);
-    } else if (gateways?.razorpay?.enabled || hasEnvRazorpay) {
+    } else if (selectedGateway === 'razorpay' && (gateways?.razorpay?.enabled || hasEnvRazorpay)) {
       handleRazorpayPurchase(selectedPlan);
+    } else if (selectedGateway === 'payu' && gateways?.payu?.enabled) {
+      await handlePayUPurchase(selectedPlan);
     } else {
-      toast.error('Online payment is currently unavailable. Contact admin.');
+      // Default fallback
+      if (gateways?.cashfree?.enabled && gateways?.cashfree?.appId) {
+        handleCashfreePurchase(selectedPlan);
+      } else if (gateways?.razorpay?.enabled || hasEnvRazorpay) {
+        handleRazorpayPurchase(selectedPlan);
+      } else {
+        toast.error('Online payment is currently unavailable. Contact admin.');
+      }
     }
   };
 
@@ -428,8 +512,8 @@ const Profile: React.FC = () => {
     setIsPurchasing(true);
     
     try {
-      const price = activePurchaseTab === 'plans' ? selectedPlan.price : selectedPlan.cost;
-      const description = activePurchaseTab === 'plans' ? `License Plan: ${selectedPlan.name}` : `Challenge Entry: ${selectedPlan.title}`;
+      const price = (activePurchaseTab === 'plans' || activePurchaseTab === 'plan_for_you') ? calculatedPrice : selectedPlan.cost;
+      const description = (activePurchaseTab === 'plans' || activePurchaseTab === 'plan_for_you') ? `License Plan: ${selectedPlan.name}` : `Challenge Entry: ${selectedPlan.title}`;
       
       // 1. Create Order on Server
       const orderRes = await fetch("/api/create-order", {
@@ -489,13 +573,15 @@ const Profile: React.FC = () => {
         return;
       }
 
+      const price = (activePurchaseTab === 'plans' || activePurchaseTab === 'plan_for_you') ? calculatedPrice : selectedPlan.cost;
+
       // 1. Create Session
       const response = await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           gateway: "cashfree",
-          amount: selectedPlan.price,
+          amount: price,
           customerId: user?.uid || "guest",
           customerPhone: profile?.phone || "9999999999",
           customerEmail: user?.email || "customer@example.com",
@@ -532,6 +618,119 @@ const Profile: React.FC = () => {
     } catch (err: any) {
       console.error('Cashfree Init Error:', err);
       toast.error(err.message || 'Could not initialize Cashfree');
+      setIsPurchasing(false);
+    }
+  };
+
+  const handlePayUPurchase = async (selectedPlan: any) => {
+    setIsPurchasing(true);
+    try {
+      const price = (activePurchaseTab === 'plans' || activePurchaseTab === 'plan_for_you') ? calculatedPrice : selectedPlan.cost;
+      const response = await fetch("/api/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: price,
+          gateway: "payu",
+          customerEmail: user?.email || "customer@example.com",
+          customerPhone: profile?.phone || "9999999999",
+          orderId: `payu_${Date.now()}`
+        })
+      });
+
+      const data = await safeParseJson(response);
+      if (!response.ok) throw new Error(data.error || "Failed to initialize PayU");
+
+      // PayU requires a form POST redirect
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = data.action;
+
+      const fields = {
+        key: data.merchantKey,
+        txnid: data.txnid,
+        amount: data.amount,
+        productinfo: data.productinfo || `License Plan: ${selectedPlan.name}`,
+        firstname: profile?.name || "Customer",
+        email: data.email,
+        phone: profile?.phone || "9999999999",
+        surl: `${window.location.origin}/profile?status=success&license_plan_id=${selectedPlan.id}&order_id=${data.txnid}`,
+        furl: `${window.location.origin}/profile?status=failure&order_id=${data.txnid}`,
+        hash: data.hash,
+        service_provider: 'payu_paisa'
+      };
+
+      for (const [key, value] of Object.entries(fields)) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = value as string;
+        form.appendChild(input);
+      }
+
+      document.body.appendChild(form);
+      form.submit();
+    } catch (err: any) {
+      console.error('PayU License Init Error:', err);
+      toast.error(err.message || 'Could not initialize PayU');
+      setIsPurchasing(false);
+    }
+  };
+
+  const handleUpiPurchase = async (selectedPlan: any) => {
+    if (!upiTxnId.trim()) {
+      toast.error("Please enter the UPI Transaction Reference ID");
+      return;
+    }
+    if (!upiScreenshot) {
+      toast.error("Please upload the payment screenshot receipt");
+      return;
+    }
+
+    setIsPurchasing(true);
+    try {
+      const transId = Date.now().toString();
+      const { setDoc, doc } = await import('firebase/firestore');
+      
+      const finalPrice = (activePurchaseTab === 'plans' || activePurchaseTab === 'plan_for_you') ? calculatedPrice : (selectedPlan.cost || 0);
+      const finalCapacity = (activePurchaseTab === 'plans' || activePurchaseTab === 'plan_for_you') ? (selectedPlan.pricingType === 'per_bird' ? farmerCapacity : (selectedPlan.birdCapacity || 5000)) : 0;
+
+      await setDoc(doc(db, 'licenseVerifications', transId), {
+        id: transId,
+        userId: profile?.uid,
+        userName: profile?.name || '',
+        userEmail: user?.email || '',
+        amount: finalPrice,
+        birdCapacity: finalCapacity,
+        planId: selectedPlan.id,
+        planName: selectedPlan.name || selectedPlan.title || '',
+        days: selectedPlan.days || 365,
+        transactionId: upiTxnId.trim(),
+        screenshot: upiScreenshot,
+        status: 'Pending',
+        createdAt: new Date().toISOString()
+      });
+
+      // Also save to transactions as verification_pending
+      await setDoc(doc(db, 'transactions', transId), {
+        id: transId,
+        userId: profile?.uid,
+        amount: finalPrice,
+        type: 'Expense',
+        description: `License Purchase Verification Pending (Ref: ${upiTxnId.trim()}): ${selectedPlan.name || selectedPlan.title}`,
+        date: format(new Date(), 'yyyy-MM-dd'),
+        status: 'Pending Verification',
+        createdAt: new Date()
+      });
+
+      toast.success("UPI Verification Request Submitted! Once approved by our team, your License Key will be activated.");
+      setShowPurchaseDialog(false);
+      setUpiScreenshot('');
+      setUpiTxnId('');
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Failed to submit verification: " + err.message);
+    } finally {
       setIsPurchasing(false);
     }
   };
@@ -616,15 +815,103 @@ const Profile: React.FC = () => {
   const [fetchingLicense, setFetchingLicense] = useState(false);
   const [plans, setPlans] = useState<any[]>([]);
 
+  const [totalActiveBirds, setTotalActiveBirds] = useState<number>(0);
+
+  // Dynamic pricing states
+  const [farmerCapacity, setFarmerCapacity] = useState<number>(1000);
+
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'settings', 'licensePlans'), (d) => {
-      if (d.exists() && Array.isArray(d.data().plans)) {
-        setPlans(d.data().plans);
+    if (!profile?.uid) return;
+    const q = query(
+      collection(db, 'flocks'),
+      where('userId', '==', profile.uid),
+      where('status', '==', 'Active')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      let total = 0;
+      snap.forEach((doc) => {
+        const d = doc.data();
+        total += d.currentCount || d.initialCount || 0;
+      });
+      setTotalActiveBirds(total);
+    }, (err) => {
+      console.error("Error watching flocks status:", err);
+    });
+    return () => unsub();
+  }, [profile?.uid]);
+
+  const recommendedPlan = useMemo(() => {
+    if (!plans || plans.length === 0) return null;
+    const capacityNeeded = Math.max(Number(profile?.birdCapacity) || 0, totalActiveBirds, 1000);
+    
+    // Prefer per_bird plans as they auto-fit best
+    const dynamicPlan = plans.find(p => p.pricingType === 'per_bird');
+    if (dynamicPlan) {
+      return dynamicPlan;
+    }
+    // Else, find the flat plan that matches capacity best
+    const eligiblePlans = plans.filter(p => !p.pricingType || p.pricingType === 'flat')
+                                .filter(p => p.birdCapacity >= capacityNeeded)
+                                .sort((a, b) => a.price - b.price);
+    if (eligiblePlans.length > 0) {
+      return eligiblePlans[0];
+    }
+    const sorted = [...plans].sort((a, b) => b.birdCapacity - a.birdCapacity);
+    return sorted[0];
+  }, [plans, profile?.birdCapacity, totalActiveBirds]);
+
+  const selectedPlan = useMemo(() => {
+    if (activePurchaseTab === 'plan_for_you') {
+      return recommendedPlan;
+    }
+    return activePurchaseTab === 'plans' ? plans[selectedPlanIndex] : availableChallenges[selectedPlanIndex];
+  }, [activePurchaseTab, plans, selectedPlanIndex, recommendedPlan, availableChallenges]);
+
+  useEffect(() => {
+    const targetPlan = selectedPlan;
+    if (!targetPlan || activePurchaseTab === 'challenges') return;
+
+    // Auto fetch the Farmer Birds Capacity
+    const farmerRegisteredCap = Number(profile?.birdCapacity) || 1000;
+    
+    if (targetPlan.pricingType === 'per_bird') {
+      // Auto fetch the maximum/appropriate capacity
+      const finalCapacity = Math.max(farmerRegisteredCap, totalActiveBirds, targetPlan.minCapacity || 1000);
+      setFarmerCapacity(finalCapacity);
+    } else {
+      setFarmerCapacity(targetPlan.birdCapacity || 5000);
+    }
+  }, [selectedPlan, activePurchaseTab, profile?.birdCapacity, totalActiveBirds]);
+
+  const calculatedPrice = useMemo(() => {
+    if (activePurchaseTab === 'challenges') {
+      const plan = availableChallenges[selectedPlanIndex];
+      return plan?.cost || 0;
+    }
+    const plan = selectedPlan;
+    if (!plan) return 0;
+    if (plan.pricingType === 'per_bird') {
+      const cap = Number(farmerCapacity) || plan.minCapacity || 1000;
+      const base = plan.price || 0;
+      const rate = plan.pricePerBird || 0;
+      return base + (cap * rate);
+    }
+    return plan.price || 0;
+  }, [activePurchaseTab, selectedPlan, selectedPlanIndex, farmerCapacity, availableChallenges]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'licensePlans'), (snap) => {
+      if (!snap.empty) {
+        setPlans(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       } else {
-        setPlans([]);
+        setPlans([
+          { id: 'starter', name: 'Standard Breeder Key', price: 8500, birdCapacity: 5000, durationMonths: 12, features: 'Core tracking, daily logs, automatic alerts' },
+          { id: 'commercial', name: 'Commercial Hub Key', price: 15000, birdCapacity: 15000, durationMonths: 12, features: 'Enterprise logs, regional manager assignment, priority veterinary advisory' },
+          { id: 'enterprise', name: 'Mega Farms Integration', price: 32000, birdCapacity: 50000, durationMonths: 12, features: 'Custom sub-admins, automated batch integrations, full API ledger output' }
+        ]);
       }
     }, (err) => {
-      handleFirestoreError(err, OperationType.GET, 'settings/licensePlans');
+      handleFirestoreError(err, OperationType.LIST, 'licensePlans');
     });
     return () => unsub();
   }, []);
@@ -771,6 +1058,25 @@ const Profile: React.FC = () => {
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile) return;
+    
+    const newCap = Number(formData.birdCapacity);
+    const oldCap = profile.birdCapacity || 0;
+    
+    if (newCap > oldCap || totalActiveBirds > oldCap) {
+      if (newCap < totalActiveBirds) {
+        toast.error(`Your actual active birds count (${totalActiveBirds}) exceeds your requested capacity (${newCap}). Please purchase a license key top-up to match your flock requirements.`);
+        setActivePurchaseTab('plan_for_you');
+        setShowPurchaseDialog(true);
+        return;
+      }
+      if (newCap > oldCap) {
+        toast.error(`To increase your capacity from ${oldCap} to ${newCap} birds, you must purchase a license key top-up for the required capacity.`);
+        setActivePurchaseTab('plan_for_you');
+        setShowPurchaseDialog(true);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       await updateDoc(doc(db, 'users', profile.uid), {
@@ -819,6 +1125,248 @@ const Profile: React.FC = () => {
     setEditingAddressId(addr.id);
     setAddressFormData({ ...addr });
     setIsAddressModalOpen(true);
+  };
+
+  const renderLicenseCheckout = (plan: any) => {
+    if (!plan) return <div className="text-center py-6 text-slate-400 text-xs uppercase font-bold">No plan configuration available</div>;
+    return (
+      <div className="space-y-6">
+        {/* Farmer select Capacity if per_bird */}
+        {plan.pricingType === 'per_bird' && (
+          <div className="p-4 bg-indigo-50/30 border border-indigo-100 rounded-2xl text-left space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-[10px] font-black tracking-wide uppercase text-indigo-900 font-bold">Configure Farm Capacity</span>
+              <span className="text-xs font-mono font-black text-indigo-705">{farmerCapacity} Birds</span>
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              <input 
+                type="range"
+                min={plan.minCapacity || 1000}
+                max={100000}
+                step={500}
+                value={farmerCapacity}
+                onChange={(e) => setFarmerCapacity(Number(e.target.value))}
+                className="w-full accent-indigo-600 h-2 bg-slate-200 rounded-lg cursor-pointer"
+              />
+              <div className="flex gap-2">
+                <Input 
+                  type="number"
+                  id="farmer-capacity-input"
+                  min={plan.minCapacity || 1000}
+                  value={farmerCapacity}
+                  onChange={(e) => setFarmerCapacity(Math.max(1, Number(e.target.value)))}
+                  className="h-8 text-xs font-mono font-bold rounded-lg"
+                />
+              </div>
+            </div>
+            <p className="text-[9px] text-slate-500 font-semibold italic">
+              Base price of ₹{plan.price || 0} + ₹{plan.pricePerBird || 0}/bird (applied with your farm size capacity, minimum bird pool is {plan.minCapacity || 1000} birds).
+            </p>
+          </div>
+        )}
+
+        <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 text-center space-y-2 border-l-4 border-l-indigo-600 animate-in fade-in duration-200">
+          <p className="text-xs font-black italic text-slate-400 uppercase tracking-widest leading-none">Amount to Pay</p>
+          <p className="text-4xl font-black italic text-slate-900 font-mono">₹{calculatedPrice}</p>
+        </div>
+
+        {/* Gateway Selector */}
+        <div className="space-y-2 text-left">
+          <p className="text-[9px] font-black italic text-slate-400 uppercase tracking-widest">Select Online Payment Method</p>
+          <div className="grid grid-cols-1 gap-2">
+            {/* Wallet */}
+            {(((profile?.walletBalance || 0) + (profile?.rewardBalance || 0)) >= calculatedPrice) && (
+              <div 
+                onClick={() => setSelectedGateway('wallet')}
+                className={`flex items-center justify-between p-3 rounded-2xl border transition-all cursor-pointer ${selectedGateway === 'wallet' ? 'border-indigo-500 bg-indigo-50/10' : 'border-slate-100 bg-white hover:bg-slate-50'}`}
+              >
+                <div className="flex items-center gap-2">
+                  <Wallet size={16} className="text-indigo-600" />
+                  <div>
+                    <p className="text-xs font-bold text-slate-700">Wallet / Reward Balance</p>
+                    <p className="text-[10px] text-slate-400">Available: ₹{(profile?.walletBalance || 0) + (profile?.rewardBalance || 0)}</p>
+                  </div>
+                </div>
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedGateway === 'wallet' ? 'border-indigo-600 bg-indigo-600' : 'border-slate-200'}`}>
+                  {selectedGateway === 'wallet' && <CheckCircle2 size={10} className="text-white" />}
+                </div>
+              </div>
+            )}
+
+            {/* Cashfree */}
+            {systemSettings?.paymentGateways?.cashfree?.enabled && (
+              <div 
+                onClick={() => setSelectedGateway('cashfree')}
+                className={`flex items-center justify-between p-3 rounded-2xl border transition-all cursor-pointer ${selectedGateway === 'cashfree' ? 'border-indigo-500 bg-indigo-50/10' : 'border-slate-100 bg-white hover:bg-slate-50'}`}
+              >
+                <div className="flex items-center gap-2">
+                  <Coins size={16} className="text-indigo-600" />
+                  <div>
+                    <p className="text-xs font-bold text-slate-700">Cashfree Instant Checkout</p>
+                    <p className="text-[10px] text-slate-400 font-semibold text-slate-400">Cards, NetBanking, Wallets</p>
+                  </div>
+                </div>
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedGateway === 'cashfree' ? 'border-indigo-600 bg-indigo-600' : 'border-slate-200'}`}>
+                  {selectedGateway === 'cashfree' && <CheckCircle2 size={10} className="text-white" />}
+                </div>
+              </div>
+            )}
+
+            {/* Razorpay */}
+            {(systemSettings?.paymentGateways?.razorpay?.enabled || (import.meta as any).env.VITE_RAZORPAY_KEY_ID) && (
+              <div 
+                onClick={() => setSelectedGateway('razorpay')}
+                className={`flex items-center justify-between p-3 rounded-2xl border transition-all cursor-pointer ${selectedGateway === 'razorpay' ? 'border-indigo-500 bg-indigo-50/10' : 'border-slate-100 bg-white hover:bg-slate-50'}`}
+              >
+                <div className="flex items-center gap-2">
+                  <CreditCard size={16} className="text-indigo-600" />
+                  <div>
+                    <p className="text-xs font-bold text-slate-700">Razorpay Pay</p>
+                    <p className="text-[10px] text-slate-400 font-semibold text-slate-400">Cards, UPI, GPay, PhonePe</p>
+                  </div>
+                </div>
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedGateway === 'razorpay' ? 'border-indigo-600 bg-indigo-600' : 'border-slate-200'}`}>
+                  {selectedGateway === 'razorpay' && <CheckCircle2 size={10} className="text-white" />}
+                </div>
+              </div>
+            )}
+
+            {/* PayU */}
+            {systemSettings?.paymentGateways?.payu?.enabled && (
+              <div 
+                onClick={() => setSelectedGateway('payu')}
+                className={`flex items-center justify-between p-3 rounded-2xl border transition-all cursor-pointer ${selectedGateway === 'payu' ? 'border-indigo-500 bg-indigo-50/10' : 'border-slate-100 bg-white hover:bg-slate-50'}`}
+              >
+                <div className="flex items-center gap-2">
+                  <Coins size={16} className="text-indigo-600" />
+                  <div>
+                    <p className="text-xs font-bold text-slate-700">PayU Secure Pay</p>
+                    <p className="text-[10px] text-slate-405 font-medium text-slate-400">Credit/Debit Cards, NetBanking</p>
+                  </div>
+                </div>
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedGateway === 'payu' ? 'border-indigo-600 bg-indigo-600' : 'border-slate-200'}`}>
+                  {selectedGateway === 'payu' && <CheckCircle2 size={10} className="text-white" />}
+                </div>
+              </div>
+            )}
+
+            {/* UPI Manual Bank Transfer */}
+            {systemSettings?.paymentGateways?.upi?.enabled && (
+              <div 
+                onClick={() => setSelectedGateway('upi')}
+                className={`flex items-center justify-between p-3 rounded-2xl border transition-all cursor-pointer ${selectedGateway === 'upi' ? 'border-indigo-500 bg-indigo-50/10' : 'border-slate-100 bg-white hover:bg-slate-50'}`}
+              >
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 size={16} className="text-emerald-600" />
+                  <div>
+                    <p className="text-xs font-bold text-slate-700">UPI Instant Transfer</p>
+                    <p className="text-[10px] text-slate-400 font-semibold text-slate-400">Scan QR Code or copy VPA address</p>
+                  </div>
+                </div>
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedGateway === 'upi' ? 'border-[#22c55e] bg-[#22c55e]' : 'border-slate-200'}`}>
+                  {selectedGateway === 'upi' && <CheckCircle2 size={10} className="text-white" />}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* UPI Fields */}
+        {selectedGateway === 'upi' && (
+          <div className="p-4 bg-slate-50 border border-slate-150 rounded-2xl space-y-4 text-left animate-in slide-in-from-top-2 duration-200">
+            <div className="text-center space-y-2 bg-white p-3 rounded-xl border border-slate-100">
+              <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Scan QR Code to pay</p>
+              {(() => {
+                const upiId = systemSettings?.paymentGateways?.upi?.upiId || "9999999999@okbizaxis";
+                const payeeName = systemSettings?.paymentGateways?.upi?.displayName || "Bharat Nest Agro";
+                const upiUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(payeeName)}&am=${calculatedPrice}&cu=INR`;
+                const fallbackQr = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiUrl)}`;
+                const qrSrc = systemSettings?.paymentGateways?.upi?.qrCodeUrl || fallbackQr;
+                return (
+                  <img 
+                    src={qrSrc} 
+                    alt="UPI QR Code" 
+                    className="w-44 h-44 object-contain mx-auto border rounded-xl p-2 bg-slate-50 shadow-sm"
+                  />
+                );
+              })()}
+              <p className="text-xs font-mono font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg inline-block select-all">
+                {systemSettings?.paymentGateways?.upi?.upiId || 'N/A'}
+              </p>
+              {systemSettings?.paymentGateways?.upi?.displayName && (
+                <p className="text-[10px] text-slate-400 font-semibold italic">{systemSettings.paymentGateways.upi.displayName}</p>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[10px] font-black tracking-wide uppercase text-slate-400">UPI Transaction Ref ID (12 Digit)</span>
+              <Input
+                id="upi-txn-id"
+                placeholder="e.g. 340912345678"
+                value={upiTxnId}
+                onChange={(e) => setUpiTxnId(e.target.value)}
+                className="rounded-xl border-slate-200 bg-white"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[10px] font-black tracking-wide uppercase text-slate-400">Upload Screenshot Receipt</span>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="file"
+                  accept="image/*"
+                  id="upi-screenshot-input"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setIsUploadingScreenshot(true);
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        setUpiScreenshot(reader.result as string);
+                        setIsUploadingScreenshot(false);
+                        toast.success("Screenshot uploaded successfully!");
+                      };
+                      reader.onerror = () => {
+                        setIsUploadingScreenshot(false);
+                        toast.error("Failed to read file screenshot");
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                />
+                <Button 
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl w-full border-dashed border-2 py-6 border-slate-300 flex items-center justify-center gap-2 hover:bg-slate-50 bg-white"
+                  onClick={() => document.getElementById('upi-screenshot-input')?.click()}
+                >
+                  <Upload size={16} className="text-slate-505" />
+                  <span className="text-xs font-medium text-slate-600">
+                    {isUploadingScreenshot ? "Reading Receipt File..." : upiScreenshot ? "Change Screenshot Receipt" : "Choose Image Screenshot"}
+                  </span>
+                </Button>
+              </div>
+              {upiScreenshot && (
+                <div className="relative mt-2 w-32 h-32 border rounded-xl overflow-hidden shadow-sm mx-auto">
+                  <img src={upiScreenshot} alt="Screenshot Receipt" className="w-full h-full object-cover" />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Button 
+            className="w-full bg-indigo-600 hover:bg-indigo-700 rounded-2xl py-6 font-black italic uppercase text-[10px] gap-2 shadow-lg shadow-indigo-900/20 text-white"
+            onClick={handlePurchaseKey}
+            disabled={isPurchasing || plans.length === 0}
+          >
+            {isPurchasing ? 'Processing...' : `Pay ₹${calculatedPrice} via ${selectedGateway === 'wallet' ? 'Wallet' : selectedGateway === 'cashfree' ? 'Cashfree' : selectedGateway === 'razorpay' ? 'Razorpay' : selectedGateway === 'payu' ? 'PayU' : 'UPI Transfer'}`}
+          </Button>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -1775,61 +2323,58 @@ const Profile: React.FC = () => {
 
       {/* Plan Purchase Dialog - Re-used from existing store */}
       <Dialog open={showPurchaseDialog} onOpenChange={setShowPurchaseDialog}>
-        <DialogContent className="rounded-3xl max-w-md w-[95vw]">
+        <DialogContent className="rounded-3xl max-w-md w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-2xl font-black italic uppercase">Store</DialogTitle>
             <CardDescription className="font-bold italic text-slate-500 uppercase text-[10px]">Activate your license or participate in rewards challenges</CardDescription>
           </DialogHeader>
           
           <Tabs value={activePurchaseTab} onValueChange={(v: any) => { setActivePurchaseTab(v); setSelectedPlanIndex(0); }} className="w-full">
-            <TabsList className="bg-slate-100 p-1 rounded-2xl w-full mb-6">
-              <TabsTrigger value="plans" className="flex-1 rounded-xl font-black italic uppercase text-[10px]">License Keys</TabsTrigger>
-              <TabsTrigger value="challenges" className="flex-1 rounded-xl font-black italic uppercase text-[10px]">Challenges</TabsTrigger>
+            <TabsList className="bg-slate-100 p-1 rounded-2xl w-full mb-6 grid grid-cols-3">
+              <TabsTrigger value="plan_for_you" className="rounded-xl font-black italic uppercase text-[10px] truncate">Plan For You</TabsTrigger>
+              <TabsTrigger value="plans" className="rounded-xl font-black italic uppercase text-[10px] truncate">License Plans</TabsTrigger>
+              <TabsTrigger value="challenges" className="rounded-xl font-black italic uppercase text-[10px] truncate">Daily Rewards</TabsTrigger>
             </TabsList>
+ 
+            <TabsContent value="plan_for_you">
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-150 text-left space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase text-indigo-900 bg-indigo-100/70 px-2 py-0.5 rounded-md tracking-wider">Plan For You</span>
+                    <span className="text-[9px] font-black italic text-indigo-700 bg-indigo-100/50 px-1.5 rounded uppercase">Recommended</span>
+                  </div>
+                  <p className="text-base font-black uppercase text-slate-900 mt-1">{recommendedPlan ? recommendedPlan.name : 'Standard Plan'}</p>
+                  <p className="text-[10px] italic font-bold text-slate-505 uppercase tracking-tight">
+                    Tailored based on your design capacity of {profile?.birdCapacity || 0} and scale of {totalActiveBirds} active birds
+                  </p>
+                  {recommendedPlan?.features && (
+                    <p className="text-[10px] text-slate-500 font-medium pt-1 border-t border-indigo-100 mt-2">
+                       <strong>Features:</strong> {recommendedPlan.features}
+                    </p>
+                  )}
+                </div>
+                {renderLicenseCheckout(recommendedPlan)}
+              </div>
+            </TabsContent>
 
             <TabsContent value="plans">
-              <div className="space-y-6">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between px-2">
                   <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 text-slate-400 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-full" onClick={() => setSelectedPlanIndex(prev => Math.max(0, prev - 1))} disabled={selectedPlanIndex === 0}>
                     <ChevronLeft size={18} />
                   </Button>
                   <div className="text-center flex-1 px-2">
                       <p className="text-sm font-black italic uppercase text-slate-900">{plans[selectedPlanIndex]?.name || 'Standard Plan'}</p>
-                      <p className="text-[10px] italic font-bold text-slate-500 uppercase tracking-tight">{plans[selectedPlanIndex]?.days || 365} Days Validity</p>
+                      <p className="text-[10px] italic font-bold text-slate-505 uppercase tracking-tight">{plans[selectedPlanIndex]?.days || 365} Days Validity</p>
                   </div>
                   <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 text-slate-400 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-full" onClick={() => setSelectedPlanIndex(prev => Math.min(plans.length - 1, prev + 1))} disabled={selectedPlanIndex === plans.length - 1 || plans.length === 0}>
                     <ChevronRight size={18} />
                   </Button>
                 </div>
-                
-                <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 text-center space-y-2 border-l-4 border-l-indigo-600">
-                  <p className="text-xs font-black italic text-slate-400 uppercase tracking-widest">Amount to Pay</p>
-                  <p className="text-4xl font-black italic text-slate-900">₹{plans[selectedPlanIndex]?.price || 0}</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Button 
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 rounded-2xl py-6 font-black italic uppercase text-[10px] gap-2 shadow-lg shadow-indigo-900/20"
-                    onClick={handlePurchaseKey}
-                    disabled={isPurchasing || plans.length === 0}
-                  >
-                    {isPurchasing ? 'Processing...' : `Pay ₹${plans[selectedPlanIndex]?.price || 0} via Online`}
-                  </Button>
-
-                  {((profile?.walletBalance || 0) + (profile?.rewardBalance || 0)) >= (plans[selectedPlanIndex]?.price || 0) && (
-                    <Button 
-                      variant="outline"
-                      className="w-full border-indigo-100 bg-indigo-50/30 hover:bg-indigo-50 text-indigo-600 rounded-2xl py-6 font-black italic uppercase text-[10px]"
-                      onClick={() => finalizePurchase(plans[selectedPlanIndex], 'WALLET_PAYMENT')}
-                      disabled={isPurchasing}
-                    >
-                      Pay using Wallet Balance
-                    </Button>
-                  )}
-                </div>
+                {renderLicenseCheckout(plans[selectedPlanIndex])}
               </div>
             </TabsContent>
-
+ 
             <TabsContent value="challenges">
               <div className="space-y-6">
                 {availableChallenges.length === 0 ? (
@@ -1848,13 +2393,13 @@ const Profile: React.FC = () => {
                          <ChevronRight size={18} />
                        </Button>
                     </div>
-
-                    <div className="p-6 bg-amber-50 rounded-[2rem] border border-amber-100 text-center space-y-2 border-l-4 border-l-amber-500">
-                      <p className="text-xs font-black italic text-amber-500 uppercase tracking-widest">Entry Fee</p>
+ 
+                    <div className="p-6 bg-amber-50 rounded-[2rem] border border-amber-100 text-center space-y-2 border-l-4 border-l-amber-500 font-bold">
+                      <p className="text-xs font-black italic text-amber-500 uppercase tracking-widest leading-none">Entry Fee</p>
                       <p className="text-4xl font-black italic text-slate-900">₹{availableChallenges[selectedPlanIndex]?.cost}</p>
                       <p className="text-[10px] font-bold italic text-amber-600 uppercase">Daily Reward: ₹{availableChallenges[selectedPlanIndex]?.dailyReward}</p>
                     </div>
-
+ 
                     <div className="p-4 bg-slate-50 rounded-2xl space-y-2">
                       <p className="text-[10px] font-black italic uppercase text-slate-400 flex items-center gap-1">
                         <AlertCircle size={12} className="text-slate-300" />
@@ -1864,16 +2409,16 @@ const Profile: React.FC = () => {
                         {availableChallenges[selectedPlanIndex]?.penaltyRule}
                       </p>
                     </div>
-
+ 
                     <div className="space-y-2">
                       <Button 
-                        className="w-full bg-amber-500 hover:bg-amber-600 rounded-2xl py-6 font-black italic uppercase text-[10px] gap-2 shadow-lg shadow-amber-900/10 text-white"
+                        className="w-full bg-amber-500 hover:bg-amber-600 rounded-2xl py-6 font-black italic uppercase text-[10px] gap-2 shadow-lg shadow-amber-900/10 text-white animate-in"
                         onClick={handlePurchaseKey}
                         disabled={isPurchasing}
                       >
                         {isPurchasing ? 'Processing...' : `Pay ₹${availableChallenges[selectedPlanIndex]?.cost || 0} via Online`}
                       </Button>
-
+ 
                       {((profile?.walletBalance || 0) + (profile?.rewardBalance || 0)) >= (availableChallenges[selectedPlanIndex]?.cost || 0) && (
                         <Button 
                           variant="outline"

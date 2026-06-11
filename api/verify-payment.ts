@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
@@ -16,11 +19,26 @@ try {
   console.error("[DEBUG] Error loading firebase-applet-config.json inside api verify-payment:", e.message);
 }
 
-if (admin.apps.length === 0 && firebaseConfig) {
+if (admin.apps.length === 0) {
   try {
-    admin.initializeApp({
-      projectId: firebaseConfig.projectId
-    });
+    if (firebaseConfig) {
+      admin.initializeApp({
+        projectId: firebaseConfig.projectId
+      });
+      console.log("[DEBUG] Firebase Admin initialized inside api/verify-payment.ts via config file");
+    } else if (process.env.FIREBASE_PROJECT_ID) {
+      admin.initializeApp({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        credential: process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY ? admin.credential.cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        }) : undefined
+      });
+      console.log("[DEBUG] Firebase Admin initialized inside api/verify-payment.ts via standard env credentials fallback");
+    } else {
+      console.warn("[DEBUG] Firebase Admin could not be initialized because neither firebase-applet-config.json nor FIREBASE_PROJECT_ID env is set.");
+    }
   } catch (e: any) {
     console.error("[DEBUG] Firebase Admin init failed:", e.message);
   }
@@ -44,9 +62,9 @@ const getRazorpayConfig = async () => {
     console.warn("[DEBUG] Error reading settings-cache:", err.message);
   }
 
-  if ((!keyId || !keySecret) && firebaseConfig) {
+  if ((!keyId || !keySecret) && admin.apps.length > 0) {
     try {
-      const db = getFirestore(firebaseConfig.firestoreDatabaseId || "(default)");
+      const db = getFirestore(firebaseConfig?.firestoreDatabaseId || "(default)");
       const docRef = db.collection("system").doc("settings");
       const docSnap = await docRef.get();
       if (docSnap.exists) {

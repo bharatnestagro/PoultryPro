@@ -291,26 +291,54 @@ const Dashboard: React.FC = () => {
           totalCost += intake * unitPrice;
         }
       } else {
-        const medName = log.health?.medicines;
-        const medDoses = Number(log.health?.medicineDoses) || 0;
-        if (medDoses > 0 && medName && medName !== 'none') {
-          totalQty += medDoses;
-          const medItem = medicineStockList.find(m => m.name === medName);
-          const unitPrice = medItem?.unitPrice || 
-                           (medItem?.initialQuantity ? (medItem.purchaseCost / medItem.initialQuantity) : 
-                           (medItem?.quantity ? (medItem.purchaseCost / medItem.quantity) : 0));
-          totalCost += medDoses * unitPrice;
+        const meds = log.health?.medicines;
+        if (Array.isArray(meds)) {
+          meds.forEach((m: any) => {
+            const qty = Number(m.doses) || 0;
+            if (qty > 0 && m.name && m.name !== 'none' && m.name !== 'None') {
+              totalQty += qty;
+              const medItem = medicineStockList.find(item => item.name === m.name);
+              const unitPrice = medItem?.unitPrice || 
+                               (medItem?.initialQuantity ? (medItem.purchaseCost / medItem.initialQuantity) : 
+                               (medItem?.quantity ? (medItem.purchaseCost / medItem.quantity) : 0));
+              totalCost += qty * unitPrice;
+            }
+          });
+        } else if (meds && meds !== 'none' && meds !== 'None' && typeof meds === 'string' && meds !== '') {
+          const mDoses = Number(log.health?.medicineDoses) || 0;
+          if (mDoses > 0) {
+            totalQty += mDoses;
+            const medItem = medicineStockList.find(m => m.name === meds);
+            const unitPrice = medItem?.unitPrice || 
+                             (medItem?.initialQuantity ? (medItem.purchaseCost / medItem.initialQuantity) : 
+                             (medItem?.quantity ? (medItem.purchaseCost / medItem.quantity) : 0));
+            totalCost += mDoses * unitPrice;
+          }
         }
-        
-        const vacName = log.health?.vaccines;
-        const vacDoses = Number(log.health?.vaccineDoses) || 0;
-        if (vacDoses > 0 && vacName && vacName !== 'none') {
-          totalQty += vacDoses;
-          const vacItem = medicineStockList.find(m => m.name === vacName);
-          const unitPrice = vacItem?.unitPrice || 
-                           (vacItem?.initialQuantity ? (vacItem.purchaseCost / vacItem.initialQuantity) : 
-                           (vacItem?.quantity ? (vacItem.purchaseCost / vacItem.quantity) : 0));
-          totalCost += vacDoses * unitPrice;
+
+        const vacs = log.health?.vaccines;
+        if (Array.isArray(vacs)) {
+          vacs.forEach((v: any) => {
+            const qty = Number(v.doses) || 0;
+            if (qty > 0 && v.name && v.name !== 'none' && v.name !== 'None') {
+              totalQty += qty;
+              const vacItem = medicineStockList.find(item => item.name === v.name);
+              const unitPrice = vacItem?.unitPrice || 
+                               (vacItem?.initialQuantity ? (vacItem.purchaseCost / vacItem.initialQuantity) : 
+                               (vacItem?.quantity ? (vacItem.purchaseCost / vacItem.quantity) : 0));
+              totalCost += qty * unitPrice;
+            }
+          });
+        } else if (vacs && vacs !== 'none' && vacs !== 'None' && typeof vacs === 'string' && vacs !== '') {
+          const vDoses = Number(log.health?.vaccineDoses) || 0;
+          if (vDoses > 0) {
+            totalQty += vDoses;
+            const vacItem = medicineStockList.find(v => v.name === vacs);
+            const unitPrice = vacItem?.unitPrice || 
+                             (vacItem?.initialQuantity ? (vacItem.purchaseCost / vacItem.initialQuantity) : 
+                             (vacItem?.quantity ? (vacItem.purchaseCost / vacItem.quantity) : 0));
+            totalCost += vDoses * unitPrice;
+          }
         }
       }
     });
@@ -346,29 +374,59 @@ const Dashboard: React.FC = () => {
 
     flockLogs.forEach(log => {
       // Medicine
-      const medName = log.health?.medicines;
-      const medDoses = Number(log.health?.medicineDoses) || 0;
-      if (medDoses > 0 && medName && medName !== 'none') {
-        if (!breakdown[medName]) breakdown[medName] = { type: 'Medicine', qty: 0, cost: 0 };
-        breakdown[medName].qty += medDoses;
-        const medItem = medicineStockList.find(m => m.name === medName);
-        const unitPrice = medItem?.unitPrice || 
-                         (medItem?.initialQuantity ? (medItem.purchaseCost / medItem.initialQuantity) : 
-                         (medItem?.quantity ? (medItem.purchaseCost / medItem.quantity) : 0));
-        breakdown[medName].cost += medDoses * unitPrice;
+      const meds = log.health?.medicines;
+      if (Array.isArray(meds)) {
+        meds.forEach((m: any) => {
+          const qty = Number(m.doses) || 0;
+          if (qty > 0 && m.name && m.name !== 'none' && m.name !== 'None') {
+            if (!breakdown[m.name]) breakdown[m.name] = { type: 'Medicine', qty: 0, cost: 0 };
+            breakdown[m.name].qty += qty;
+            const medItem = medicineStockList.find(item => item.name === m.name);
+            const unitPrice = medItem?.unitPrice || 
+                             (medItem?.initialQuantity ? (medItem.purchaseCost / medItem.initialQuantity) : 
+                             (medItem?.quantity ? (medItem.purchaseCost / medItem.quantity) : 0));
+            breakdown[m.name].cost += qty * unitPrice;
+          }
+        });
+      } else if (meds && meds !== 'none' && meds !== 'None' && typeof meds === 'string' && meds !== '') {
+        const mDoses = Number(log.health?.medicineDoses) || 0;
+        if (mDoses > 0) {
+          if (!breakdown[meds]) breakdown[meds] = { type: 'Medicine', qty: 0, cost: 0 };
+          breakdown[meds].qty += mDoses;
+          const medItem = medicineStockList.find(m => m.name === meds);
+          const unitPrice = medItem?.unitPrice || 
+                           (medItem?.initialQuantity ? (medItem.purchaseCost / medItem.initialQuantity) : 
+                           (medItem?.quantity ? (medItem.purchaseCost / medItem.quantity) : 0));
+          breakdown[meds].cost += mDoses * unitPrice;
+        }
       }
-      
+
       // Vaccine
-      const vacName = log.health?.vaccines;
-      const vacDoses = Number(log.health?.vaccineDoses) || 0;
-      if (vacDoses > 0 && vacName && vacName !== 'none') {
-        if (!breakdown[vacName]) breakdown[vacName] = { type: 'Vaccine', qty: 0, cost: 0 };
-        breakdown[vacName].qty += vacDoses;
-        const vacItem = medicineStockList.find(m => m.name === vacName);
-        const unitPrice = vacItem?.unitPrice || 
-                         (vacItem?.initialQuantity ? (vacItem.purchaseCost / vacItem.initialQuantity) : 
-                         (vacItem?.quantity ? (vacItem.purchaseCost / vacItem.quantity) : 0));
-        breakdown[vacName].cost += vacDoses * unitPrice;
+      const vacs = log.health?.vaccines;
+      if (Array.isArray(vacs)) {
+        vacs.forEach((v: any) => {
+          const qty = Number(v.doses) || 0;
+          if (qty > 0 && v.name && v.name !== 'none' && v.name !== 'None') {
+            if (!breakdown[v.name]) breakdown[v.name] = { type: 'Vaccine', qty: 0, cost: 0 };
+            breakdown[v.name].qty += qty;
+            const vacItem = medicineStockList.find(item => item.name === v.name);
+            const unitPrice = vacItem?.unitPrice || 
+                             (vacItem?.initialQuantity ? (vacItem.purchaseCost / vacItem.initialQuantity) : 
+                             (vacItem?.quantity ? (vacItem.purchaseCost / vacItem.quantity) : 0));
+            breakdown[v.name].cost += qty * unitPrice;
+          }
+        });
+      } else if (vacs && vacs !== 'none' && vacs !== 'None' && typeof vacs === 'string' && vacs !== '') {
+        const vDoses = Number(log.health?.vaccineDoses) || 0;
+        if (vDoses > 0) {
+          if (!breakdown[vacs]) breakdown[vacs] = { type: 'Vaccine', qty: 0, cost: 0 };
+          breakdown[vacs].qty += vDoses;
+          const vacItem = medicineStockList.find(v => v.name === vacs);
+          const unitPrice = vacItem?.unitPrice || 
+                           (vacItem?.initialQuantity ? (vacItem.purchaseCost / vacItem.initialQuantity) : 
+                           (vacItem?.quantity ? (vacItem.purchaseCost / vacItem.quantity) : 0));
+          breakdown[vacs].cost += vDoses * unitPrice;
+        }
       }
     });
 
@@ -1169,6 +1227,14 @@ const Dashboard: React.FC = () => {
                            medCostVal += doses * unitPrice;
                          }
                        });
+                     } else {
+                       const mName = log.health?.medicines;
+                       const mDoses = Number(log.health?.medicineDoses) || 0;
+                       if (mDoses > 0 && mName && mName !== 'none') {
+                         const stock = medicineStockList.find(s => s.name === mName);
+                         const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
+                         medCostVal += mDoses * unitPrice;
+                       }
                      }
                      if (Array.isArray(log.health?.vaccines)) {
                        log.health.vaccines.forEach((v: any) => {
@@ -1179,6 +1245,14 @@ const Dashboard: React.FC = () => {
                            medCostVal += doses * unitPrice;
                          }
                        });
+                     } else {
+                       const vName = log.health?.vaccines;
+                       const vDoses = Number(log.health?.vaccineDoses) || 0;
+                       if (vDoses > 0 && vName && vName !== 'none') {
+                         const stock = medicineStockList.find(s => s.name === vName);
+                         const unitPrice = stock?.unitPrice || (stock?.initialQuantity ? (stock.purchaseCost / stock.initialQuantity) : 0);
+                         medCostVal += vDoses * unitPrice;
+                       }
                      }
 
                      const labour = Number(log.production?.labourCost) || 0;

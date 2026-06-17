@@ -1337,14 +1337,33 @@ const FarmerDetails: React.FC = () => {
                         <TableCell className="font-bold text-indigo-700 text-xs text-left">
                           {log.production?.avgWeight ? `${log.production.avgWeight}g` : 'N/A'}
                         </TableCell>
-                        <TableCell className="text-xs text-left">
-                          {log.health?.medicines && log.health.medicines !== 'none' && log.health.medicines !== 'None' ? (
-                            <Badge className="bg-indigo-50 text-indigo-700 border-none rounded-lg text-[9px] font-bold">
-                              {log.health.medicines}
-                            </Badge>
-                          ) : (
-                            <span className="text-slate-400">-</span>
-                          )}
+                        <TableCell className="text-xs text-left font-sans">
+                          {(() => {
+                            const meds = log.health?.medicines;
+                            const vacs = log.health?.vaccines;
+                            let items: string[] = [];
+                            if (Array.isArray(meds)) {
+                              meds.forEach((m: any) => { if (m.name && m.name !== 'none' && m.name !== 'None') items.push(`${m.name} (${m.doses || 0})`); });
+                            } else if (meds && meds !== 'none' && meds !== 'None' && meds !== '') {
+                              items.push(`${meds} (${log.health?.medicineDoses || 0})`);
+                            }
+                            if (Array.isArray(vacs)) {
+                              vacs.forEach((v: any) => { if (v.name && v.name !== 'none' && v.name !== 'None') items.push(`${v.name} (${v.doses || 0})`); });
+                            } else if (vacs && vacs !== 'none' && vacs !== 'None' && vacs !== '') {
+                              items.push(`${vacs} (${log.health?.vaccineDoses || 0})`);
+                            }
+                            
+                            if (items.length === 0) return <span className="text-slate-400">-</span>;
+                            return (
+                              <div className="flex flex-wrap gap-1">
+                                {items.map((it, idx) => (
+                                  <Badge key={idx} className="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-none rounded-lg text-[9px] font-bold">
+                                    {it}
+                                  </Badge>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell className="text-xs text-slate-505 max-w-[180px] truncate text-right pr-6" title={log.notes}>
                           {log.notes || '-'}

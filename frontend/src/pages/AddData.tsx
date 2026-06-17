@@ -3175,31 +3175,63 @@ const AddData: React.FC = () => {
                               flockId: log.flockId,
                               title: 'Daily Record',
                               details: (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 mt-2">
-                                  <div className="flex items-center gap-1.5 text-[11px]">
-                                    <Utensils size={12} className="text-amber-500" />
-                                    <span className="text-slate-600">Feed: <b>{log.consumption?.feedIntake || 0}kg</b></span>
+                                <div className="space-y-2 mt-2">
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1">
+                                    <div className="flex items-center gap-1.5 text-[11px]">
+                                      <Utensils size={12} className="text-amber-500" />
+                                      <span className="text-slate-600">Feed: <b>{log.consumption?.feedIntake || 0}kg</b></span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-[11px]">
+                                      <Droplets size={12} className="text-blue-500" />
+                                      <span className="text-slate-600">Water: <b>{log.consumption?.waterIntake || 0}L</b></span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-[11px]">
+                                      <Scale size={12} className="text-emerald-500" />
+                                      <span className="text-slate-600">Weight: <b>{log.production?.avgWeight || 0}g</b></span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-[11px]">
+                                      <Trash2 size={12} className="text-red-500" />
+                                      <span className="text-slate-600">Mortality: <b>{log.health?.mortality || 0}</b></span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-[11px]">
+                                      <Thermometer size={12} className="text-orange-500" />
+                                      <span className="text-slate-600">Temp: <b>{log.environment?.temperature || '--'}°C</b></span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-[11px]">
+                                      <Package size={12} className="text-purple-500" />
+                                      <span className="text-slate-600">Eggs: <b>{log.production?.eggCount || 0}</b></span>
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-1.5 text-[11px]">
-                                    <Droplets size={12} className="text-blue-500" />
-                                    <span className="text-slate-600">Water: <b>{log.consumption?.waterIntake || 0}L</b></span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-[11px]">
-                                    <Scale size={12} className="text-emerald-500" />
-                                    <span className="text-slate-600">Weight: <b>{log.production?.avgWeight || 0}g</b></span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-[11px]">
-                                    <Trash2 size={12} className="text-red-500" />
-                                    <span className="text-slate-600">Mortality: <b>{log.health?.mortality || 0}</b></span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-[11px]">
-                                    <Thermometer size={12} className="text-orange-500" />
-                                    <span className="text-slate-600">Temp: <b>{log.environment?.temperature || '--'}°C</b></span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-[11px]">
-                                    <Package size={12} className="text-purple-500" />
-                                    <span className="text-slate-600">Eggs: <b>{log.production?.eggCount || 0}</b></span>
-                                  </div>
+                                  
+                                  {(() => {
+                                    const meds = log.health?.medicines;
+                                    const vacs = log.health?.vaccines;
+                                    let medsList: any[] = [];
+                                    let vacsList: any[] = [];
+                                    if (Array.isArray(meds)) medsList = meds.filter((m: any) => m.name && m.name !== 'none' && m.name !== 'None');
+                                    else if (typeof meds === 'string' && meds !== 'none' && meds !== 'None' && meds !== '') medsList = [{ name: meds, doses: log.health?.medicineDoses || 0 }];
+                                    
+                                    if (Array.isArray(vacs)) vacsList = vacs.filter((v: any) => v.name && v.name !== 'none' && v.name !== 'None');
+                                    else if (typeof vacs === 'string' && vacs !== 'none' && vacs !== 'None' && vacs !== '') vacsList = [{ name: vacs, doses: log.health?.vaccineDoses || 0 }];
+                                    
+                                    if (medsList.length === 0 && vacsList.length === 0) return null;
+                                    return (
+                                      <div className="flex flex-wrap gap-1.5 pt-1.5 border-t border-slate-100/60">
+                                        {medsList.map((m, idx) => (
+                                          <span key={`m-${idx}`} className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-tight bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-lg px-2 py-0.5" title="Medicine Used">
+                                            <Pill size={10} className="text-emerald-600" />
+                                            {m.name} ({m.doses || 0} doses)
+                                          </span>
+                                        ))}
+                                        {vacsList.map((v, idx) => (
+                                          <span key={`v-${idx}`} className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-tight bg-blue-50 text-blue-800 border border-blue-100 rounded-lg px-2 py-0.5" title="Vaccine Used">
+                                            <ShieldCheck size={10} className="text-blue-600" />
+                                            {v.name} ({v.doses || 0} doses)
+                                          </span>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               ),
                               raw: log,
@@ -3207,25 +3239,63 @@ const AddData: React.FC = () => {
                             }));
                             break;
                           case 'medicine':
-                            displayItems = logs.filter(log => flockFilter(log) && (log.health?.medicines !== 'none' && log.health?.medicines !== '' || log.health?.vaccines !== 'none' && log.health?.vaccines !== '')).map(log => ({
+                            displayItems = logs.filter(log => {
+                              const hasMeds = Array.isArray(log.health?.medicines)
+                                ? log.health.medicines.some((m: any) => m.name && m.name !== 'none' && m.name !== 'None')
+                                : (log.health?.medicines && log.health.medicines !== 'none' && log.health.medicines !== 'None' && log.health.medicines !== '');
+                              const hasVacs = Array.isArray(log.health?.vaccines)
+                                ? log.health.vaccines.some((v: any) => v.name && v.name !== 'none' && v.name !== 'None')
+                                : (log.health?.vaccines && log.health.vaccines !== 'none' && log.health.vaccines !== 'None' && log.health.vaccines !== '');
+                              return flockFilter(log) && (hasMeds || hasVacs);
+                            }).map(log => ({
                               id: log.id,
                               date: log.date,
                               flockId: log.flockId,
                               title: 'Medicine/Vaccine Log',
                               details: (
-                                <div className="space-y-1 mt-2">
-                                  {log.health?.vaccines && log.health.vaccines !== 'none' && (
-                                    <div className="flex items-center gap-2 text-[11px] bg-blue-50 p-1.5 rounded-lg border border-blue-100">
-                                      <ShieldCheck size={12} className="text-blue-600" />
-                                      <span className="text-blue-800 font-medium">Vaccine: <b>{log.health.vaccines}</b> ({log.health.vaccineDoses || 0} doses)</span>
-                                    </div>
-                                  )}
-                                  {log.health?.medicines && log.health.medicines !== 'none' && (
-                                    <div className="flex items-center gap-2 text-[11px] bg-emerald-50 p-1.5 rounded-lg border border-emerald-100">
-                                      <Pill size={12} className="text-emerald-600" />
-                                      <span className="text-emerald-800 font-medium">Medicine: <b>{log.health.medicines}</b> ({log.health.medicineDoses || 0} doses)</span>
-                                    </div>
-                                  )}
+                                <div className="space-y-1.5 mt-2">
+                                  {(() => {
+                                    const vacs = log.health?.vaccines;
+                                    if (!vacs) return null;
+                                    let vacsList: { name: string; doses: string | number }[] = [];
+                                    if (Array.isArray(vacs)) {
+                                      vacsList = vacs.filter((v: any) => v.name && v.name !== 'none' && v.name !== 'None');
+                                    } else if (typeof vacs === 'string' && vacs !== 'none' && vacs !== 'None' && vacs !== '') {
+                                      vacsList = [{ name: vacs, doses: log.health.vaccineDoses || 0 }];
+                                    }
+                                    if (vacsList.length === 0) return null;
+                                    return (
+                                      <div className="flex flex-col gap-1">
+                                        {vacsList.map((v, i) => (
+                                          <div key={i} className="flex items-center gap-2 text-[11px] bg-blue-50 p-1.5 rounded-lg border border-blue-100">
+                                            <ShieldCheck size={12} className="text-blue-600" />
+                                            <span className="text-blue-800 font-medium">Vaccine: <b>{v.name}</b> ({v.doses || 0} doses)</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
+                                  {(() => {
+                                    const meds = log.health?.medicines;
+                                    if (!meds) return null;
+                                    let medsList: { name: string; doses: string | number }[] = [];
+                                    if (Array.isArray(meds)) {
+                                      medsList = meds.filter((m: any) => m.name && m.name !== 'none' && m.name !== 'None');
+                                    } else if (typeof meds === 'string' && meds !== 'none' && meds !== 'None' && meds !== '') {
+                                      medsList = [{ name: meds, doses: log.health.medicineDoses || 0 }];
+                                    }
+                                    if (medsList.length === 0) return null;
+                                    return (
+                                      <div className="flex flex-col gap-1">
+                                        {medsList.map((m, i) => (
+                                          <div key={i} className="flex items-center gap-2 text-[11px] bg-emerald-50 p-1.5 rounded-lg border border-emerald-100">
+                                            <Pill size={12} className="text-emerald-600" />
+                                            <span className="text-emerald-800 font-medium">Medicine: <b>{m.name}</b> ({m.doses || 0} doses)</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               ),
                               raw: log,
@@ -3527,7 +3597,37 @@ const AddData: React.FC = () => {
                                 {item.type === 'daily' || item.type === 'medicine' || item.type === 'feed' || item.type === 'alert' || item.type === 'egg_log' || item.type === 'egg_sale' ? (
                                   <>
                                     {item.type !== 'egg_sale' && (
-                                      <Button variant="ghost" size="icon" onClick={() => setEditingLog(item.raw)} className="h-9 w-9 rounded-full hover:bg-slate-100">
+                                      <Button 
+                                        variant="ghost" 
+                                        size="icon" 
+                                        onClick={() => {
+                                          const normLog = { ...item.raw };
+                                          if (!normLog.health) normLog.health = {};
+                                          
+                                          if (!Array.isArray(normLog.health.medicines)) {
+                                            if (normLog.health.medicines && normLog.health.medicines !== 'none') {
+                                              normLog.health.medicines = [{ name: normLog.health.medicines, doses: normLog.health.medicineDoses || '' }];
+                                            } else {
+                                              normLog.health.medicines = [];
+                                            }
+                                          } else {
+                                            normLog.health.medicines = normLog.health.medicines.map((m: any) => ({ name: m.name || '', doses: m.doses || '' }));
+                                          }
+                                          
+                                          if (!Array.isArray(normLog.health.vaccines)) {
+                                            if (normLog.health.vaccines && normLog.health.vaccines !== 'none') {
+                                              normLog.health.vaccines = [{ name: normLog.health.vaccines, doses: normLog.health.vaccineDoses || '' }];
+                                            } else {
+                                              normLog.health.vaccines = [];
+                                            }
+                                          } else {
+                                            normLog.health.vaccines = normLog.health.vaccines.map((v: any) => ({ name: v.name || '', doses: v.doses || '' }));
+                                          }
+                                          
+                                          setEditingLog(normLog);
+                                        }} 
+                                        className="h-9 w-9 rounded-full hover:bg-slate-100"
+                                      >
                                         <Edit2 size={16} />
                                       </Button>
                                     )}
@@ -5058,11 +5158,25 @@ const AddData: React.FC = () => {
                       <div>
                         <h3 className="font-bold text-slate-700 mb-4">Recent Medicine Use Data</h3>
                         <div className="space-y-2">
-                          {logs
-                            .filter(log => log.health?.medicines || log.health?.vaccines)
-                            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                            .slice(0, 10)
-                            .map(log => {
+                          {(() => {
+                            const filteredLogs = logs
+                              .filter(log => {
+                                const hasMeds = Array.isArray(log.health?.medicines)
+                                  ? log.health.medicines.some((m: any) => m.name && m.name !== 'none' && m.name !== 'None')
+                                  : (log.health?.medicines && log.health.medicines !== 'none' && log.health.medicines !== 'None' && log.health.medicines !== '');
+                                const hasVacs = Array.isArray(log.health?.vaccines)
+                                  ? log.health.vaccines.some((v: any) => v.name && v.name !== 'none' && v.name !== 'None')
+                                  : (log.health?.vaccines && log.health.vaccines !== 'none' && log.health.vaccines !== 'None' && log.health.vaccines !== '');
+                                return hasMeds || hasVacs;
+                              })
+                              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                              .slice(0, 10);
+
+                            if (filteredLogs.length === 0) {
+                              return <p className="text-sm text-slate-400">No medicine usage recorded yet</p>;
+                            }
+
+                            return filteredLogs.map(log => {
                               const flock = flocks.find(f => f.id === log.flockId);
                               return (
                                 <div key={log.id} className="p-3 bg-indigo-50/50 rounded-xl flex justify-between items-center border border-indigo-100/50">
@@ -5072,12 +5186,22 @@ const AddData: React.FC = () => {
                                     </div>
                                     <div>
                                       <p className="text-sm font-semibold text-slate-800">
-                                        {log.health.medicines || log.health.vaccines}
-                                        {(log.health.medicineDoses || log.health.vaccineDoses) && (
-                                          <span className="ml-2 text-xs font-normal text-slate-500">
-                                            ({log.health.medicineDoses || log.health.vaccineDoses} doses)
-                                          </span>
-                                        )}
+                                        {(() => {
+                                          const meds = log.health?.medicines;
+                                          const vacs = log.health?.vaccines;
+                                          let items: string[] = [];
+                                          if (Array.isArray(meds)) {
+                                            meds.forEach((m: any) => { if (m.name && m.name !== 'none' && m.name !== 'None') items.push(`${m.name} (${m.doses || 0} doses)`); });
+                                          } else if (meds && meds !== 'none' && meds !== 'None' && meds !== '') {
+                                            items.push(`${meds} (${log.health?.medicineDoses || 0} doses)`);
+                                          }
+                                          if (Array.isArray(vacs)) {
+                                            vacs.forEach((v: any) => { if (v.name && v.name !== 'none' && v.name !== 'None') items.push(`${v.name} (${v.doses || 0} doses)`); });
+                                          } else if (vacs && vacs !== 'none' && vacs !== 'None' && vacs !== '') {
+                                            items.push(`${vacs} (${log.health?.vaccineDoses || 0} doses)`);
+                                          }
+                                          return items.join(', ');
+                                        })()}
                                       </p>
                                       <p className="text-xs text-slate-500">
                                         {(() => {
@@ -5096,10 +5220,8 @@ const AddData: React.FC = () => {
                                   </div>
                                 </div>
                               );
-                            })}
-                          {logs.filter(log => log.health?.medicines || log.health?.vaccines).length === 0 && (
-                            <p className="text-sm text-slate-400">No medicine usage recorded yet</p>
-                          )}
+                            });
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -5946,22 +6068,148 @@ const AddData: React.FC = () => {
                         <Pill size={16} /> Health & Medication
                       </h4>
                       <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Vaccines</Label>
-                          <Input value={editingLog.health.vaccines} onChange={e => setEditingLog({...editingLog, health: {...editingLog.health, vaccines: e.target.value}})} className="rounded-xl" />
+                        <div className="space-y-2 col-span-2 border-b border-red-100 pb-2">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs font-bold text-slate-700">Vaccines Used</Label>
+                            <Button 
+                              type="button" 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => setEditingLog({
+                                ...editingLog, 
+                                health: {
+                                  ...editingLog.health, 
+                                  vaccines: [...(editingLog.health.vaccines || []), {name: '', doses: ''}]
+                                }
+                              })}
+                              className="rounded-xl border-dashed h-7 text-[10px]"
+                            >
+                              <Plus size={10} className="mr-1" /> Add Vaccine
+                            </Button>
+                          </div>
+                          {(editingLog.health.vaccines || []).length === 0 ? (
+                            <p className="text-xs text-slate-400 italic py-1">No vaccines recorded</p>
+                          ) : (
+                            <div className="space-y-2 mt-2">
+                              {(editingLog.health.vaccines || []).map((v: any, idx: number) => (
+                                <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded-xl border border-slate-100">
+                                  <Select 
+                                    value={v.name} 
+                                    onValueChange={val => {
+                                      const newList = [...editingLog.health.vaccines];
+                                      newList[idx].name = val;
+                                      setEditingLog({...editingLog, health: {...editingLog.health, vaccines: newList}});
+                                    }}
+                                  >
+                                    <SelectTrigger className="rounded-xl bg-slate-50 border-none h-8 text-[11px] flex-1">
+                                      <SelectValue placeholder="Select" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {medicineStock.filter(item => item.type === 'Vaccine' && Number(item.quantity) > 0).map(item => (
+                                        <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <Input 
+                                    type="number" 
+                                    value={v.doses} 
+                                    onChange={e => {
+                                      const newList = [...editingLog.health.vaccines];
+                                      newList[idx].doses = e.target.value;
+                                      setEditingLog({...editingLog, health: {...editingLog.health, vaccines: newList}});
+                                    }}
+                                    placeholder="Doses"
+                                    className="rounded-xl bg-slate-50 border-none h-8 text-[11px] w-20"
+                                  />
+                                  <Button 
+                                    type="button" 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => {
+                                      const newList = editingLog.health.vaccines.filter((_: any, i: number) => i !== idx);
+                                      setEditingLog({...editingLog, health: {...editingLog.health, vaccines: newList}});
+                                    }}
+                                    className="text-red-500 hover:text-red-700 h-8 w-8 p-0"
+                                  >
+                                    <Trash2 size={12} />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div className="space-y-2">
-                          <Label>Vaccine Doses</Label>
-                          <Input type="number" value={editingLog.health.vaccineDoses} onChange={e => setEditingLog({...editingLog, health: {...editingLog.health, vaccineDoses: e.target.value}})} className="rounded-xl" />
+
+                        <div className="space-y-2 col-span-2 border-b border-red-100 pb-2">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs font-bold text-slate-700">Medicines Used</Label>
+                            <Button 
+                              type="button" 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => setEditingLog({
+                                ...editingLog, 
+                                health: {
+                                  ...editingLog.health, 
+                                  medicines: [...(editingLog.health.medicines || []), {name: '', doses: ''}]
+                                }
+                              })}
+                              className="rounded-xl border-dashed h-7 text-[10px]"
+                            >
+                              <Plus size={10} className="mr-1" /> Add Medicine
+                            </Button>
+                          </div>
+                          {(editingLog.health.medicines || []).length === 0 ? (
+                            <p className="text-xs text-slate-400 italic py-1">No medicines recorded</p>
+                          ) : (
+                            <div className="space-y-2 mt-2">
+                              {(editingLog.health.medicines || []).map((m: any, idx: number) => (
+                                <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded-xl border border-slate-100">
+                                  <Select 
+                                    value={m.name} 
+                                    onValueChange={val => {
+                                      const newList = [...editingLog.health.medicines];
+                                      newList[idx].name = val;
+                                      setEditingLog({...editingLog, health: {...editingLog.health, medicines: newList}});
+                                    }}
+                                  >
+                                    <SelectTrigger className="rounded-xl bg-slate-50 border-none h-8 text-[11px] flex-1">
+                                      <SelectValue placeholder="Select" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {medicineStock.filter(item => item.type === 'Medicine' && Number(item.quantity) > 0).map(item => (
+                                        <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <Input 
+                                    type="number" 
+                                    value={m.doses} 
+                                    onChange={e => {
+                                      const newList = [...editingLog.health.medicines];
+                                      newList[idx].doses = e.target.value;
+                                      setEditingLog({...editingLog, health: {...editingLog.health, medicines: newList}});
+                                    }}
+                                    placeholder="Doses"
+                                    className="rounded-xl bg-slate-50 border-none h-8 text-[11px] w-20"
+                                  />
+                                  <Button 
+                                    type="button" 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => {
+                                      const newList = editingLog.health.medicines.filter((_: any, i: number) => i !== idx);
+                                      setEditingLog({...editingLog, health: {...editingLog.health, medicines: newList}});
+                                    }}
+                                    className="text-red-500 hover:text-red-700 h-8 w-8 p-0"
+                                  >
+                                    <Trash2 size={12} />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div className="space-y-2">
-                          <Label>Medicines</Label>
-                          <Input value={editingLog.health.medicines} onChange={e => setEditingLog({...editingLog, health: {...editingLog.health, medicines: e.target.value}})} className="rounded-xl" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Medicine Doses</Label>
-                          <Input type="number" value={editingLog.health.medicineDoses} onChange={e => setEditingLog({...editingLog, health: {...editingLog.health, medicineDoses: e.target.value}})} className="rounded-xl" />
-                        </div>
+
                         <div className="space-y-2">
                           <Label>Mortality</Label>
                           <Input type="number" value={editingLog.health.mortality} onChange={e => setEditingLog({...editingLog, health: {...editingLog.health, mortality: e.target.value}})} className="rounded-xl" />

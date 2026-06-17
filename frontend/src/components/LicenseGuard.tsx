@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/src/lib/AuthContext';
 import { db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
-import { doc, getDoc, collection, onSnapshot, writeBatch, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, onSnapshot, writeBatch, Timestamp, query, where, getDocs } from 'firebase/firestore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -146,44 +146,42 @@ const LicenseGuard: React.FC<{ children: React.ReactNode, mode?: string }> = ({ 
     setIsActivatingKey(true);
     try {
       // Query unused matching key
-      const q = onSnapshot(collection(db, 'licenseKeys'), async (snap) => {
-        const matchingDoc = snap.docs.find(
-          d => d.data().key === licenseKeyInput.trim() && d.data().status === 'Unused'
-        );
-        
-        if (!matchingDoc) {
-          toast.error('Invalid or already used license key');
-          setIsActivatingKey(false);
-          return;
-        }
-
-        const batch = writeBatch(db);
-        
-        batch.update(doc(db, 'licenseKeys', matchingDoc.id), {
-          status: 'Used',
-          usedBy: profile.uid,
-          usedByEmail: profile.email || '',
-          activatedAt: Timestamp.now()
-        });
-
-        batch.update(doc(db, 'users', profile.uid), {
-          licenseActive: true,
-          licenseKey: licenseKeyInput.trim(),
-          licenseActivatedAt: new Date().toISOString()
-        });
-
-        await batch.commit();
-        toast.success('License activated successfully! Enjoy full features.');
-        setLicenseKeyInput('');
-        setShowPrompt(false);
-        setIsActivatingKey(false);
-      }, (e) => {
-        toast.error(`Failed to fetch license validation: ${e.message}`);
-        setIsActivatingKey(false);
-      });
+      const q = query(
+        collection(db, 'licenseKeys'),
+        where('key', '==', licenseKeyInput.trim()),
+        where('status', '==', 'Unused')
+      );
+      const snapshot = await getDocs(q);
       
+      if (snapshot.empty) {
+        toast.error('Invalid or already used license key');
+        setIsActivatingKey(false);
+        return;
+      }
+
+      const matchingDoc = snapshot.docs[0];
+      const batch = writeBatch(db);
+      
+      batch.update(doc(db, 'licenseKeys', matchingDoc.id), {
+        status: 'Used',
+        usedBy: profile.uid,
+        usedByEmail: profile.email || '',
+        activatedAt: Timestamp.now()
+      });
+
+      batch.update(doc(db, 'users', profile.uid), {
+        licenseActive: true,
+        licenseKey: licenseKeyInput.trim(),
+        licenseActivatedAt: new Date().toISOString()
+      });
+
+      await batch.commit();
+      toast.success('License activated successfully! Enjoy full features.');
+      setLicenseKeyInput('');
+      setShowPrompt(false);
     } catch (e: any) {
       toast.error(`Failed to activate license: ${e.message || 'Permission denied'}`);
+    } finally {
       setIsActivatingKey(false);
     }
   };

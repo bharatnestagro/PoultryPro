@@ -957,7 +957,7 @@ const Profile: React.FC = () => {
 
       // 2. Mark key as used
       batch.update(doc(db, 'licenseKeys', keyDoc.id), {
-        status: 'Active',
+        status: 'Used',
         usedBy: profile.uid,
         usedByEmail: profile.email,
         activatedAt: Timestamp.now()

@@ -7,7 +7,7 @@ import {
   signOut as firebaseSignOut
 } from 'firebase/auth';
 import { auth, db } from './firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 
 interface AuthContextType {
   user: User | null;
@@ -40,33 +40,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    let unsubProfile: (() => void) | null = null;
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
-        // Fetch profile
         const docRef = doc(db, 'users', user.uid);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setProfile(docSnap.data());
-        } else {
-          // Create basic profile if doesn't exist
-          const newProfile = {
-            email: user.email,
-            displayName: user.displayName,
-            photoURL: user.photoURL,
-            role: 'farmer',
-            createdAt: new Date().toISOString()
-          };
-          await setDoc(docRef, newProfile);
-          setProfile(newProfile);
-        }
+        unsubProfile = onSnapshot(docRef, async (docSnap) => {
+          if (docSnap.exists()) {
+            setProfile({ uid: user.uid, id: user.uid, ...docSnap.data() });
+          } else {
+            const newProfile = {
+              email: user.email,
+              displayName: user.displayName,
+              photoURL: user.photoURL,
+              role: 'farmer',
+              createdAt: new Date().toISOString()
+            };
+            await setDoc(docRef, newProfile);
+            setProfile({ uid: user.uid, id: user.uid, ...newProfile });
+          }
+          setLoading(false);
+        }, (error) => {
+          console.error("Profile listen error:", error);
+          setLoading(false);
+        });
       } else {
         setProfile(null);
+        if (unsubProfile) {
+          unsubProfile();
+          unsubProfile = null;
+        }
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (unsubProfile) {
+        unsubProfile();
+      }
+    };
   }, []);
 
   const signInWithGoogle = async () => {
